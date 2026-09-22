@@ -15,6 +15,7 @@ export interface BudgetItem {
   total_cost: number;
   total_price: number;
   found: boolean;
+  price_unlinked?: boolean;
   has_children?: boolean;
   is_chapa?: boolean;
   is_fita?: boolean;

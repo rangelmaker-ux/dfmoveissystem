@@ -1,7 +1,7 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   Upload, Plus, Trash2, Edit2, AlertTriangle, 
-  CheckCircle2, FileSpreadsheet, Download, Save, Layers, Search, Check, Loader2, Link2, Sparkles,
+  CheckCircle2, FileSpreadsheet, Download, Save, Layers, Search, Check, Loader2, Link2, Unlink, Sparkles,
   User, FolderKanban, Info
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -20,10 +20,31 @@ import { BudgetItem, BudgetSettings, ProductItem } from '@/lib/orcamento/types';
 import { parsePromobXML, parseTXT, parseCSV, parseJSON } from '@/lib/orcamento/parsers';
 import { 
   calculateItemPrice, recalculateBudget, CHAPA_AREA_M2, round2, isChapa,
-  smartMatchPromobChapa, matchProduct
+  smartMatchPromobChapa, matchProduct, chapaSalePrice
 } from '@/lib/orcamento/calculator';
 import { generateBudgetPdf } from '@/lib/orcamento/pdf-generator';
-import { INITIAL_CHAPAS_CATALOG, BrandCatalog, CatalogByBrand } from '@/lib/orcamento/chapas-catalog';
+import { BrandCatalog, CatalogByBrand } from '@/lib/orcamento/chapas-catalog';
+
+function BudgetNumberInput({ value, onCommit, ...props }: Omit<React.ComponentProps<typeof Input>, 'value' | 'onChange'> & { value: number | string; onCommit: (value: number) => void }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  const commit = () => {
+    const normalized = draft.includes(',') ? draft.replace(/\./g, '').replace(',', '.') : draft;
+    const parsed = Number(normalized);
+    if (!draft.trim() || !Number.isFinite(parsed) || parsed < 0) {
+      setDraft(String(value));
+      return;
+    }
+    if (parsed !== Number(value)) onCommit(parsed);
+  };
+  return <Input {...props} type="text" inputMode="decimal" value={draft}
+    onChange={event => setDraft(event.target.value)}
+    onBlur={commit}
+    onKeyDown={event => {
+      if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); }
+      if (event.key === 'Escape') { event.preventDefault(); setDraft(String(value)); }
+    }} />;
+}
 
 export interface ClientWithProjects {
   id: string;
@@ -41,6 +62,7 @@ interface CurrentTabProps {
   items: BudgetItem[];
   setItems: React.Dispatch<React.SetStateAction<BudgetItem[]>>;
   database: ProductItem[];
+  catalog: CatalogByBrand;
   settings: BudgetSettings;
   setSettings: React.Dispatch<React.SetStateAction<BudgetSettings>>;
   totals: {
@@ -56,17 +78,20 @@ interface CurrentTabProps {
     projectName: string,
     extra?: { clientId?: string; clientPhone?: string; projetoId?: string }
   ) => void;
+  onStartNewBudget: () => void;
 }
 
 export function OrcamentoCurrentTab({
   items,
   setItems,
   database,
+  catalog,
   settings,
   setSettings,
   totals,
   clientsList = [],
   onSaveBudget,
+  onStartNewBudget,
 }: CurrentTabProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -99,26 +124,26 @@ export function OrcamentoCurrentTab({
   const [selectedThickness, setSelectedThickness] = useState<'6mm' | '15mm' | '18mm' | '25mm'>('15mm');
 
   // Available brands in catalog
-  const brandsList = Object.keys(INITIAL_CHAPAS_CATALOG).filter(
-    b => INITIAL_CHAPAS_CATALOG[b].type === 'brand'
+  const brandsList = Object.keys(catalog).filter(
+    b => catalog[b].type === 'brand'
   );
 
   // Lines for selected brand in modal
   const brandLines = useMemo(() => {
-    const b = INITIAL_CHAPAS_CATALOG[selectedBrand];
+    const b = catalog[selectedBrand];
     return b && b.type === 'brand' ? (b as BrandCatalog).lines : [];
-  }, [selectedBrand]);
+  }, [catalog, selectedBrand]);
 
   // Current selected board price and m2 cost in modal
   const currentBoardPrice = useMemo(() => {
-    const brandData = INITIAL_CHAPAS_CATALOG[selectedBrand] as BrandCatalog;
+    const brandData = catalog[selectedBrand] as BrandCatalog;
     const lineObj = brandData?.lines.find(l => l.name === selectedLine);
     if (!lineObj) return 0;
-    return lineObj.prices[selectedThickness] || lineObj.prices['15mm'] || 0;
-  }, [selectedBrand, selectedLine, selectedThickness]);
+    return lineObj.prices[selectedThickness] || 0;
+  }, [catalog, selectedBrand, selectedLine, selectedThickness]);
 
   const currentM2Cost = useMemo(() => {
-    return round2(currentBoardPrice / CHAPA_AREA_M2);
+    return chapaSalePrice(currentBoardPrice);
   }, [currentBoardPrice]);
 
   // Handle File Upload (Promob XML, TXT, CSV, JSON)
@@ -182,6 +207,7 @@ export function OrcamentoCurrentTab({
       });
 
       setItems(newBudgetItems);
+      onStartNewBudget();
 
       toast.success(`${parsedCount} itens importados com sucesso!`, {
         description: `Custos unitários limpos para preenchimento manual conforme sua tabela.`,
@@ -236,18 +262,19 @@ export function OrcamentoCurrentTab({
     const safeCost = isNaN(newCost) || newCost < 0 ? 0 : newCost;
     const updated = items.map(it => {
       if (it.id === itemId) {
-        return calculateItemPrice(
+        return { ...it, ...calculateItemPrice(
           {
             code: it.code,
             description: it.description,
             quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
-            unit: it.unit,
+            unit: it.original_unit || it.unit,
             unit_cost: safeCost,
             margin: it.margin,
+            price_unlinked: it.price_unlinked,
           },
           database,
           settings
-        );
+        ), id: it.id, price_unlinked: it.price_unlinked };
       }
       return it;
     });
@@ -261,18 +288,19 @@ export function OrcamentoCurrentTab({
     const safeMargin = isNaN(newMargin) || newMargin < 0 ? 0 : newMargin;
     const updated = items.map(it => {
       if (it.id === itemId) {
-        return calculateItemPrice(
+        return { ...it, ...calculateItemPrice(
           {
             code: it.code,
             description: it.description,
             quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
-            unit: it.unit,
+            unit: it.original_unit || it.unit,
             unit_cost: it.unit_cost,
             margin: safeMargin,
+            price_unlinked: it.price_unlinked,
           },
           database,
           settings
-        );
+        ), id: it.id, price_unlinked: it.price_unlinked };
       }
       return it;
     });
@@ -286,18 +314,19 @@ export function OrcamentoCurrentTab({
     const safeQty = isNaN(newQty) || newQty <= 0 ? 1 : newQty;
     const updated = items.map(it => {
       if (it.id === itemId) {
-        return calculateItemPrice(
+        return { ...it, ...calculateItemPrice(
           {
             code: it.code,
             description: it.description,
             quantity: safeQty,
-            unit: it.unit,
+            unit: it.original_unit || it.unit,
             unit_cost: it.unit_cost,
             margin: it.margin,
+            price_unlinked: it.price_unlinked,
           },
           database,
           settings
-        );
+        ), id: it.id, price_unlinked: it.price_unlinked };
       }
       return it;
     });
@@ -366,14 +395,14 @@ export function OrcamentoCurrentTab({
     setLinkingItem(item);
 
     // Usa smart match para identificar a marca e linha mais adequadas
-    const smart = smartMatchPromobChapa(item.code, item.description, INITIAL_CHAPAS_CATALOG);
+    const smart = smartMatchPromobChapa(item.code, item.description, catalog);
     if (smart.brand && brandsList.includes(smart.brand)) {
       setSelectedBrand(smart.brand);
       setSelectedThickness(smart.thickness);
       if (smart.line) {
         setSelectedLine(smart.line);
       } else {
-        const brandData = INITIAL_CHAPAS_CATALOG[smart.brand] as BrandCatalog;
+        const brandData = catalog[smart.brand] as BrandCatalog;
         setSelectedLine(brandData?.lines[0]?.name || '');
       }
     } else {
@@ -386,7 +415,7 @@ export function OrcamentoCurrentTab({
       else if (/\b25mm\b|\.25\./i.test(raw)) setSelectedThickness('25mm');
       else setSelectedThickness('15mm');
 
-      const b = INITIAL_CHAPAS_CATALOG[foundBrand || 'Arauco'] as BrandCatalog;
+      const b = catalog[foundBrand || 'Arauco'] as BrandCatalog;
       setSelectedLine(b?.lines[0]?.name || '');
     }
 
@@ -396,22 +425,22 @@ export function OrcamentoCurrentTab({
   // Puxar valor da tabela de preço diretamente ao clicar no botão "Consultar / Vincular Chapa da Tabela"
   const handleConsultarVincularPreco = (item: BudgetItem) => {
     // 1. Tenta correspondência inteligente no catálogo de chapas (Arauco, Duratex, Guararapes, etc.)
-    const smart = smartMatchPromobChapa(item.code, item.description, INITIAL_CHAPAS_CATALOG);
+    const smart = smartMatchPromobChapa(item.code, item.description, catalog);
     if (smart.matched && smart.m2Cost > 0) {
       const updated = items.map(it => {
         if (it.id === item.id) {
-          return calculateItemPrice(
+          return { ...it, ...calculateItemPrice(
             {
               code: `${smart.brand?.toUpperCase()}-${smart.line?.toUpperCase().replace(/\s+/g, '_')}-${smart.thickness}`,
               description: it.description,
               quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
-              unit: it.unit,
+              unit: it.original_unit || it.unit,
               unit_cost: smart.m2Cost,
               margin: it.margin,
             },
             database,
             settings
-          );
+          ), id: it.id, price_unlinked: false };
         }
         return it;
       });
@@ -427,22 +456,22 @@ export function OrcamentoCurrentTab({
 
     // 2. Tenta encontrar no banco de materiais/produtos cadastrados (database)
     const prodMatch = matchProduct(item.code, item.description, database);
-    if (prodMatch.product && prodMatch.product.unit_cost > 0) {
-      const cost = prodMatch.product.unit_cost;
+    if (prodMatch.product && prodMatch.product.unit_price > 0) {
+      const cost = prodMatch.product.unit_price;
       const updated = items.map(it => {
         if (it.id === item.id) {
-          return calculateItemPrice(
+          return { ...it, ...calculateItemPrice(
             {
               code: it.code,
               description: it.description,
               quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
-              unit: it.unit,
+              unit: it.original_unit || it.unit,
               unit_cost: cost,
               margin: it.margin,
             },
             database,
             settings
-          );
+          ), id: it.id, price_unlinked: false };
         }
         return it;
       });
@@ -466,40 +495,40 @@ export function OrcamentoCurrentTab({
     let matchedCount = 0;
     const updated = items.map(it => {
       // Se já tiver custo definido e for maior que 0, preserva
-      if (it.unit_cost > 0) return it;
 
-      const smart = smartMatchPromobChapa(it.code, it.description, INITIAL_CHAPAS_CATALOG);
+
+      const smart = smartMatchPromobChapa(it.code, it.description, catalog);
       if (smart.matched && smart.m2Cost > 0) {
         matchedCount++;
-        return calculateItemPrice(
+        return { ...it, ...calculateItemPrice(
           {
             code: `${smart.brand?.toUpperCase()}-${smart.line?.toUpperCase().replace(/\s+/g, '_')}-${smart.thickness}`,
             description: it.description,
             quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
-            unit: it.unit,
+            unit: it.original_unit || it.unit,
             unit_cost: smart.m2Cost,
             margin: it.margin,
           },
           database,
           settings
-        );
+        ), id: it.id, price_unlinked: false };
       }
 
       const prodMatch = matchProduct(it.code, it.description, database);
-      if (prodMatch.product && prodMatch.product.unit_cost > 0) {
+      if (prodMatch.product && prodMatch.product.unit_price > 0) {
         matchedCount++;
-        return calculateItemPrice(
+        return { ...it, ...calculateItemPrice(
           {
             code: it.code,
             description: it.description,
             quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
-            unit: it.unit,
-            unit_cost: prodMatch.product.unit_cost,
+            unit: it.original_unit || it.unit,
+            unit_cost: prodMatch.product.unit_price,
             margin: it.margin,
           },
           database,
           settings
-        );
+        ), id: it.id, price_unlinked: false };
       }
 
       return it;
@@ -518,12 +547,14 @@ export function OrcamentoCurrentTab({
   const handleApplyLink = (applyToAllSimilar: boolean) => {
     if (!linkingItem || !selectedLine) return;
 
-    const brandData = INITIAL_CHAPAS_CATALOG[selectedBrand] as BrandCatalog;
+    const brandData = catalog[selectedBrand] as BrandCatalog;
     const lineObj = brandData?.lines.find(l => l.name === selectedLine);
     if (!lineObj) return;
 
-    const boardPrice = lineObj.prices[selectedThickness] || lineObj.prices['15mm'] || 0;
-    const m2Cost = round2(boardPrice / CHAPA_AREA_M2);
+    const boardPrice = lineObj.prices[selectedThickness] || 0;
+    const m2Cost = chapaSalePrice(boardPrice, lineObj.width * lineObj.height);
+
+    if (boardPrice <= 0) { toast.error('Esta espessura não tem preço cadastrado.'); return; }
 
     // Filter key to match similar items: e.g. "Arauco.Beige Matt"
     const targetCode = linkingItem.code;
@@ -534,18 +565,18 @@ export function OrcamentoCurrentTab({
         : it.id === linkingItem.id;
 
       if (isTarget) {
-        return calculateItemPrice(
+        return { ...it, ...calculateItemPrice(
           {
             code: `${selectedBrand.toUpperCase()}-${lineObj.name.toUpperCase().replace(/\s+/g, '_')}-${selectedThickness}`,
             description: `${it.description} [${selectedBrand} - ${lineObj.name} ${selectedThickness}]`,
             quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
-            unit: it.unit,
+            unit: it.original_unit || it.unit,
             unit_cost: m2Cost,
             margin: it.margin,
           },
           database,
           settings
-        );
+        ), id: it.id, price_unlinked: false };
       }
       return it;
     });
@@ -610,6 +641,7 @@ export function OrcamentoCurrentTab({
   const handleClearBudget = () => {
     if (confirm('Deseja limpar todos os itens do orçamento atual?')) {
       setItems([]);
+      onStartNewBudget();
       toast.info('Orçamento limpo.');
     }
   };
@@ -1014,7 +1046,14 @@ export function OrcamentoCurrentTab({
 
                           {item.unit_cost === 0 ? (
                             <button
-                              onClick={() => handleConsultarVincularPreco(item)}
+                              onClick={() => {
+                              if (item.found && !item.price_unlinked) {
+                                setItems(prev => recalculateBudget(prev.map(it => it.id === item.id
+                                  ? { ...it, price_unlinked: true, found: false, unit_cost: 0 }
+                                  : it), database, settings).items);
+                                toast.success('Preço desvinculado. Informe um valor ou vincule novamente.');
+                              } else handleConsultarVincularPreco(item);
+                            }}
                               className="flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 hover:bg-blue-100 border border-blue-200 transition-colors shrink-0"
                               title="Consultar/Vincular Chapa da tabela para trazer o valor do custo unitário"
                             >
@@ -1049,12 +1088,12 @@ export function OrcamentoCurrentTab({
                       </td>
 
                       <td className="px-2 py-2 text-center">
-                        <Input
+                        <BudgetNumberInput
                           type="number"
                           step="any"
                           min="0.01"
                           value={item.quantity}
-                          onChange={e => handleUpdateItemQty(item.id, parseFloat(e.target.value) || 1)}
+                          onCommit={value => handleUpdateItemQty(item.id, value)}
                           className="h-7 w-16 text-center text-xs font-semibold px-1 py-0 border-slate-200 mx-auto"
                         />
                       </td>
@@ -1069,12 +1108,12 @@ export function OrcamentoCurrentTab({
                       <td className="px-3 py-2 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <span className="text-slate-400 text-[10px] font-medium">R$</span>
-                          <Input
+                          <BudgetNumberInput
                             type="number"
                             step="0.01"
                             min="0"
                             value={item.unit_cost === 0 ? '' : item.unit_cost}
-                            onChange={e => handleUpdateItemCost(item.id, parseFloat(e.target.value) || 0)}
+                            onCommit={value => handleUpdateItemCost(item.id, value)}
                             placeholder="0,00"
                             className={`h-7 w-24 text-right text-xs font-bold px-2 py-0 border ${
                               item.unit_cost === 0
@@ -1089,12 +1128,12 @@ export function OrcamentoCurrentTab({
                       {/* Margem Individual Inline */}
                       <td className="px-2 py-2 text-center">
                         <div className="flex items-center justify-center gap-0.5">
-                          <Input
+                          <BudgetNumberInput
                             type="number"
                             step="1"
                             min="0"
                             value={item.margin}
-                            onChange={e => handleUpdateItemMargin(item.id, parseFloat(e.target.value) || 0)}
+                            onCommit={value => handleUpdateItemMargin(item.id, value)}
                             className="h-7 w-14 text-center text-xs font-medium px-1 py-0 border-slate-200"
                           />
                           <span className="text-slate-400 text-[10px]">%</span>
@@ -1114,11 +1153,18 @@ export function OrcamentoCurrentTab({
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => handleConsultarVincularPreco(item)}
+                            onClick={() => {
+                              if (item.found && !item.price_unlinked) {
+                                setItems(prev => recalculateBudget(prev.map(it => it.id === item.id
+                                  ? { ...it, price_unlinked: true, found: false, unit_cost: 0 }
+                                  : it), database, settings).items);
+                                toast.success('Preço desvinculado.');
+                              } else handleConsultarVincularPreco(item);
+                            }}
                             className="h-7 w-7 text-blue-600 hover:bg-blue-50 hover:text-blue-800"
-                            title="Consultar/Vincular Chapa da tabela (trazer o valor do preço de custo)"
+                            title={item.found && !item.price_unlinked ? "Desvincular preço da tabela" : "Vincular preço da tabela"}
                           >
-                            <Link2 className="h-4 w-4" />
+                            {item.found && !item.price_unlinked ? <Unlink className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
                           </Button>
                           <Button
                             variant="ghost"

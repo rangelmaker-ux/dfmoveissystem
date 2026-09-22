@@ -1,4 +1,4 @@
-// Catálogo Oficial de Chapas e Linhas por Marca - DF Móveis (Tabela 2025)
+// Catálogo de Chapas e Linhas por Marca - DF Móveis (base revisada em 2026)
 
 export interface ChapaLineItem {
   id: string;

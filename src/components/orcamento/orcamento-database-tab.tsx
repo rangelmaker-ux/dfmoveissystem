@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { 
   Search, Plus, Trash2, Edit2, RotateCcw, Package, Layers, Download, Upload, 
   Check, DollarSign, ArrowRight, ShieldAlert, Sparkles, Filter
@@ -21,25 +21,19 @@ import { DEFAULT_MATERIALS } from '@/lib/orcamento/default-materials';
 import { 
   INITIAL_CHAPAS_CATALOG, CatalogByBrand, ChapaLineItem, AcessorioItem, BrandCatalog, AcessoriosCatalog 
 } from '@/lib/orcamento/chapas-catalog';
-import { CHAPA_AREA_M2, round2, calculateAdditionsFactor } from '@/lib/orcamento/calculator';
-import {
-  loadChapasCatalog,
-  saveFullChapasCatalog,
-  saveChapasBrand,
-  updateProductField as sbUpdateProductField,
-} from '@/lib/orcamento/supabase-storage';
+import { CHAPA_AREA_M2, round2, chapaSalePrice, calculateAdditionsFactor } from '@/lib/orcamento/calculator';
+import { parseLocaleNumber } from '@/lib/orcamento/parsers';
 
 interface DatabaseTabProps {
   database: ProductItem[];
   setDatabase: React.Dispatch<React.SetStateAction<ProductItem[]>>;
   settings: BudgetSettings;
-  isAdmin?: boolean;
+  catalog: CatalogByBrand;
+  setCatalog: React.Dispatch<React.SetStateAction<CatalogByBrand>>;
 }
 
-export function OrcamentoDatabaseTab({ database, setDatabase, settings, isAdmin }: DatabaseTabProps) {
+export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog, setCatalog }: DatabaseTabProps) {
   const [subTab, setSubTab] = useState<'chapas' | 'produtos'>('chapas');
-  const [catalog, setCatalog] = useState<CatalogByBrand>(INITIAL_CHAPAS_CATALOG);
-  const [catalogLoaded, setCatalogLoaded] = useState(false);
 
   const [selectedBrand, setSelectedBrand] = useState<string>('Duratex');
   const [brandSearch, setBrandSearch] = useState('');
@@ -56,10 +50,6 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, isAdmin 
   const [addLineModalOpen, setAddLineModalOpen] = useState(false);
   const [newLineName, setNewLineName] = useState('');
 
-  // Add brand modal
-  const [addBrandModalOpen, setAddBrandModalOpen] = useState(false);
-  const [newBrandName, setNewBrandName] = useState('');
-
   // General Products tab states
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
@@ -74,36 +64,6 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, isAdmin 
   const [prodCategory, setProdCategory] = useState('MDF');
 
   const jsonInputRef = useRef<HTMLInputElement>(null);
-
-  // Load catalog from Supabase on mount
-  useEffect(() => {
-    const load = async () => {
-      const cloudCatalog = await loadChapasCatalog();
-      if (cloudCatalog && Object.keys(cloudCatalog).length > 0) {
-        setCatalog(cloudCatalog);
-      } else {
-        // First time: seed initial catalog to Supabase
-        await saveFullChapasCatalog(INITIAL_CHAPAS_CATALOG);
-      }
-      setCatalogLoaded(true);
-    };
-    load();
-  }, []);
-
-  // Auto-save catalog to Supabase with debounce
-  const catalogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (!catalogLoaded) return;
-
-    if (catalogTimerRef.current) clearTimeout(catalogTimerRef.current);
-    catalogTimerRef.current = setTimeout(() => {
-      saveFullChapasCatalog(catalog);
-    }, 2000);
-
-    return () => {
-      if (catalogTimerRef.current) clearTimeout(catalogTimerRef.current);
-    };
-  }, [catalog, catalogLoaded]);
 
   const brandNames = Object.keys(catalog);
   const activeBrandData = catalog[selectedBrand];
@@ -139,10 +99,15 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, isAdmin 
   const handleSaveLine = () => {
     if (!editingLine) return;
 
-    const p6 = parseFloat(editPrice6mm.replace(',', '.')) || null;
-    const p15 = parseFloat(editPrice15mm.replace(',', '.')) || null;
-    const p18 = parseFloat(editPrice18mm.replace(',', '.')) || null;
-    const p25 = parseFloat(editPrice25mm.replace(',', '.')) || null;
+    const parsePrice = (value: string) => value.trim() ? parseLocaleNumber(value, -1) : null;
+    const p6 = parsePrice(editPrice6mm);
+    const p15 = parsePrice(editPrice15mm);
+    const p18 = parsePrice(editPrice18mm);
+    const p25 = parsePrice(editPrice25mm);
+    if ([p6, p15, p18, p25].some(price => price !== null && price <= 0)) {
+      toast.error('Os preços informados precisam ser maiores que zero.');
+      return;
+    }
 
     setCatalog(prev => {
       const brandObj = prev[selectedBrand];
@@ -185,7 +150,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, isAdmin 
     prices: { p6: number | null; p15: number | null; p18: number | null; p25: number | null }
   ) => {
     setDatabase(prev => {
-      let next = [...prev];
+      const next = [...prev];
       const thicknesses = [
         { th: '15mm', price: prices.p15 },
         { th: '18mm', price: prices.p18 },
@@ -195,8 +160,8 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, isAdmin 
 
       for (const item of thicknesses) {
         if (!item.price) continue;
-        const code = `${brand.toUpperCase()}-${lineName.toUpperCase().replace(/\\s+/g, '_')}-${item.th.toUpperCase()}`;
-        const m2Price = round2(item.price / CHAPA_AREA_M2);
+        const code = `${brand.toUpperCase()}-${lineName.toUpperCase().replace(/\s+/g, '_')}-${item.th.toUpperCase()}`;
+        const m2Price = chapaSalePrice(item.price);
 
         const existingIdx = next.findIndex(p => p.code === code);
         const subcodes = [
@@ -235,17 +200,22 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, isAdmin 
       return;
     }
 
-    const p6 = parseFloat(editPrice6mm.replace(',', '.')) || null;
-    const p15 = parseFloat(editPrice15mm.replace(',', '.')) || null;
-    const p18 = parseFloat(editPrice18mm.replace(',', '.')) || null;
-    const p25 = parseFloat(editPrice25mm.replace(',', '.')) || null;
+    const parsePrice = (value: string) => value.trim() ? parseLocaleNumber(value, -1) : null;
+    const p6 = parsePrice(editPrice6mm);
+    const p15 = parsePrice(editPrice15mm);
+    const p18 = parsePrice(editPrice18mm);
+    const p25 = parsePrice(editPrice25mm);
+    if ([p6, p15, p18, p25].some(price => price !== null && price <= 0)) {
+      toast.error('Os preços informados precisam ser maiores que zero.');
+      return;
+    }
 
     const newLine: ChapaLineItem = {
       id: `${selectedBrand.toLowerCase()}-${Date.now()}`,
       name: newLineName.trim(),
       width: 2.75,
       height: 1.85,
-      area: 5.09,
+      area: CHAPA_AREA_M2,
       prices: {
         '6mm': p6,
         '15mm': p15,
@@ -279,43 +249,10 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, isAdmin 
 
   // Reset to original 2025 Excel catalog
   const handleResetCatalog = () => {
-    if (confirm('Deseja restaurar todos os preços de chapas para a tabela original 2025?')) {
+    if (confirm('Deseja restaurar todos os preços de chapas para a tabela padrão de 2026?')) {
       setCatalog(INITIAL_CHAPAS_CATALOG);
-      toast.success('Catálogo de chapas 2025 restaurado com sucesso!');
+      toast.success('Catálogo de chapas 2026 restaurado com sucesso!');
     }
-  };
-
-  // Update a product field (unit_price) inline – available to ALL users
-  const handleUpdateProductField = (productId: string, field: 'unit_price', value: number) => {
-    setDatabase(prev => {
-      const updated = prev.map(p =>
-        p.id === productId ? { ...p, [field]: value } : p
-      );
-      return updated;
-    });
-    // Persist to Supabase
-    sbUpdateProductField(productId, field, value);
-  };
-
-  // Add a new brand to the catalog – available to ALL users
-  const handleAddBrand = () => {
-    const trimmed = newBrandName.trim();
-    if (!trimmed) {
-      toast.error('Informe o nome da marca.');
-      return;
-    }
-    if (catalog[trimmed]) {
-      toast.error(`A marca "${trimmed}" já existe no catálogo.`);
-      return;
-    }
-    setCatalog(prev => ({
-      ...prev,
-      [trimmed]: { type: 'brand' as const, lines: [] },
-    }));
-    setSelectedBrand(trimmed);
-    setAddBrandModalOpen(false);
-    setNewBrandName('');
-    toast.success(`Marca "${trimmed}" adicionada com sucesso!`);
   };
 
   return (
@@ -333,7 +270,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, isAdmin 
             }
           >
             <Layers className="mr-2 h-4 w-4 text-[#cbb27a]" />
-            Chapas por Marca & Linha
+            Chapas por Marca & Linha (Catálogo 2025)
           </Button>
 
           <Button
@@ -417,18 +354,6 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, isAdmin 
                 <span className="text-[10px] text-slate-400">(Preço de Venda sugerido automático)</span>
               </div>
 
-              <Button
-                onClick={() => {
-                  setNewBrandName('');
-                  setAddBrandModalOpen(true);
-                }}
-                variant="outline"
-                className="text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-              >
-                <Plus className="mr-1.5 h-3.5 w-3.5 text-emerald-500" />
-                Nova Marca
-              </Button>
-
               {activeBrandData.type === 'brand' && (
                 <Button
                   onClick={() => {
@@ -504,7 +429,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, isAdmin 
                                     {p6.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                                   </span>
                                   <span className="block text-[10px] text-slate-400">
-                                    {(p6 / line.area).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²
+                                    {(chapaSalePrice(p6, line.width * line.height)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²
                                   </span>
                                 </div>
                               ) : (
@@ -525,7 +450,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, isAdmin 
                                     </span>
                                   )}
                                   <span className="block text-[10px] text-slate-400">
-                                    {(p15 / line.area).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²
+                                    {(chapaSalePrice(p15, line.width * line.height)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²
                                   </span>
                                 </div>
                               ) : (
@@ -546,7 +471,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, isAdmin 
                                     </span>
                                   )}
                                   <span className="block text-[10px] text-slate-400">
-                                    {(p18 / line.area).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²
+                                    {(chapaSalePrice(p18, line.width * line.height)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²
                                   </span>
                                 </div>
                               ) : (
@@ -623,14 +548,6 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, isAdmin 
               </div>
             </div>
           )}
-
-          {/* Rodapé com data da última atualização */}
-          <div className="flex items-center justify-end gap-2 text-[11px] text-slate-400 pt-1">
-            <span>📅 Última atualização de valores:</span>
-            <strong className="text-slate-500">
-              {new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}
-            </strong>
-          </div>
         </div>
       )}
 
@@ -662,24 +579,6 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, isAdmin 
                 </SelectContent>
               </Select>
             </div>
-
-            <Button
-              onClick={() => {
-                setEditingProdId(null);
-                setProdCode('');
-                setProdSubcodes('');
-                setProdDescription('');
-                setProdUnit('M2');
-                setProdUnitPrice('');
-                setProdFitaMetros('20');
-                setProdCategory('MDF');
-                setProdModalOpen(true);
-              }}
-              className="bg-[#17191d] text-xs text-white hover:bg-slate-800"
-            >
-              <Plus className="mr-1.5 h-3.5 w-3.5 text-emerald-400" />
-              Novo Produto
-            </Button>
           </div>
 
           {/* Products Table */}
@@ -758,34 +657,14 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, isAdmin 
                             {p.unit}
                           </td>
 
-                          <td className="px-3 py-3 text-right">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={p.unit_price}
-                              onChange={e => handleUpdateProductField(p.id, 'unit_price', parseFloat(e.target.value) || 0)}
-                              className="w-28 ml-auto text-right font-bold text-slate-900 text-xs"
-                            />
+                          <td className="px-3 py-3 text-right font-bold text-slate-900">
+                            {p.unit_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                           </td>
 
-                          <td className="px-3 py-3 text-right">
-                            {chapaPrice !== null ? (
-                              <Input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                value={chapaPrice}
-                                onChange={e => {
-                                  const newChapaPrice = parseFloat(e.target.value) || 0;
-                                  const newUnitPrice = round2(newChapaPrice / CHAPA_AREA_M2);
-                                  handleUpdateProductField(p.id, 'unit_price', newUnitPrice);
-                                }}
-                                className="w-28 ml-auto text-right font-medium text-slate-600 text-xs"
-                              />
-                            ) : (
-                              <span className="text-slate-400">—</span>
-                            )}
+                          <td className="px-3 py-3 text-right font-medium text-slate-600">
+                            {chapaPrice !== null
+                              ? chapaPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                              : '—'}
                           </td>
                         </tr>
                       );
@@ -925,38 +804,6 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, isAdmin 
             </Button>
             <Button onClick={handleAddNewLine} className="bg-[#c92031] text-white hover:bg-[#aa1726]">
               Cadastrar Linha
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* MODAL: Adicionar Nova Marca */}
-      <Dialog open={addBrandModalOpen} onOpenChange={setAddBrandModalOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Nova Marca</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <p className="text-xs text-slate-500">
-              Crie uma nova marca no catálogo. Após criar, você poderá adicionar linhas e padrões de cores dentro dela.
-            </p>
-            <div>
-              <Label className="text-xs font-semibold">Nome da Marca</Label>
-              <Input
-                placeholder="Ex: Eucatex, Berneck, Guararapes..."
-                value={newBrandName}
-                onChange={e => setNewBrandName(e.target.value)}
-                className="mt-1"
-                onKeyDown={e => e.key === 'Enter' && handleAddBrand()}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddBrandModalOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleAddBrand} className="bg-[#c92031] text-white hover:bg-[#aa1726]">
-              Criar Marca
             </Button>
           </DialogFooter>
         </DialogContent>
