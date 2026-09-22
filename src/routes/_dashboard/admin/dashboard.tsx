@@ -67,7 +67,7 @@ interface OperationProject {
   status: ProjectStatus;
   prazo_termino: string | null;
   projetista_id: string | null;
-  descricao?: string | null;
+  observacoes?: string | null;
   cliente: { id?: string; nome: string; telefone?: string | null; email?: string | null } | null;
   projetista: { id: string; nome: string; avatar_url: string | null } | null;
 }
@@ -115,13 +115,17 @@ function AdminDashboard() {
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-operation"],
+    staleTime: 1000 * 60 * 3, // Cache ativo de 3 minutos para navegação instantânea em 0ms
+    gcTime: 1000 * 60 * 15,
+    refetchOnWindowFocus: false,
+    retry: 1,
     queryFn: async () => {
       const today = new Date().toISOString();
-      const [projectResult, designerResult, agendaResult, pendingChangesResult] = await Promise.all([
+      const [projectResult, designerResult, agendaResult] = await Promise.all([
         supabase
           .from("projetos")
           .select(
-            "id, nome, status, prazo_termino, projetista_id, descricao, cliente:clientes(id, nome, telefone, email), projetista:users(id, nome, avatar_url)",
+            "id, nome, status, prazo_termino, projetista_id, observacoes, cliente:clientes(id, nome, telefone, email), projetista:users(id, nome, avatar_url)",
           )
           .order("created_at", { ascending: false }),
         supabase
@@ -135,27 +139,31 @@ function AdminDashboard() {
           .select(
             "id, titulo, descricao, data_inicio, data_fim, tipo, status, data_sugerida_inicio, data_sugerida_fim, motivo_alteracao, criado_por:users(id, nome), cliente:clientes(id, nome)",
           )
-          .gte("data_inicio", today)
-          .order("data_inicio", { ascending: true })
-          .limit(6),
-        supabase
-          .from("agendamentos")
-          .select(
-            "id, titulo, descricao, data_inicio, data_fim, tipo, status, data_sugerida_inicio, data_sugerida_fim, motivo_alteracao, criado_por:users(id, nome), cliente:clientes(id, nome)",
-          )
-          .eq("status", "ALTERACAO_SOLICITADA")
           .order("data_inicio", { ascending: true }),
       ]);
 
-      if (projectResult.error) throw projectResult.error;
-      if (designerResult.error) throw designerResult.error;
-      if (agendaResult.error) throw agendaResult.error;
+      if (projectResult.error) {
+        console.error("Erro ao buscar projetos:", projectResult.error);
+        throw projectResult.error;
+      }
+      if (designerResult.error) {
+        console.error("Erro ao buscar projetistas:", designerResult.error);
+        throw designerResult.error;
+      }
+      if (agendaResult.error) {
+        console.error("Erro ao buscar agenda:", agendaResult.error);
+        throw agendaResult.error;
+      }
+
+      const allAgendas = (agendaResult.data ?? []) as unknown as AgendaItem[];
+      const pendingScheduleChanges = allAgendas.filter((a) => a.status === "ALTERACAO_SOLICITADA");
+      const upcomingAgenda = allAgendas.filter((a) => a.data_inicio >= today).slice(0, 6);
 
       return {
         projects: (projectResult.data ?? []) as unknown as OperationProject[],
         designers: (designerResult.data ?? []) as OperationDesigner[],
-        agenda: (agendaResult.data ?? []) as unknown as AgendaItem[],
-        pendingScheduleChanges: (pendingChangesResult.data ?? []) as unknown as AgendaItem[],
+        agenda: upcomingAgenda,
+        pendingScheduleChanges: pendingScheduleChanges,
       };
     },
   });
@@ -295,7 +303,7 @@ function AdminDashboard() {
     (project) => statusWithDeadline(project) === "ATRASADO",
   ).length;
 
-  if (isLoading) {
+  if (isLoading && !data) {
     return (
       <div className="space-y-6 max-w-7xl mx-auto">
         <div className="h-44 animate-pulse rounded-3xl bg-slate-200/80" />
@@ -1039,10 +1047,10 @@ function AdminDashboard() {
                 </Badge>
               </div>
 
-              {selectedProject.descricao && (
+              {selectedProject.observacoes && (
                 <div className="p-3 rounded-xl bg-white border border-slate-200">
                   <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Observações</p>
-                  <p className="text-slate-700 italic">{selectedProject.descricao}</p>
+                  <p className="text-slate-700 italic">{selectedProject.observacoes}</p>
                 </div>
               )}
             </div>

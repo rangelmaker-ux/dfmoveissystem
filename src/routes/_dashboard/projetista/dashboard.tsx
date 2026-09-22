@@ -66,6 +66,10 @@ function DesignerDashboard() {
   const { user } = useAuthStore();
   const { data, isLoading } = useQuery({
     queryKey: ["designer-operation", user?.id],
+    staleTime: 1000 * 60 * 3, // Cache ativo de 3 minutos para navegação instantânea em 0ms
+    gcTime: 1000 * 60 * 15,
+    refetchOnWindowFocus: false,
+    retry: 1,
     queryFn: async () => {
       if (!user?.id) return { projects: [], agenda: [], clientCount: 0 };
       const [projectResult, agendaResult, clientResult] = await Promise.all([
@@ -118,7 +122,7 @@ function DesignerDashboard() {
   }).length;
   const pausedCount = projects.filter((p) => p.status === "PAUSADO").length;
 
-  if (isLoading) return <div className="h-44 animate-pulse rounded-3xl bg-slate-200/80 max-w-7xl mx-auto" />;
+  if (isLoading && !data) return <div className="h-44 animate-pulse rounded-3xl bg-slate-200/80 max-w-7xl mx-auto" />;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">

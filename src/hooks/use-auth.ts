@@ -58,10 +58,19 @@ export interface AccessValidationResult {
   reason: AccessValidationReason;
 }
 
-export async function validateStoredAccess(): Promise<AccessValidationResult> {
+let lastValidatedTime = 0;
+let lastValidationResult: AccessValidationResult | null = null;
+
+export async function validateStoredAccess(force = false): Promise<AccessValidationResult> {
   const state = await ensureAuthStoreHydrated();
   if (!state.user?.id) {
+    lastValidationResult = null;
     return { account: null, authorized: false, reason: "NO_SESSION" };
+  }
+
+  const now = Date.now();
+  if (!force && lastValidationResult && now - lastValidatedTime < 30_000) {
+    return lastValidationResult;
   }
 
   const { data, error } = await supabase
@@ -71,12 +80,16 @@ export async function validateStoredAccess(): Promise<AccessValidationResult> {
     .maybeSingle();
 
   if (error) {
+    if (lastValidationResult?.authorized) {
+      return lastValidationResult;
+    }
     state.logout();
     return { account: null, authorized: false, reason: "CONNECTION_ERROR" };
   }
 
   if (!data) {
     state.logout();
+    lastValidationResult = null;
     return { account: null, authorized: false, reason: "REMOVED" };
   }
 
@@ -92,6 +105,7 @@ export async function validateStoredAccess(): Promise<AccessValidationResult> {
 
   if (account.status !== "ATIVO") {
     state.logout();
+    lastValidationResult = null;
     return {
       account,
       authorized: false,
@@ -101,5 +115,7 @@ export async function validateStoredAccess(): Promise<AccessValidationResult> {
 
   state.setUser(account);
   state.setRole(account.role);
-  return { account, authorized: true, reason: "AUTHORIZED" };
+  lastValidatedTime = now;
+  lastValidationResult = { account, authorized: true, reason: "AUTHORIZED" };
+  return lastValidationResult;
 }

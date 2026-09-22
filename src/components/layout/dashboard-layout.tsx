@@ -204,7 +204,7 @@ export function DashboardLayout() {
                           className="h-10 rounded-lg text-white/65 hover:bg-white/8 hover:text-white data-[active=true]:bg-white/10 data-[active=true]:text-white"
                           isActive={pathname === link.to}
                         >
-                          <Link to={link.to} className="flex items-center gap-3">
+                          <Link to={link.to} preload="intent" className="flex items-center gap-3">
                             <link.icon className="h-[18px] w-[18px]" />
                             <span className="font-medium">{link.title}</span>
                             {showsApprovalCount && (
