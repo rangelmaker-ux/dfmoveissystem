@@ -21,6 +21,9 @@ export type Database = {
           tipo: string;
           titulo: string;
           updated_at: string;
+          data_sugerida_inicio?: string | null;
+          data_sugerida_fim?: string | null;
+          motivo_alteracao?: string | null;
         };
         Insert: {
           cliente_id?: string | null;
@@ -34,6 +37,9 @@ export type Database = {
           tipo?: string;
           titulo: string;
           updated_at?: string;
+          data_sugerida_inicio?: string | null;
+          data_sugerida_fim?: string | null;
+          motivo_alteracao?: string | null;
         };
         Update: {
           cliente_id?: string | null;
@@ -47,6 +53,9 @@ export type Database = {
           tipo?: string;
           titulo?: string;
           updated_at?: string;
+          data_sugerida_inicio?: string | null;
+          data_sugerida_fim?: string | null;
+          motivo_alteracao?: string | null;
         };
         Relationships: [
           {
@@ -207,7 +216,7 @@ export type Database = {
           numero_parcelas: number | null;
           observacoes: string | null;
           percentual_comissao: number | null;
-          prazo_termino: string;
+          prazo_termino: string | null;
           projetista_id: string | null;
           rt_arquiteto: number | null;
           status: Database["public"]["Enums"]["project_status"];
@@ -232,7 +241,7 @@ export type Database = {
           numero_parcelas?: number | null;
           observacoes?: string | null;
           percentual_comissao?: number | null;
-          prazo_termino: string;
+          prazo_termino?: string | null;
           projetista_id?: string | null;
           rt_arquiteto?: number | null;
           status?: Database["public"]["Enums"]["project_status"];
@@ -257,7 +266,7 @@ export type Database = {
           numero_parcelas?: number | null;
           observacoes?: string | null;
           percentual_comissao?: number | null;
-          prazo_termino?: string;
+          prazo_termino?: string | null;
           projetista_id?: string | null;
           rt_arquiteto?: number | null;
           status?: Database["public"]["Enums"]["project_status"];

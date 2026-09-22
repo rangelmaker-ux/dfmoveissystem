@@ -25,15 +25,30 @@ export const SOURCE_LABELS: Record<string, string> = {
   REFORMA: 'Reforma / cliente da casa',
 };
 
+export const INDETERMINATE_DEADLINE = '9999-12-31';
+
+export function isIndeterminateDeadline(value?: string | null): boolean {
+  if (!value) return true;
+  return value === INDETERMINATE_DEADLINE || value.startsWith('9999') || value.toLowerCase() === 'indeterminado';
+}
+
+export function calculateThirtyDaysDeadline(from?: Date): string {
+  const d = new Date(from ?? new Date());
+  d.setDate(d.getDate() + 30);
+  return d.toISOString().slice(0, 10);
+}
+
 export function formatDate(value?: string | null) {
-  if (!value) return 'Sem prazo';
+  if (!value || isIndeterminateDeadline(value)) return 'Indeterminado';
   const [year, month, day] = value.slice(0, 10).split('-').map(Number);
   if (!year || !month || !day) return 'Sem prazo';
   return new Intl.DateTimeFormat('pt-BR').format(new Date(year, month - 1, day));
 }
 
 export function deadlineState(value?: string | null) {
-  if (!value) return { label: 'Prazo não definido', tone: 'neutral' as const, days: null };
+  if (!value || isIndeterminateDeadline(value)) {
+    return { label: 'Indeterminado', tone: 'neutral' as const, days: null };
+  }
 
   const target = new Date(`${value.slice(0, 10)}T12:00:00`);
   const today = new Date();

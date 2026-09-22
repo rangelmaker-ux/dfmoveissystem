@@ -10,9 +10,23 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { UserPlus, Star, Plus, Hand, X } from "lucide-react";
+import {
+  UserPlus,
+  Star,
+  Plus,
+  Hand,
+  X,
+  FolderOpen,
+  Upload,
+  Download,
+  Trash2,
+  FileText,
+  Loader2,
+  AlertCircle,
+  FileSpreadsheet,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +52,12 @@ import { useQueryClient, useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { ClientSpreadsheetImport } from "@/components/client-spreadsheet-import";
+import {
+  calculateThirtyDaysDeadline,
+  INDETERMINATE_DEADLINE,
+  formatDate,
+  isIndeterminateDeadline,
+} from "@/lib/project-utils";
 
 export const Route = createFileRoute("/_dashboard/projetista/clientes")({
   component: ProjetistaClientesPage,
@@ -82,6 +102,250 @@ function projectObservations(observacoes: string, fonte: string, nomeArquiteto: 
   return [architect ? `Arquiteto: ${architect}` : "", notes].filter(Boolean).join("\n") || null;
 }
 
+interface ClientFileItem {
+  id: string;
+  name: string;
+  created_at?: string;
+  metadata?: { size?: number };
+}
+
+function ClientFilesDialog({
+  client,
+  open,
+  onOpenChange,
+  isAdmin,
+  currentUserId,
+}: {
+  client: ClienteRow | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  isAdmin: boolean;
+  currentUserId?: string;
+}) {
+  const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  // O projeto do cliente utilizado para armazenar os anexos
+  const primaryProject = client?.projetos?.[0] ?? null;
+  const projectId = primaryProject?.id;
+
+  // Privacidade: apenas o responsável, sem projetista (aberto) ou administrador acessam
+  const isMine = Boolean(client?.projetista_id && client.projetista_id === currentUserId);
+  const isUnassigned = !client?.projetista_id;
+  const canAccessFiles = isAdmin || isMine || isUnassigned;
+
+  const { data: files = [], isLoading, refetch } = useQuery({
+    queryKey: ["client-files", projectId],
+    queryFn: async () => {
+      if (!projectId) return [];
+      const { data, error } = await supabase.storage
+        .from("projetos_arquivos")
+        .list(projectId, { sortBy: { column: "created_at", order: "desc" } });
+      if (error) {
+        console.warn("[client-files] list error", error);
+        return [];
+      }
+      return (data ?? []) as ClientFileItem[];
+    },
+    enabled: Boolean(projectId && open && canAccessFiles),
+  });
+
+  const handleUpload = async (file: File) => {
+    if (!client) return;
+    if (!canAccessFiles) {
+      toast.error("Você não tem permissão para anexar arquivos neste cliente.");
+      return;
+    }
+
+    setUploading(true);
+    try {
+      let targetProjectId = projectId;
+
+      if (!targetProjectId) {
+        const today = new Date().toISOString().slice(0, 10);
+        const { data: newProj, error: pErr } = await supabase
+          .from("projetos")
+          .insert([
+            {
+              cliente_id: client.id,
+              status: "PRONTO",
+              status_venda: "EM_NEGOCIACAO",
+              data_inicio: today,
+              prazo_termino: INDETERMINATE_DEADLINE,
+              nome: "Documentos e Arquivos",
+            },
+          ])
+          .select("id")
+          .single();
+        if (pErr) throw pErr;
+        targetProjectId = newProj.id;
+        queryClient.invalidateQueries({ queryKey: ["clientes-global"] });
+      }
+
+      const cleanName = file.name
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9._-]/g, "_");
+      const storagePath = `${targetProjectId}/${Date.now()}_${cleanName}`;
+
+      const { error: uploadErr } = await supabase.storage
+        .from("projetos_arquivos")
+        .upload(storagePath, file, { upsert: true });
+
+      if (uploadErr) throw uploadErr;
+
+      toast.success(`Arquivo "${file.name}" anexado com sucesso!`);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      await queryClient.invalidateQueries({ queryKey: ["client-files", targetProjectId] });
+      await refetch();
+    } catch (err: unknown) {
+      console.error("[client-files] upload error", err);
+      toast.error("Erro ao subir arquivo: " + errorMessage(err));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDelete = async (fileName: string) => {
+    if (!projectId) return;
+    if (!canAccessFiles) {
+      toast.error("Sem permissão para remover este arquivo.");
+      return;
+    }
+    try {
+      const { error } = await supabase.storage
+        .from("projetos_arquivos")
+        .remove([`${projectId}/${fileName}`]);
+      if (error) throw error;
+      toast.success("Arquivo excluído.");
+      await queryClient.invalidateQueries({ queryKey: ["client-files", projectId] });
+      await refetch();
+    } catch (err: unknown) {
+      toast.error("Erro ao remover arquivo: " + errorMessage(err));
+    }
+  };
+
+  const getFileUrl = (fileName: string) => {
+    if (!projectId) return "#";
+    return supabase.storage.from("projetos_arquivos").getPublicUrl(`${projectId}/${fileName}`)
+      .data.publicUrl;
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[620px]">
+        <DialogHeader>
+          <div className="flex items-center gap-2">
+            <FolderOpen className="h-5 w-5 text-amber-600" />
+            <DialogTitle>Arquivos do Cliente</DialogTitle>
+          </div>
+          <DialogDescription>
+            {client?.nome} · Documentos, contratos, fotos, plantas e especificações
+          </DialogDescription>
+        </DialogHeader>
+
+        {!canAccessFiles ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800 flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+            <span>
+              Este cliente está atribuído a outro projetista. Para preservar a privacidade da
+              carteira, apenas o responsável ou o administrador podem visualizar e anexar arquivos.
+            </span>
+          </div>
+        ) : (
+          <div className="space-y-4 py-2">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div>
+                <p className="text-xs font-semibold text-slate-700">Anexar novo arquivo</p>
+                <p className="text-[11px] text-slate-500">PDF, Imagens, DWG, Contratos</p>
+              </div>
+              <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void handleUpload(f);
+                }}
+              />
+              <Button
+                size="sm"
+                className="bg-slate-900 text-white hover:bg-slate-800"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+              >
+                {uploading ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> Enviando...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="mr-1.5 h-4 w-4" /> Subir Arquivo
+                  </>
+                )}
+              </Button>
+            </div>
+
+            <div className="max-h-[300px] overflow-y-auto space-y-2 pr-1">
+              {isLoading ? (
+                <div className="flex justify-center p-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+                </div>
+              ) : files.length === 0 ? (
+                <div className="rounded-xl border border-dashed p-8 text-center text-xs text-slate-500">
+                  Nenhum arquivo anexado para este cliente ainda. Clique em "Subir Arquivo" acima.
+                </div>
+              ) : (
+                files.map((file) => {
+                  const displayName = file.name.replace(/^\d+_/, "");
+                  const fileUrl = getFileUrl(file.name);
+                  return (
+                    <div
+                      key={file.id || file.name}
+                      className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50/70 p-2.5 hover:bg-white transition-colors"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                        <FileText className="h-5 w-5 text-slate-600 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-slate-800 truncate" title={displayName}>
+                            {displayName}
+                          </p>
+                          {file.metadata?.size && (
+                            <p className="text-[10px] text-slate-400">
+                              {(file.metadata.size / 1024).toFixed(1)} KB
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-600" asChild>
+                          <a href={fileUrl} target="_blank" rel="noopener noreferrer" download>
+                            <Download className="h-3.5 w-3.5" />
+                          </a>
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 text-destructive hover:text-destructive"
+                          onClick={() => handleDelete(file.name)}
+                          title="Excluir arquivo"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ProjetistaClientesPage() {
   const { user, role } = useAuthStore();
   const isAdmin = role === "ADMIN";
@@ -90,6 +354,7 @@ function ProjetistaClientesPage() {
   const [isClientDialogOpen, setIsClientDialogOpen] = useState(false);
   const [isProjectDialogOpen, setIsProjectDialogOpen] = useState(false);
   const [pendingClient, setPendingClient] = useState<{ id: string; nome: string } | null>(null);
+  const [filesClient, setFilesClient] = useState<ClienteRow | null>(null);
 
   const [clientForm, setClientForm] = useState({
     nome: "",
@@ -97,6 +362,7 @@ function ProjetistaClientesPage() {
     fonte: "",
     nome_arquiteto: "",
     rt_arquiteto: "",
+    prazo_tipo: "30_DIAS" as "30_DIAS" | "INDETERMINADO",
   });
 
   const [projectForm, setProjectForm] = useState({
@@ -106,7 +372,8 @@ function ProjetistaClientesPage() {
     rt_arquiteto: "",
     valor_venda: "",
     data_inicio: new Date().toISOString().slice(0, 10),
-    prazo_termino: "",
+    prazo_termino: calculateThirtyDaysDeadline(),
+    prazo_tipo: "30_DIAS" as "30_DIAS" | "INDETERMINADO",
     observacoes: "",
     projetista_id: "",
   });
@@ -174,13 +441,18 @@ function ProjetistaClientesPage() {
       if (error) throw error;
 
       const today = new Date().toISOString().slice(0, 10);
+      const calculatedDeadline =
+        data.prazo_tipo === "INDETERMINADO"
+          ? INDETERMINATE_DEADLINE
+          : calculateThirtyDaysDeadline();
+
       const initialProject: TablesInsert<"projetos"> = {
         cliente_id: inserted.id,
         projetista_id: null,
         status: "PRONTO" as const,
         status_venda: "EM_NEGOCIACAO" as const,
         data_inicio: today,
-        prazo_termino: today,
+        prazo_termino: calculatedDeadline,
         nome: null,
         fonte: data.fonte,
         observacoes: projectObservations("", data.fonte, data.nome_arquiteto),
@@ -200,6 +472,7 @@ function ProjetistaClientesPage() {
         fonte: "",
         nome_arquiteto: "",
         rt_arquiteto: "",
+        prazo_tipo: "30_DIAS",
       });
       setIsClientDialogOpen(false);
       await Promise.all([
@@ -220,13 +493,18 @@ function ProjetistaClientesPage() {
     mutationFn: async (data: typeof projectForm) => {
       if (!user?.id || !pendingClient) throw new Error("Cliente não selecionado.");
       const today = new Date().toISOString().slice(0, 10);
+      const chosenDeadline =
+        data.prazo_tipo === "INDETERMINADO"
+          ? INDETERMINATE_DEADLINE
+          : (data.prazo_termino || calculateThirtyDaysDeadline());
+
       const payload: TablesInsert<"projetos"> = {
         cliente_id: pendingClient.id,
         projetista_id: null,
         status: "PRONTO" as const,
         status_venda: "EM_NEGOCIACAO" as const,
         data_inicio: data.data_inicio || today,
-        prazo_termino: data.prazo_termino || data.data_inicio || today,
+        prazo_termino: chosenDeadline,
         valor_venda: data.valor_venda ? parseFloat(data.valor_venda) : null,
         observacoes: projectObservations(data.observacoes, data.fonte, data.nome_arquiteto),
         nome: data.nome.trim() || null,
@@ -258,7 +536,8 @@ function ProjetistaClientesPage() {
         rt_arquiteto: "",
         valor_venda: "",
         data_inicio: new Date().toISOString().slice(0, 10),
-        prazo_termino: "",
+        prazo_termino: calculateThirtyDaysDeadline(),
+        prazo_tipo: "30_DIAS",
         observacoes: "",
         projetista_id: "",
       });
@@ -357,7 +636,7 @@ function ProjetistaClientesPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {!isAdmin && user?.id && (
+          {user?.id && (
             <ClientSpreadsheetImport
               userId={user.id}
               onImported={() => {
@@ -456,6 +735,42 @@ function ProjetistaClientesPage() {
                     </div>
                   </div>
                 )}
+                <div className="grid gap-2 pt-1 border-t">
+                  <Label>Duração / Validade do Atendimento</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant={clientForm.prazo_tipo === "30_DIAS" ? "default" : "outline"}
+                      className={cn(
+                        "w-full font-semibold transition-all",
+                        clientForm.prazo_tipo === "30_DIAS"
+                          ? "bg-slate-900 text-white hover:bg-slate-800 shadow-sm"
+                          : "text-slate-700 hover:bg-slate-100",
+                      )}
+                      onClick={() => setClientForm({ ...clientForm, prazo_tipo: "30_DIAS" })}
+                    >
+                      30 dias
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={clientForm.prazo_tipo === "INDETERMINADO" ? "default" : "outline"}
+                      className={cn(
+                        "w-full font-semibold transition-all",
+                        clientForm.prazo_tipo === "INDETERMINADO"
+                          ? "bg-slate-900 text-white hover:bg-slate-800 shadow-sm"
+                          : "text-slate-700 hover:bg-slate-100",
+                      )}
+                      onClick={() => setClientForm({ ...clientForm, prazo_tipo: "INDETERMINADO" })}
+                    >
+                      Indeterminado
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    {clientForm.prazo_tipo === "30_DIAS"
+                      ? `Prazo padrão de 30 dias (${formatDate(calculateThirtyDaysDeadline())}).`
+                      : "Atendimento sem prazo rígido pré-fixado."}
+                  </p>
+                </div>
               </div>
               <DialogFooter>
                 <Button onClick={handleSaveClient} disabled={createClient.isPending}>
@@ -548,15 +863,52 @@ function ProjetistaClientesPage() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="prazo">Prazo de término</Label>
-                <Input
-                  id="prazo"
-                  type="date"
-                  value={projectForm.prazo_termino}
-                  onChange={(e) =>
-                    setProjectForm({ ...projectForm, prazo_termino: e.target.value })
-                  }
-                />
+                <Label>Prazo de término</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant={projectForm.prazo_tipo === "30_DIAS" ? "default" : "outline"}
+                    className={cn(
+                      "w-full font-semibold transition-all",
+                      projectForm.prazo_tipo === "30_DIAS"
+                        ? "bg-slate-900 text-white hover:bg-slate-800 shadow-sm"
+                        : "text-slate-700 hover:bg-slate-100",
+                    )}
+                    onClick={() =>
+                      setProjectForm({
+                        ...projectForm,
+                        prazo_tipo: "30_DIAS",
+                        prazo_termino: calculateThirtyDaysDeadline(),
+                      })
+                    }
+                  >
+                    30 dias
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={projectForm.prazo_tipo === "INDETERMINADO" ? "default" : "outline"}
+                    className={cn(
+                      "w-full font-semibold transition-all",
+                      projectForm.prazo_tipo === "INDETERMINADO"
+                        ? "bg-slate-900 text-white hover:bg-slate-800 shadow-sm"
+                        : "text-slate-700 hover:bg-slate-100",
+                    )}
+                    onClick={() =>
+                      setProjectForm({
+                        ...projectForm,
+                        prazo_tipo: "INDETERMINADO",
+                        prazo_termino: INDETERMINATE_DEADLINE,
+                      })
+                    }
+                  >
+                    Indeterminado
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  {projectForm.prazo_tipo === "30_DIAS"
+                    ? `Previsão: 30 dias (${formatDate(projectForm.prazo_termino)}).`
+                    : "Sem prazo fixo pré-definido."}
+                </p>
               </div>
             </div>
             <div className="grid gap-2">
@@ -666,10 +1018,7 @@ function ProjetistaClientesPage() {
                                 {latestProject.nome || "Projeto sem nome"}
                               </p>
                               <p className="mt-1 text-xs text-slate-500">
-                                Prazo:{" "}
-                                {new Date(
-                                  `${latestProject.prazo_termino}T12:00:00`,
-                                ).toLocaleDateString("pt-BR")}
+                                Prazo: {formatDate(latestProject.prazo_termino)}
                               </p>
                               <Badge variant="outline" className="mt-1 text-[10px]">
                                 {statusLabels[latestProject.status] ?? latestProject.status}
@@ -774,17 +1123,30 @@ function ProjetistaClientesPage() {
                         })()}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            setPendingClient({ id: c.id, nome: c.nome });
-                            setIsProjectDialogOpen(true);
-                          }}
-                        >
-                          <Plus className="h-4 w-4 mr-1" />
-                          Novo Projeto
-                        </Button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 border-slate-200 hover:bg-slate-100 text-xs"
+                            onClick={() => setFilesClient(c)}
+                            title="Arquivos e documentos deste cliente"
+                          >
+                            <FolderOpen className="h-3.5 w-3.5 mr-1 text-amber-600" />
+                            Arquivos
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 text-xs"
+                            onClick={() => {
+                              setPendingClient({ id: c.id, nome: c.nome });
+                              setIsProjectDialogOpen(true);
+                            }}
+                          >
+                            <Plus className="h-3.5 w-3.5 mr-1" />
+                            Novo Projeto
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -800,6 +1162,14 @@ function ProjetistaClientesPage() {
           </Table>
         </CardContent>
       </Card>
+
+      <ClientFilesDialog
+        client={filesClient}
+        open={Boolean(filesClient)}
+        onOpenChange={(open) => !open && setFilesClient(null)}
+        isAdmin={isAdmin}
+        currentUserId={user?.id}
+      />
     </div>
   );
 }

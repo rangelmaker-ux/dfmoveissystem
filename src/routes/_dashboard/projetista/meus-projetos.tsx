@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { formatDate, isIndeterminateDeadline } from '@/lib/project-utils';
 
 export const Route = createFileRoute('/_dashboard/projetista/meus-projetos')({
   component: MeusProjetosPage,
@@ -433,17 +434,22 @@ function DetalhesProjeto({ projeto, onBack }: { projeto: ProjetoRow, onBack: () 
 
   const uploadFile = useMutation({
     mutationFn: async (file: File) => {
-      const fileName = `${Date.now()}_${file.name}`;
+      const cleanName = file.name
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-zA-Z0-9._-]/g, '_');
+      const fileName = `${Date.now()}_${cleanName}`;
       const { error } = await supabase.storage
         .from('projetos_arquivos')
-        .upload(`${projeto.id}/${fileName}`, file);
+        .upload(`${projeto.id}/${fileName}`, file, { upsert: true });
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['arquivos', projeto.id] });
-      toast.success('Arquivo enviado!');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      toast.success('Arquivo enviado com sucesso!');
     },
-    onError: (e: any) => toast.error('Erro no upload: ' + e.message)
+    onError: (e: any) => toast.error('Erro no upload: ' + (e?.message ?? 'tente novamente'))
   });
 
   const deleteFile = useMutation({
@@ -568,7 +574,7 @@ function DetalhesProjeto({ projeto, onBack }: { projeto: ProjetoRow, onBack: () 
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Prazo:</span>
-              <span className="font-medium">{new Date(projeto.prazo_termino).toLocaleDateString('pt-BR')}</span>
+              <span className="font-medium">{formatDate(projeto.prazo_termino)}</span>
             </div>
             <hr />
             {projeto.status_venda === 'VENDEU' && projeto.valor_venda && (
@@ -597,7 +603,12 @@ function ProjetoCard({
   isUpdating: boolean;
 }) {
   const stage = (projeto.estagio_andamento as Stage) || 'Início';
-  const isDelayed = new Date(projeto.prazo_termino) < new Date() && projeto.status !== 'FINALIZADO';
+  const isDelayed = Boolean(
+    projeto.prazo_termino &&
+      !isIndeterminateDeadline(projeto.prazo_termino) &&
+      new Date(projeto.prazo_termino) < new Date() &&
+      projeto.status !== 'FINALIZADO',
+  );
   
   return (
     <Card className={cn(
@@ -622,7 +633,7 @@ function ProjetoCard({
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
           <Calendar className="h-3 w-3" />
           Prazo: <span className={cn(isDelayed && "text-destructive font-bold")}>
-            {new Date(projeto.prazo_termino).toLocaleDateString('pt-BR')}
+            {formatDate(projeto.prazo_termino)}
           </span>
         </div>
 

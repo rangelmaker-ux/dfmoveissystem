@@ -80,6 +80,9 @@ interface AgendaEvent {
   criado_por_id: string;
   criado_por: { nome: string } | null;
   cliente: { nome: string } | null;
+  data_sugerida_inicio?: string | null;
+  data_sugerida_fim?: string | null;
+  motivo_alteracao?: string | null;
 }
 
 function errorMessage(error: unknown) {
@@ -123,7 +126,7 @@ function AgendaPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('agendamentos')
-        .select('id, titulo, descricao, data_inicio, data_fim, tipo, status, cliente_id, criado_por_id:criado_por, criado_por:users(nome), cliente:clientes(nome)')
+        .select('id, titulo, descricao, data_inicio, data_fim, tipo, status, cliente_id, criado_por_id:criado_por, criado_por:users(nome), cliente:clientes(nome), data_sugerida_inicio, data_sugerida_fim, motivo_alteracao')
         .order('data_inicio', { ascending: true });
       if (error) throw error;
       return (data ?? []) as unknown as AgendaEvent[];
@@ -287,42 +290,129 @@ function AgendaPage() {
       if (editingEventId) {
         const targetEvent = events?.find((item) => item.id === editingEventId);
         if (!targetEvent) throw new Error('Agendamento não encontrado.');
-        if (!isAdmin && targetEvent.criado_por_id !== user.id) {
-          throw new Error('Você só pode alterar os agendamentos que criou.');
+
+        // Se for projetista (não admin), envia a solicitação para autorização do Administrador
+        if (!isAdmin) {
+          if (targetEvent.criado_por_id !== user.id) {
+            throw new Error('Você só pode solicitar alteração de agendamentos que você criou.');
+          }
+
+          const { error: reqError } = await supabase
+            .from('agendamentos')
+            .update({
+              data_sugerida_inicio: data_inicio.toISOString(),
+              data_sugerida_fim: data_fim.toISOString(),
+              motivo_alteracao: event.descricao || 'Alteração de horário solicitada pelo projetista',
+              status: 'ALTERACAO_SOLICITADA',
+            })
+            .eq('id', editingEventId);
+
+          if (reqError) {
+            console.error('[agenda] request change error', reqError);
+            throw reqError;
+          }
+
+          return { isRequest: true };
         }
 
-        let updateQuery = supabase.from('agendamentos').update(payload).eq('id', editingEventId);
-        if (!isAdmin) updateQuery = updateQuery.eq('criado_por', user.id);
-        const { data: updated, error } = await updateQuery.select('id').maybeSingle();
-        if (error) {
-          console.error('[agenda] update error', error);
-          if (error.code === '23P01' && event.tipo === 'REUNIAO') {
+        // Se for Administrador, aplica a alteração imediatamente e oficializa
+        const { error: adminError } = await supabase
+          .from('agendamentos')
+          .update({
+            ...payload,
+            data_sugerida_inicio: null,
+            data_sugerida_fim: null,
+            motivo_alteracao: null,
+            status: 'CONFIRMADO',
+          })
+          .eq('id', editingEventId);
+
+        if (adminError) {
+          console.error('[agenda] update error', adminError);
+          if (adminError.code === '23P01' && event.tipo === 'REUNIAO') {
             throw new Error('Outra pessoa acabou de marcar uma reunião neste horário. Escolha outro horário.');
           }
-          throw error;
+          throw adminError;
         }
-        if (!updated) throw new Error('Você não tem permissão para alterar este agendamento.');
+
+        return { isRequest: false };
       } else {
-        const { error } = await supabase.from('agendamentos').insert([{ ...payload, criado_por: user.id }]);
-        if (error) {
-          console.error('[agenda] insert error', error);
-          if (error.code === '23P01' && event.tipo === 'REUNIAO') {
+        const { error: insertError } = await supabase
+          .from('agendamentos')
+          .insert([{ ...payload, status: 'CONFIRMADO', criado_por: user.id }]);
+
+        if (insertError) {
+          console.error('[agenda] insert error', insertError);
+          if (insertError.code === '23P01' && event.tipo === 'REUNIAO') {
             throw new Error('Outra pessoa acabou de marcar uma reunião neste horário. Escolha outro horário.');
           }
-          throw error;
+          throw insertError;
         }
+
+        return { isRequest: false };
       }
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['agendamentos'] });
       setIsDialogOpen(false);
       setEditingEventId(null);
       setFormData({ titulo: '', descricao: '', data: '', hora_inicio: '', hora_fim: '', tipo: 'REUNIAO', cliente_id: '' });
-      toast.success(editingEventId ? 'Agendamento atualizado!' : 'Agendamento realizado!');
+      if (result?.isRequest) {
+        toast.info('Solicitação de alteração enviada ao Administrador! O novo horário entrará em vigor assim que for autorizado.');
+      } else {
+        toast.success(editingEventId ? 'Agendamento atualizado com sucesso!' : 'Agendamento cadastrado com sucesso!');
+      }
     },
     onError: (error: unknown) => {
       toast.error('Erro ao salvar: ' + errorMessage(error));
     }
+  });
+
+  const approveChangeMutation = useMutation({
+    mutationFn: async (event: AgendaEvent) => {
+      if (!isAdmin) throw new Error('Apenas o Administrador pode aprovar alterações de horário.');
+      if (!event.data_sugerida_inicio || !event.data_sugerida_fim) {
+        throw new Error('Nenhum horário sugerido foi encontrado para este compromisso.');
+      }
+      const { error } = await supabase
+        .from('agendamentos')
+        .update({
+          data_inicio: event.data_sugerida_inicio,
+          data_fim: event.data_sugerida_fim,
+          data_sugerida_inicio: null,
+          data_sugerida_fim: null,
+          motivo_alteracao: null,
+          status: 'CONFIRMADO',
+        })
+        .eq('id', event.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['agendamentos'] });
+      toast.success('Alteração de horário autorizada com sucesso! O novo horário agora é oficial para todos.');
+    },
+    onError: (err: unknown) => toast.error('Erro ao aprovar: ' + errorMessage(err)),
+  });
+
+  const rejectChangeMutation = useMutation({
+    mutationFn: async (event: AgendaEvent) => {
+      if (!isAdmin) throw new Error('Apenas o Administrador pode recusar alterações.');
+      const { error } = await supabase
+        .from('agendamentos')
+        .update({
+          data_sugerida_inicio: null,
+          data_sugerida_fim: null,
+          motivo_alteracao: null,
+          status: 'CONFIRMADO',
+        })
+        .eq('id', event.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['agendamentos'] });
+      toast.info('Solicitação recusada. O horário original foi mantido.');
+    },
+    onError: (err: unknown) => toast.error('Erro ao recusar: ' + errorMessage(err)),
   });
 
   const lockMutation = useMutation({
@@ -382,14 +472,17 @@ function AgendaPage() {
   const deleteMutation = useMutation({
     mutationFn: async (event: AgendaEvent) => {
       if (!user?.id) throw new Error('Sessão inválida. Faça login novamente.');
-      if (!isAdmin && event.criado_por_id !== user.id) {
-        throw new Error('Você só pode excluir os agendamentos que criou.');
+      if (!isAdmin) {
+        throw new Error('Apenas o Administrador tem autorização para excluir agendamentos da agenda.');
       }
-      let deleteQuery = supabase.from('agendamentos').delete().eq('id', event.id);
-      if (!isAdmin) deleteQuery = deleteQuery.eq('criado_por', user.id);
-      const { data: deleted, error } = await deleteQuery.select('id').maybeSingle();
+      const { data: deleted, error } = await supabase
+        .from('agendamentos')
+        .delete()
+        .eq('id', event.id)
+        .select('id')
+        .maybeSingle();
       if (error) throw error;
-      if (!deleted) throw new Error('Você não tem permissão para excluir este agendamento.');
+      if (!deleted) throw new Error('Agendamento não encontrado.');
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['agendamentos'] });
@@ -445,8 +538,8 @@ function AgendaPage() {
   };
 
   const handleDelete = (event: AgendaEvent) => {
-    if (!isAdmin && event.criado_por_id !== user?.id) {
-      toast.error('Você só pode excluir os agendamentos que criou.');
+    if (!isAdmin) {
+      toast.error('Apenas o Administrador tem autorização para excluir agendamentos da agenda.');
       return;
     }
     const isLock = event.tipo === 'BLOQUEIO';
@@ -602,7 +695,18 @@ function AgendaPage() {
             </DialogTrigger>
             <DialogContent className="sm:max-w-[520px]">
               <DialogHeader>
-                <DialogTitle>{editingEventId ? 'Editar Compromisso' : 'Agendar Compromisso'}</DialogTitle>
+                <DialogTitle>
+                  {editingEventId
+                    ? isAdmin
+                      ? 'Editar Compromisso'
+                      : 'Solicitar Alteração de Horário'
+                    : 'Agendar Compromisso'}
+                </DialogTitle>
+                {!isAdmin && editingEventId && (
+                  <DialogDescription className="text-xs text-amber-800 bg-amber-50 border border-amber-200 p-2.5 rounded-lg mt-1">
+                    Como projetista, você pode sugerir a alteração de horário. A solicitação será enviada ao Administrador e passará a valer para toda a equipe assim que autorizada.
+                  </DialogDescription>
+                )}
               </DialogHeader>
               <div className="grid gap-3 py-2">
                 <div className="grid gap-2">
@@ -672,7 +776,11 @@ function AgendaPage() {
               </div>
               <DialogFooter>
                 <Button onClick={() => saveMutation.mutate(formData)} disabled={saveMutation.isPending} className="w-full sm:w-auto">
-                  {editingEventId ? 'Salvar Alterações' : 'Confirmar Agendamento'}
+                  {editingEventId
+                    ? isAdmin
+                      ? 'Salvar Alterações'
+                      : 'Enviar Solicitação ao Administrador'
+                    : 'Confirmar Agendamento'}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -746,6 +854,7 @@ function AgendaPage() {
             <div className="grid gap-3">
               {filteredEvents.map((event) => {
                 const isConfirmed = event.status === 'CONFIRMADO';
+                const isPendingChange = event.status === 'ALTERACAO_SOLICITADA';
                 const isBloqueio = event.tipo === 'BLOQUEIO';
                 const canManage = isAdmin || (!isBloqueio && event.criado_por_id === user?.id);
 
@@ -756,11 +865,15 @@ function AgendaPage() {
                     "hover:shadow-md transition-all border-l-4 overflow-hidden group",
                     isBloqueio
                       ? "border-l-slate-900 bg-slate-900/5 border-slate-200"
+                      : isPendingChange
+                      ? "border-l-amber-500 bg-amber-50/20 ring-1 ring-amber-300"
                       : isConfirmed && "ring-2 ring-emerald-400/60 bg-emerald-50/30"
                   )}
                   style={{
                     borderLeftColor: isBloqueio
                       ? '#0f172a'
+                      : isPendingChange
+                      ? '#f59e0b'
                       : event.tipo === 'REUNIAO'
                       ? '#ef4444'
                       : event.tipo === 'ATENDIMENTO'
@@ -768,13 +881,13 @@ function AgendaPage() {
                       : '#22c55e'
                   }}
                 >
-                  <CardContent className="p-4 flex items-center justify-between">
+                  <CardContent className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
                     <div className="flex items-start gap-4">
-                      <div className={`p-2 rounded-lg ${isBloqueio ? 'bg-slate-900 text-amber-300' : isConfirmed ? 'bg-emerald-100' : 'bg-muted/50'}`}>
-                        {isBloqueio ? <Lock className="h-5 w-5 text-amber-400" /> : isConfirmed ? <CheckCircle2 className="h-5 w-5 text-emerald-600" /> : <Clock className="h-5 w-5 text-muted-foreground" />}
+                      <div className={`p-2 rounded-lg ${isBloqueio ? 'bg-slate-900 text-amber-300' : isPendingChange ? 'bg-amber-100 text-amber-700' : isConfirmed ? 'bg-emerald-100 text-emerald-600' : 'bg-muted/50 text-muted-foreground'}`}>
+                        {isBloqueio ? <Lock className="h-5 w-5 text-amber-400" /> : isPendingChange ? <Clock className="h-5 w-5 text-amber-600" /> : isConfirmed ? <CheckCircle2 className="h-5 w-5 text-emerald-600" /> : <Clock className="h-5 w-5" />}
                       </div>
                       <div className="space-y-1">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <h3 className={cn("font-bold text-foreground", isBloqueio && "text-slate-900 font-black")}>
                             {event.titulo}
                           </h3>
@@ -789,6 +902,11 @@ function AgendaPage() {
                           {!isBloqueio && isConfirmed && (
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 flex items-center gap-1">
                               <Check className="h-3 w-3" /> Confirmado
+                            </span>
+                          )}
+                          {!isBloqueio && isPendingChange && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1">
+                              <Clock className="h-3 w-3 text-amber-600" /> Alteração Solicitada
                             </span>
                           )}
                         </div>
@@ -811,10 +929,49 @@ function AgendaPage() {
                             </span>
                           )}
                         </div>
+
+                        {isPendingChange && event.data_sugerida_inicio && event.data_sugerida_fim && (
+                          <div className="mt-2.5 p-2.5 rounded-lg bg-amber-50 border border-amber-300 text-xs text-amber-900 space-y-1.5">
+                            <div className="flex items-center gap-1.5 font-semibold text-amber-800">
+                              <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
+                              <span>Alteração solicitada pelo projetista (Aguardando autorização do Administrador):</span>
+                            </div>
+                            <p className="text-slate-800">
+                              Novo Horário Sugerido: <strong className="text-amber-900">{format(parseISO(event.data_sugerida_inicio), "dd/MM/yyyy 'às' HH:mm")} até {format(parseISO(event.data_sugerida_fim), "HH:mm")}</strong>
+                            </p>
+                            {event.motivo_alteracao && (
+                              <p className="text-slate-600 italic">
+                                Motivo: {event.motivo_alteracao}
+                              </p>
+                            )}
+                            {isAdmin && (
+                              <div className="pt-1 flex items-center gap-2">
+                                <Button
+                                  size="sm"
+                                  className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
+                                  onClick={() => approveChangeMutation.mutate(event)}
+                                  disabled={approveChangeMutation.isPending}
+                                >
+                                  <Check className="h-3.5 w-3.5 mr-1" />
+                                  Autorizar Alteração
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 text-xs border-red-300 text-red-700 hover:bg-red-50"
+                                  onClick={() => rejectChangeMutation.mutate(event)}
+                                  disabled={rejectChangeMutation.isPending}
+                                >
+                                  Recusar
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-1">
-                      {!isConfirmed && !isBloqueio && canManage && (
+                    <div className="flex items-center gap-1 self-end md:self-center">
+                      {!isConfirmed && !isBloqueio && !isPendingChange && canManage && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -826,13 +983,19 @@ function AgendaPage() {
                           Confirmar
                         </Button>
                       )}
-                      {canManage && (
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          {!isBloqueio && (
-                            <Button size="icon" variant="ghost" className="h-8 w-8 text-primary" onClick={() => handleEdit(event)}>
-                              <Edit2 className="h-4 w-4" />
-                            </Button>
-                          )}
+                      <div className="flex items-center gap-1">
+                        {canManage && !isBloqueio && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-8 w-8 text-primary"
+                            onClick={() => handleEdit(event)}
+                            title={isAdmin ? "Editar compromisso" : "Solicitar alteração de horário"}
+                          >
+                            <Edit2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {isAdmin && (
                           <Button
                             size="icon"
                             variant="ghost"
@@ -842,8 +1005,8 @@ function AgendaPage() {
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   </CardContent>
                 </Card>

@@ -38,10 +38,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuthStore } from "@/hooks/use-auth";
+import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  calculateThirtyDaysDeadline,
   deadlineState,
   formatDate,
+  INDETERMINATE_DEADLINE,
+  isIndeterminateDeadline,
   PROJECT_STATUS_LABELS,
   PROJECT_STATUS_STYLES,
   SOURCE_LABELS,
@@ -83,6 +87,9 @@ function architectFromNotes(project: Pick<DistributionProject, "fonte" | "observ
 type StatusFilter = "TODOS" | "SEM_RESPONSAVEL" | ProjectStatus;
 
 function effectiveStatus(project: DistributionProject): ProjectStatus {
+  if (isIndeterminateDeadline(project.prazo_termino)) {
+    return project.status;
+  }
   const deadline = deadlineState(project.prazo_termino);
   if (
     deadline.days !== null &&
@@ -572,13 +579,40 @@ function DistributionPage() {
               <p className="text-xs text-slate-500">Projetos pausados não entram na carga ativa.</p>
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="project-deadline">Prazo acordado</Label>
-              <Input
-                id="project-deadline"
-                type="date"
-                value={deadline}
-                onChange={(event) => setDeadline(event.target.value)}
-              />
+              <Label>Prazo acordado</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={deadline && !isIndeterminateDeadline(deadline) ? "default" : "outline"}
+                  className={cn(
+                    "w-full font-semibold transition-all",
+                    deadline && !isIndeterminateDeadline(deadline)
+                      ? "bg-slate-900 text-white hover:bg-slate-800 shadow-sm"
+                      : "text-slate-700 hover:bg-slate-100",
+                  )}
+                  onClick={() => setDeadline(calculateThirtyDaysDeadline())}
+                >
+                  30 dias
+                </Button>
+                <Button
+                  type="button"
+                  variant={isIndeterminateDeadline(deadline) ? "default" : "outline"}
+                  className={cn(
+                    "w-full font-semibold transition-all",
+                    isIndeterminateDeadline(deadline)
+                      ? "bg-slate-900 text-white hover:bg-slate-800 shadow-sm"
+                      : "text-slate-700 hover:bg-slate-100",
+                  )}
+                  onClick={() => setDeadline(INDETERMINATE_DEADLINE)}
+                >
+                  Indeterminado
+                </Button>
+              </div>
+              <p className="text-xs text-slate-500">
+                {isIndeterminateDeadline(deadline)
+                  ? "Prazo indeterminado selecionado."
+                  : `Prazo acordado para ${formatDate(deadline)}.`}
+              </p>
             </div>
           </div>
           <DialogFooter>

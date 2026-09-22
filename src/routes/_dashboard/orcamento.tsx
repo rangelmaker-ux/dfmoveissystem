@@ -1,13 +1,25 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { createFileRoute } from '@tanstack/react-router';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Calculator, FileSpreadsheet, Database, Settings } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { BudgetItem, BudgetSettings, ProductItem, SavedBudget } from '@/lib/orcamento/types';
 import { DEFAULT_MATERIALS } from '@/lib/orcamento/default-materials';
 import { recalculateBudget, round2 } from '@/lib/orcamento/calculator';
+import {
+  loadSettings as sbLoadSettings,
+  saveSettings as sbSaveSettings,
+  loadProducts as sbLoadProducts,
+  saveAllProducts as sbSaveAllProducts,
+  loadBudgets as sbLoadBudgets,
+  saveBudget as sbSaveBudget,
+  deleteBudget as sbDeleteBudget,
+  loadDraft as sbLoadDraft,
+  saveDraft as sbSaveDraft,
+} from '@/lib/orcamento/supabase-storage';
+import { useAuthStore } from '@/hooks/use-auth';
 import { OrcamentoCurrentTab } from '@/components/orcamento/orcamento-current-tab';
 import { OrcamentoDatabaseTab } from '@/components/orcamento/orcamento-database-tab';
 import { OrcamentoSettingsTab } from '@/components/orcamento/orcamento-settings-tab';
@@ -32,11 +44,16 @@ const DEFAULT_SETTINGS: BudgetSettings = {
 };
 
 function OrcamentoPage() {
+  const { role, user } = useAuthStore();
+  const isAdmin = role === 'ADMIN';
+  const userId = user?.id;
+
   const [activeTab, setActiveTab] = useState('current');
   const [items, setItems] = useState<BudgetItem[]>([]);
   const [database, setDatabase] = useState<ProductItem[]>(DEFAULT_MATERIALS);
   const [settings, setSettings] = useState<BudgetSettings>(DEFAULT_SETTINGS);
   const [savedBudgets, setSavedBudgets] = useState<SavedBudget[]>([]);
+  const [dataLoaded, setDataLoaded] = useState(false);
 
   // Fetch registered clients and their projects from Supabase
   const { data: clientsList = [] } = useQuery({
@@ -54,72 +71,85 @@ function OrcamentoPage() {
     },
   });
 
-  // Load from localStorage on mount
+  // Load ALL data from Supabase on mount
   useEffect(() => {
-    try {
-      const savedDb = localStorage.getItem('df_orcamento_database');
-      if (savedDb) {
-        setDatabase(JSON.parse(savedDb));
-      } else {
-        localStorage.setItem('df_orcamento_database', JSON.stringify(DEFAULT_MATERIALS));
-      }
+    if (!userId) return;
 
-      const savedSet = localStorage.getItem('df_orcamento_settings');
-      if (savedSet) {
-        setSettings(JSON.parse(savedSet));
-      }
+    const loadAll = async () => {
+      try {
+        // 1. Settings (globais)
+        const cloudSettings = await sbLoadSettings();
+        if (cloudSettings) setSettings(cloudSettings);
 
-      const savedList = localStorage.getItem('df_orcamento_saved_list');
-      if (savedList) {
-        setSavedBudgets(JSON.parse(savedList));
-      }
+        // 2. Produtos (catálogo geral)
+        const cloudProducts = await sbLoadProducts();
+        if (cloudProducts.length > 0) {
+          setDatabase(cloudProducts);
+        } else {
+          // First time: seed default materials to Supabase
+          await sbSaveAllProducts(DEFAULT_MATERIALS);
+        }
 
-      const currentDraft = localStorage.getItem('df_orcamento_current_items');
-      if (currentDraft) {
-        setItems(JSON.parse(currentDraft));
-      }
-    } catch (e) {
-      console.error('Erro ao ler dados do localStorage:', e);
-    }
-  }, []);
+        // 3. Orçamentos salvos
+        const cloudBudgets = await sbLoadBudgets(userId, isAdmin);
+        if (cloudBudgets.length > 0) setSavedBudgets(cloudBudgets);
 
-  // Sync database changes to localStorage
+        // 4. Rascunho atual
+        const cloudDraft = await sbLoadDraft(userId);
+        if (cloudDraft && cloudDraft.length > 0) setItems(cloudDraft as BudgetItem[]);
+
+        setDataLoaded(true);
+      } catch (e) {
+        console.error('Erro ao carregar dados do Supabase:', e);
+        setDataLoaded(true);
+      }
+    };
+
+    loadAll();
+  }, [userId, isAdmin]);
+
+  // Auto-save draft to Supabase with debounce (3 seconds)
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    try {
-      localStorage.setItem('df_orcamento_database', JSON.stringify(database));
-    } catch (e) {
-      console.error(e);
-    }
-  }, [database]);
+    if (!userId || !dataLoaded) return;
 
-  // Sync current items to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem('df_orcamento_current_items', JSON.stringify(items));
-    } catch (e) {
-      console.error(e);
-    }
-  }, [items]);
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = setTimeout(() => {
+      sbSaveDraft(userId, items);
+    }, 3000);
 
-  // Sync saved budgets to localStorage
+    return () => {
+      if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    };
+  }, [items, userId, dataLoaded]);
+
+  // Auto-save database changes to Supabase with debounce
+  const dbTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    try {
-      localStorage.setItem('df_orcamento_saved_list', JSON.stringify(savedBudgets));
-    } catch (e) {
-      console.error(e);
-    }
-  }, [savedBudgets]);
+    if (!dataLoaded) return;
+
+    if (dbTimerRef.current) clearTimeout(dbTimerRef.current);
+    dbTimerRef.current = setTimeout(() => {
+      sbSaveAllProducts(database);
+    }, 2000);
+
+    return () => {
+      if (dbTimerRef.current) clearTimeout(dbTimerRef.current);
+    };
+  }, [database, dataLoaded]);
 
   // Totals calculation
   const { totals } = recalculateBudget(items, database, settings);
 
-  // Save Settings: Persist and immediately propagate new margin to all budget items
-  const handleSaveSettings = (newSettings: BudgetSettings) => {
+  // Save Settings: Persist to Supabase and propagate new margin
+  const handleSaveSettings = async (newSettings: BudgetSettings) => {
     setSettings(newSettings);
-    try {
-      localStorage.setItem('df_orcamento_settings', JSON.stringify(newSettings));
-    } catch (e) {
-      console.error(e);
+
+    const ok = await sbSaveSettings(newSettings, userId);
+    if (ok) {
+      toast.success('Configurações salvas na nuvem!');
+    } else {
+      toast.error('Erro ao salvar configurações.');
     }
 
     // Update all items in the active budget with the new margin
@@ -133,12 +163,17 @@ function OrcamentoPage() {
     }
   };
 
-  // Save current budget
-  const handleSaveBudget = (
+  // Save current budget to Supabase
+  const handleSaveBudget = async (
     clientName: string,
     projectName: string,
     extra?: { clientId?: string; clientPhone?: string; projetoId?: string }
   ) => {
+    if (!userId) {
+      toast.error('Sessão inválida. Faça login novamente.');
+      return;
+    }
+
     const newBudget: SavedBudget = {
       id: `budget-${Date.now()}`,
       name: `${clientName} - ${projectName || 'Orçamento'}`,
@@ -155,8 +190,13 @@ function OrcamentoPage() {
       totals: { ...totals },
     };
 
-    setSavedBudgets(prev => [newBudget, ...prev]);
-    toast.success('Orçamento salvo com sucesso!');
+    const ok = await sbSaveBudget(userId, newBudget);
+    if (ok) {
+      setSavedBudgets(prev => [newBudget, ...prev]);
+      toast.success('Orçamento salvo na nuvem com sucesso!');
+    } else {
+      toast.error('Erro ao salvar orçamento.');
+    }
   };
 
   // Load a saved budget into current workspace
@@ -237,7 +277,7 @@ function OrcamentoPage() {
 
           <TabsTrigger value="database" className="text-xs font-semibold data-[state=active]:bg-white">
             <Database className="mr-1.5 h-3.5 w-3.5 text-emerald-600" />
-            Tabela de Preços & Chapas por Marca (2025)
+            Chapas por Marca e Linha
           </TabsTrigger>
 
           <TabsTrigger value="settings" className="text-xs font-semibold data-[state=active]:bg-white">
@@ -272,7 +312,8 @@ function OrcamentoPage() {
           <OrcamentoDatabaseTab 
             database={database} 
             setDatabase={setDatabase} 
-            settings={settings} 
+            settings={settings}
+            isAdmin={isAdmin}
           />
         </TabsContent>
 
@@ -281,6 +322,7 @@ function OrcamentoPage() {
             settings={settings}
             setSettings={setSettings}
             onSaveSettings={handleSaveSettings}
+            isAdmin={isAdmin}
           />
         </TabsContent>
       </Tabs>

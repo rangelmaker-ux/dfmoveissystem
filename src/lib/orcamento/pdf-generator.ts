@@ -28,44 +28,77 @@ export function generateBudgetPdf(opts: GenerateBudgetPdfOptions): void {
   const pageWidth = doc.internal.pageSize.getWidth();
   const today = opts.dateStr || new Date().toLocaleDateString('pt-BR');
   const validity = opts.validityDays || 10;
+  const company = opts.settings.company;
+
+  const hasLogo = Boolean(company?.logo_url && company.logo_url.startsWith('data:image'));
+  const headerHeight = hasLogo || company?.cnpj ? 38 : 32;
 
   // Header Background Bar (DF Móveis Charcoal #17191d)
   doc.setFillColor(23, 25, 29);
-  doc.rect(0, 0, pageWidth, 32, 'F');
+  doc.rect(0, 0, pageWidth, headerHeight, 'F');
+
+  let textStartX = 14;
+
+  // Render Company Logo if available
+  if (hasLogo && company?.logo_url) {
+    try {
+      doc.addImage(company.logo_url, 'PNG', 14, 5, 26, 26);
+      textStartX = 44;
+    } catch (e) {
+      console.error('Erro ao renderizar logo no PDF:', e);
+      textStartX = 14;
+    }
+  }
 
   // Brand Name & Title
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(16);
+  doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
-  doc.text('DF MÓVEIS PLANEJADOS', 14, 14);
+  const companyTitle = company?.nome_fantasia || company?.razao_social || 'DF MÓVEIS PLANEJADOS';
+  doc.text(companyTitle.toUpperCase(), textStartX, 13);
 
-  doc.setFontSize(9);
+  doc.setFontSize(8.5);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(203, 178, 122); // #cbb27a Gold
-  doc.text('PROPOSTA COMERCIAL & ORÇAMENTO EXECUTIVO', 14, 21);
+  doc.text('PROPOSTA COMERCIAL & ORÇAMENTO EXECUTIVO', textStartX, 20);
+
+  // CNPJ & Contato da Empresa se informados
+  const companyDetails = [
+    company?.cnpj ? `CNPJ: ${company.cnpj}` : null,
+    company?.telefone ? `Tel/WhatsApp: ${company.telefone}` : null,
+    company?.email ? company.email : null,
+  ].filter(Boolean).join(' | ');
+
+  if (companyDetails) {
+    doc.setFontSize(7.5);
+    doc.setTextColor(180, 185, 195);
+    doc.text(companyDetails, textStartX, 27);
+  }
 
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(8);
   doc.text(`Data: ${today} | Validade: ${validity} dias`, pageWidth - 14, 18, { align: 'right' });
 
   // Client and Project Info Card
+  const clientCardY = headerHeight + 6;
   doc.setFillColor(248, 246, 240);
-  doc.roundedRect(14, 38, pageWidth - 28, 24, 2, 2, 'F');
+  doc.roundedRect(14, clientCardY, pageWidth - 28, 24, 2, 2, 'F');
 
   doc.setTextColor(30, 30, 30);
   doc.setFontSize(9);
   doc.setFont('helvetica', 'bold');
-  doc.text('DADOS DO CLIENTE & PROJETO', 18, 45);
+  doc.text('DADOS DO CLIENTE & PROJETO', 18, clientCardY + 7);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
-  doc.text(`Cliente: ${opts.clientName || 'Cliente DF Móveis'}`, 18, 52);
+  doc.text(`Cliente: ${opts.clientName || 'Cliente DF Móveis'}`, 18, clientCardY + 14);
   if (opts.clientPhone) {
-    doc.text(`Telefone / WhatsApp: ${opts.clientPhone}`, 18, 57);
+    doc.text(`Telefone / WhatsApp: ${opts.clientPhone}`, 18, clientCardY + 19);
   }
-  doc.text(`Ambiente / Projeto: ${opts.projectName || 'Móveis Planejados'}`, pageWidth / 2 + 10, 52);
+  doc.text(`Ambiente / Projeto: ${opts.projectName || 'Móveis Planejados'}`, pageWidth / 2 + 10, clientCardY + 14);
 
   // Items Table
+  const tableStartY = clientCardY + 28;
   const tableRows = opts.items.map((it, idx) => {
     const row: any[] = [
       (idx + 1).toString(),
@@ -94,7 +127,7 @@ export function generateBudgetPdf(opts: GenerateBudgetPdfOptions): void {
   if (opts.settings.pdf_show_item_total) tableHeaders.push('Total (R$)');
 
   autoTable(doc, {
-    startY: 68,
+    startY: tableStartY,
     head: [tableHeaders],
     body: tableRows,
     theme: 'striped',

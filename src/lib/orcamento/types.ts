@@ -32,6 +32,16 @@ export interface AdditionItem {
   valor: number;
 }
 
+export interface CompanyInfo {
+  razao_social?: string;
+  nome_fantasia?: string;
+  cnpj?: string;
+  telefone?: string;
+  email?: string;
+  endereco?: string;
+  logo_url?: string;
+}
+
 export interface BudgetSettings {
   margin: number;
   frete: number;
@@ -44,6 +54,7 @@ export interface BudgetSettings {
   fita_mode: FitaDisplayMode;
   pdf_show_unit_price: boolean;
   pdf_show_item_total: boolean;
+  company?: CompanyInfo;
 }
 
 export interface ProductItem {
@@ -52,6 +63,7 @@ export interface ProductItem {
   subcodes: string[];
   description: string;
   unit: string;
+  unit_cost?: number;
   unit_price: number;
   fita_metros?: number;
   category?: 'MDF' | 'FITA' | 'FERRAGEM' | 'OUTROS' | string;
