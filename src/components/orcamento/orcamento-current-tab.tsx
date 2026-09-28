@@ -2,7 +2,7 @@ import { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   Upload, Plus, Trash2, Edit2, AlertTriangle, 
   CheckCircle2, FileSpreadsheet, Download, Save, Layers, Search, Check, Loader2, Link2, Unlink, Sparkles,
-  User, FolderKanban, Info
+  User, FolderKanban, Info, ClipboardPaste, FileText
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { BudgetItem, BudgetSettings, ProductItem } from '@/lib/orcamento/types';
-import { parsePromobXML, parseTXT, parseCSV, parseJSON } from '@/lib/orcamento/parsers';
+import { parsePromobXML, parseTXT, parseCSV, parseJSON, parsePromobPDF, parsePromobTextTable } from '@/lib/orcamento/parsers';
 import { 
   calculateItemPrice, recalculateBudget, CHAPA_AREA_M2, round2, isChapa,
   smartMatchPromobChapa, matchProduct, chapaSalePrice
@@ -108,6 +108,11 @@ export function OrcamentoCurrentTab({
 
   // Filter / Search inside current table
   const [filterSearch, setFilterSearch] = useState('');
+  const [itemsViewFilter, setItemsViewFilter] = useState<'all' | 'leaves' | 'modules'>('all');
+
+  // Modal para colar texto / tabela exportada do Promob
+  const [pasteModalOpen, setPasteModalOpen] = useState(false);
+  const [pastedText, setPastedText] = useState('');
 
   // Add manual item form
   const [newItemCode, setNewItemCode] = useState('');
@@ -146,7 +151,7 @@ export function OrcamentoCurrentTab({
     return chapaSalePrice(currentBoardPrice);
   }, [currentBoardPrice]);
 
-  // Handle File Upload (Promob XML, TXT, CSV, JSON)
+  // Handle File Upload (Promob PDF, XML, TXT, CSV, JSON)
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
@@ -158,20 +163,46 @@ export function OrcamentoCurrentTab({
     try {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const content = await file.text();
         const filename = file.name.toLowerCase();
 
         let parsed: any[] = [];
-        if (filename.endsWith('.xml')) {
+        if (filename.endsWith('.pdf')) {
+          const arrayBuffer = await file.arrayBuffer();
+          const pdfResult = await parsePromobPDF(arrayBuffer);
+          parsed = pdfResult.items;
+          if (pdfResult.metadata.client_name) setClientName(pdfResult.metadata.client_name);
+          if (pdfResult.metadata.client_phone) setClientPhone(pdfResult.metadata.client_phone);
+          if (pdfResult.metadata.project_name) setProjectName(pdfResult.metadata.project_name);
+        } else if (filename.endsWith('.xml')) {
+          const content = await file.text();
           parsed = parsePromobXML(content);
         } else if (filename.endsWith('.txt')) {
-          parsed = parseTXT(content);
+          const content = await file.text();
+          if (content.toLowerCase().includes('item') && content.toLowerCase().includes('tabela')) {
+            const res = parsePromobTextTable(content);
+            parsed = res.items;
+            if (res.metadata.client_name) setClientName(res.metadata.client_name);
+            if (res.metadata.client_phone) setClientPhone(res.metadata.client_phone);
+            if (res.metadata.project_name) setProjectName(res.metadata.project_name);
+          } else {
+            parsed = parseTXT(content);
+          }
         } else if (filename.endsWith('.csv')) {
-          parsed = parseCSV(content);
+          const content = await file.text();
+          if (content.toLowerCase().includes('item') && content.toLowerCase().includes('tabela')) {
+            const res = parsePromobTextTable(content);
+            parsed = res.items;
+            if (res.metadata.client_name) setClientName(res.metadata.client_name);
+            if (res.metadata.client_phone) setClientPhone(res.metadata.client_phone);
+            if (res.metadata.project_name) setProjectName(res.metadata.project_name);
+          } else {
+            parsed = parseCSV(content);
+          }
         } else if (filename.endsWith('.json')) {
+          const content = await file.text();
           parsed = parseJSON(content);
         } else {
-          toast.error(`Formato não suportado: ${file.name}. Use XML, TXT, CSV ou JSON.`);
+          toast.error(`Formato não suportado: ${file.name}. Use PDF, XML, TXT, CSV ou JSON.`);
           continue;
         }
 
@@ -185,8 +216,7 @@ export function OrcamentoCurrentTab({
         return;
       }
 
-      // O usuário solicitou deixar os custos zerados/limpos na importação
-      // para inserir manualmente de forma organizada e limpa
+      // Preserva preços de custo (tabela) e valores finais do Promob com alta precisão
       const newBudgetItems: BudgetItem[] = allRawItems.map((raw, idx) => {
         const calculated = calculateItemPrice(
           {
@@ -194,23 +224,31 @@ export function OrcamentoCurrentTab({
             description: raw.description,
             quantity: raw.quantity,
             unit: raw.unit,
-            unit_cost: 0, // Custo inicial limpo / manual conforme instrução do usuário
-            margin: settings.margin, // Sempre herda a margem configurada!
+            unit_cost: raw.unit_cost !== undefined ? raw.unit_cost : raw.table_price,
+            margin: settings.margin,
+            rep: raw.rep,
+            unit_quantity: raw.unit_quantity,
+            dimensions: raw.dimensions,
+            category: raw.category,
+            external_model: raw.external_model,
+            table_price: raw.table_price,
+            final_price: raw.final_price,
+            is_parent_module: raw.is_parent_module,
           },
-          [], // Não vincula preço automático para manter o orçamento limpo
+          database,
           settings
         );
         return {
           ...calculated,
-          item_number: idx + 1,
+          item_number: raw.item_number || idx + 1,
         };
       });
 
       setItems(newBudgetItems);
       onStartNewBudget();
 
-      toast.success(`${parsedCount} itens importados com sucesso!`, {
-        description: `Custos unitários limpos para preenchimento manual conforme sua tabela.`,
+      toast.success(`${parsedCount} itens importados do Promob com sucesso!`, {
+        description: `Quantidades em m² quebrados e preços de tabela preservados com exatidão.`,
       });
     } catch (err: any) {
       console.error('Erro ao processar arquivo:', err);
@@ -218,6 +256,65 @@ export function OrcamentoCurrentTab({
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // Importar relatório colado do Promob (Ctrl+V / texto)
+  const handlePasteImport = () => {
+    if (!pastedText.trim()) {
+      toast.error('Cole o conteúdo do relatório do Promob na caixa de texto.');
+      return;
+    }
+
+    try {
+      const res = parsePromobTextTable(pastedText);
+      if (res.items.length === 0) {
+        toast.warning('Nenhum item válido encontrado no texto colado. Verifique se o relatório contém as colunas Item, Qtd e Tabela.');
+        return;
+      }
+
+      if (res.metadata.client_name) setClientName(res.metadata.client_name);
+      if (res.metadata.client_phone) setClientPhone(res.metadata.client_phone);
+      if (res.metadata.project_name) setProjectName(res.metadata.project_name);
+
+      const newBudgetItems: BudgetItem[] = res.items.map((raw, idx) => {
+        const calculated = calculateItemPrice(
+          {
+            code: raw.code,
+            description: raw.description,
+            quantity: raw.quantity,
+            unit: raw.unit,
+            unit_cost: raw.unit_cost !== undefined ? raw.unit_cost : raw.table_price,
+            margin: settings.margin,
+            rep: raw.rep,
+            unit_quantity: raw.unit_quantity,
+            dimensions: raw.dimensions,
+            category: raw.category,
+            external_model: raw.external_model,
+            table_price: raw.table_price,
+            final_price: raw.final_price,
+            is_parent_module: raw.is_parent_module,
+          },
+          database,
+          settings
+        );
+        return {
+          ...calculated,
+          item_number: raw.item_number || idx + 1,
+        };
+      });
+
+      setItems(newBudgetItems);
+      onStartNewBudget();
+      setPasteModalOpen(false);
+      setPastedText('');
+
+      toast.success(`${res.items.length} itens importados do relatório colado!`, {
+        description: `Cliente "${res.metadata.client_name || clientName}" e valores calculados com precisão.`,
+      });
+    } catch (err: any) {
+      console.error('Erro ao processar texto colado:', err);
+      toast.error(`Erro ao importar texto: ${err.message || 'Formato não reconhecido'}`);
     }
   };
 
@@ -648,14 +745,24 @@ export function OrcamentoCurrentTab({
 
   // Filtered items list
   const filteredItems = useMemo(() => {
-    if (!filterSearch.trim()) return items;
+    let result = items;
+
+    if (itemsViewFilter === 'leaves') {
+      result = result.filter(it => !it.is_parent_module);
+    } else if (itemsViewFilter === 'modules') {
+      result = result.filter(it => it.is_parent_module);
+    }
+
+    if (!filterSearch.trim()) return result;
     const term = filterSearch.toLowerCase();
-    return items.filter(
+    return result.filter(
       it =>
         it.code.toLowerCase().includes(term) ||
-        it.description.toLowerCase().includes(term)
+        it.description.toLowerCase().includes(term) ||
+        (it.category && it.category.toLowerCase().includes(term)) ||
+        (it.dimensions && it.dimensions.toLowerCase().includes(term))
     );
-  }, [items, filterSearch]);
+  }, [items, filterSearch, itemsViewFilter]);
 
   return (
     <div className="space-y-6">
@@ -871,7 +978,7 @@ export function OrcamentoCurrentTab({
             type="file"
             ref={fileInputRef}
             onChange={handleFileUpload}
-            accept=".xml,.txt,.csv,.json"
+            accept=".pdf,.xml,.txt,.csv,.json"
             multiple
             className="hidden"
           />
@@ -882,7 +989,16 @@ export function OrcamentoCurrentTab({
             className="bg-[#17191d] text-xs text-white hover:bg-slate-800"
           >
             <Upload className="mr-1.5 h-4 w-4" />
-            {isUploading ? 'Processando Arquivo...' : 'Importar Promob (XML / TXT / CSV)'}
+            {isUploading ? 'Processando Arquivo...' : 'Importar Promob (PDF / XML / TXT)'}
+          </Button>
+
+          <Button
+            variant="outline"
+            onClick={() => setPasteModalOpen(true)}
+            className="border-slate-300 text-xs hover:bg-slate-50"
+          >
+            <ClipboardPaste className="mr-1.5 h-3.5 w-3.5 text-blue-600" />
+            Colar Relatório Promob
           </Button>
 
           <Button
@@ -919,8 +1035,48 @@ export function OrcamentoCurrentTab({
           )}
         </div>
 
-        {/* Chapa Conversion Controls */}
+        {/* Chapa Conversion Controls & View Filter */}
         <div className="flex flex-wrap items-center gap-3">
+          {items.length > 0 && (
+            <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-[11px]">
+              <button
+                type="button"
+                onClick={() => setItemsViewFilter('all')}
+                className={`px-2 py-1 rounded-md font-medium transition-colors ${
+                  itemsViewFilter === 'all'
+                    ? 'bg-white shadow text-slate-900 font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Todos ({items.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setItemsViewFilter('leaves')}
+                className={`px-2 py-1 rounded-md font-medium transition-colors ${
+                  itemsViewFilter === 'leaves'
+                    ? 'bg-white shadow text-slate-900 font-bold'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Peças de Corte ({items.filter(it => !it.is_parent_module).length})
+              </button>
+              {items.some(it => it.is_parent_module) && (
+                <button
+                  type="button"
+                  onClick={() => setItemsViewFilter('modules')}
+                  className={`px-2 py-1 rounded-md font-medium transition-colors ${
+                    itemsViewFilter === 'modules'
+                      ? 'bg-white shadow text-slate-900 font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Módulos ({items.filter(it => it.is_parent_module).length})
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1 text-xs">
             <Layers className="h-3.5 w-3.5 text-slate-500" />
             <span className="font-medium text-slate-700">Chapas MDF:</span>
@@ -988,15 +1144,23 @@ export function OrcamentoCurrentTab({
             Nenhum arquivo ou item carregado
           </h3>
           <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">
-            Importe a lista de peças exportada pelo <strong>Promob (XML ou TXT)</strong>. O orçamento inicia limpo para você inserir os custos manuais diretamente na tabela, consultando a aba de Tabela de Preços por Marca quando desejar.
+            Importe o relatório exportado pelo <strong>Promob Plus ou Promob Start (PDF, XML ou TXT)</strong> ou cole a tabela diretamente. Os números quebrados em m² e preços de tabela serão calculados com exatidão matemática.
           </p>
-          <div className="mt-6 flex justify-center gap-3">
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
             <Button
               onClick={() => fileInputRef.current?.click()}
               className="bg-[#c92031] text-white hover:bg-[#aa1726]"
             >
               <Upload className="mr-2 h-4 w-4" />
-              Selecionar Arquivo Promob
+              Selecionar PDF ou Arquivo Promob
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setPasteModalOpen(true)}
+              className="border-slate-300"
+            >
+              <ClipboardPaste className="mr-2 h-4 w-4 text-blue-600" />
+              Colar Relatório Promob
             </Button>
             <Button
               variant="outline"
@@ -1013,17 +1177,19 @@ export function OrcamentoCurrentTab({
             <table className="w-full text-left text-xs text-slate-700">
               <thead className="bg-[#17191d] text-[11px] uppercase tracking-wider text-white">
                 <tr>
-                  <th className="py-3 pl-4 pr-2 font-semibold">#</th>
-                  <th className="px-3 py-3 font-semibold">Código / Peça</th>
-                  <th className="px-3 py-3 font-semibold">Descrição do Material</th>
-                  <th className="px-2 py-3 text-center font-semibold">Qtd</th>
-                  <th className="px-2 py-3 text-center font-semibold">Un</th>
+                  <th className="py-3 pl-3 pr-1 font-semibold w-10 text-center">#</th>
+                  <th className="px-2 py-3 font-semibold">Código / Peça</th>
+                  <th className="px-3 py-3 font-semibold">Descrição do Material / Dimensões</th>
+                  <th className="px-2 py-3 text-center font-semibold w-12" title="Repetições da peça">Rep</th>
+                  <th className="px-2 py-3 text-center font-semibold w-16" title="Quantidade unitária no Promob">Qtd Unit</th>
+                  <th className="px-2 py-3 text-center font-semibold w-20" title="Quantidade total (Rep * Qtd Unit)">Qtd Total</th>
+                  <th className="px-2 py-3 text-center font-semibold w-12">Un</th>
                   <th className="px-3 py-3 text-right font-semibold text-amber-300">
-                    Custo Unit. (R$) ✏️
+                    Custo Tabela (R$) ✏️
                   </th>
                   <th className="px-2 py-3 text-center font-semibold">Margem</th>
                   <th className="px-3 py-3 text-right font-semibold">Preço Unit.</th>
-                  <th className="px-3 py-3 text-right font-semibold">Total</th>
+                  <th className="px-3 py-3 text-right font-semibold">Total Linha</th>
                   <th className="py-3 pl-2 pr-4 text-center font-semibold">Ação</th>
                 </tr>
               </thead>
@@ -1034,13 +1200,13 @@ export function OrcamentoCurrentTab({
                       key={item.id}
                       className="hover:bg-slate-50/80 transition-colors"
                     >
-                      <td className="py-2.5 pl-4 pr-2 font-medium text-slate-400">
-                        {index + 1}
+                      <td className="py-2.5 pl-3 pr-1 text-center font-medium text-slate-400">
+                        {item.item_number || index + 1}
                       </td>
 
-                      <td className="px-3 py-2.5 font-mono font-semibold text-slate-900">
+                      <td className="px-2 py-2.5 font-mono font-semibold text-slate-900">
                         <div className="flex items-center gap-1.5">
-                          <span className="truncate max-w-[220px]" title={item.code}>
+                          <span className="truncate max-w-[180px]" title={item.code}>
                             {item.code}
                           </span>
 
@@ -1074,24 +1240,59 @@ export function OrcamentoCurrentTab({
                       </td>
 
                       <td className="px-3 py-2.5">
-                        <span className="font-medium text-slate-800">{item.description}</span>
-                        {item.is_chapa && (
-                          <Badge variant="outline" className="ml-1.5 border-blue-200 bg-blue-50 text-[9px] text-blue-700">
-                            Chapa
-                          </Badge>
-                        )}
-                        {item.is_fita && (
-                          <Badge variant="outline" className="ml-1.5 border-purple-200 bg-purple-50 text-[9px] text-purple-700">
-                            Fita
-                          </Badge>
-                        )}
+                        <div className="space-y-0.5">
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span className="font-medium text-slate-800">{item.description}</span>
+                            {item.is_parent_module && (
+                              <Badge variant="outline" className="border-amber-300 bg-amber-50 text-[9px] text-amber-800 font-semibold">
+                                Módulo Promob
+                              </Badge>
+                            )}
+                            {item.category && (
+                              <Badge variant="outline" className="border-slate-300 bg-slate-100 text-[9px] text-slate-700">
+                                {item.category}
+                              </Badge>
+                            )}
+                            {item.external_model && (
+                              <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-[9px] text-emerald-700">
+                                {item.external_model}
+                              </Badge>
+                            )}
+                            {item.is_chapa && (
+                              <Badge variant="outline" className="border-blue-200 bg-blue-50 text-[9px] text-blue-700">
+                                Chapa
+                              </Badge>
+                            )}
+                            {item.is_fita && (
+                              <Badge variant="outline" className="border-purple-200 bg-purple-50 text-[9px] text-purple-700">
+                                Fita
+                              </Badge>
+                            )}
+                          </div>
+                          {item.dimensions && (
+                            <span className="block text-[10px] text-slate-500 font-mono">
+                              Dimensões: {item.dimensions}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
+                      {/* Repetição */}
+                      <td className="px-2 py-2 text-center font-semibold text-slate-700">
+                        {item.rep || 1}
+                      </td>
+
+                      {/* Quantidade Unitária */}
+                      <td className="px-2 py-2 text-center font-mono text-slate-600 text-xs">
+                        {item.unit_quantity !== undefined ? item.unit_quantity : item.quantity}
+                      </td>
+
+                      {/* Quantidade Total Efetiva */}
                       <td className="px-2 py-2 text-center">
                         <BudgetNumberInput
                           type="number"
                           step="any"
-                          min="0.01"
+                          min="0.001"
                           value={item.quantity}
                           onCommit={value => handleUpdateItemQty(item.id, value)}
                           className="h-7 w-16 text-center text-xs font-semibold px-1 py-0 border-slate-200 mx-auto"
@@ -1144,8 +1345,13 @@ export function OrcamentoCurrentTab({
                         {item.unit_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </td>
 
-                      <td className="px-3 py-2.5 text-right font-bold text-slate-900">
-                        {item.total_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      <td className="px-3 py-2.5 text-right">
+                        <span className="font-bold text-slate-900">
+                          {item.total_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </span>
+                        <span className="block text-[10px] text-slate-400">
+                          Custo: {item.total_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </span>
                       </td>
 
                       <td className="py-2.5 pl-2 pr-4 text-center">
@@ -1362,6 +1568,42 @@ export function OrcamentoCurrentTab({
             </Button>
             <Button onClick={handleAddManualItem} className="bg-[#c92031] text-white hover:bg-[#aa1726]">
               Adicionar Item
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL: Colar Relatório Promob */}
+      <Dialog open={pasteModalOpen} onOpenChange={setPasteModalOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900">
+              <ClipboardPaste className="h-5 w-5 text-blue-600" />
+              Colar Relatório / Tabela Promob
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-xs text-slate-600">
+              Copie a tabela do relatório do <strong>Promob Plus ou Promob Start</strong> (ou o texto do PDF) e cole no campo abaixo. Os campos de cliente, repetições, m² quebrados e preços de tabela serão importados automaticamente:
+            </p>
+            <textarea
+              rows={10}
+              value={pastedText}
+              onChange={e => setPastedText(e.target.value)}
+              placeholder="Cole aqui o texto do relatório Promob (Item, Rep, Qtd, Referência, Descrição, Preço Tabela, Preço Final)..."
+              className="w-full rounded-lg border border-slate-300 p-3 font-mono text-xs focus:border-[#c92031] focus:outline-none focus:ring-1 focus:ring-[#c92031]"
+            />
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setPasteModalOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handlePasteImport}
+              className="bg-[#c92031] text-white hover:bg-[#aa1726]"
+            >
+              <Check className="mr-1.5 h-4 w-4" />
+              Importar Relatório
             </Button>
           </DialogFooter>
         </DialogContent>

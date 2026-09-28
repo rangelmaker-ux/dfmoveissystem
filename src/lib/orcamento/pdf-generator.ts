@@ -99,12 +99,20 @@ export function generateBudgetPdf(opts: GenerateBudgetPdfOptions): void {
 
   // Items Table
   const tableStartY = clientCardY + 28;
-  const tableRows = opts.items.map((it, idx) => {
+  const printableItems = opts.items.filter(it => !it.is_parent_module);
+  const itemsToPrint = printableItems.length > 0 ? printableItems : opts.items;
+
+  const tableRows = itemsToPrint.map((it, idx) => {
+    let desc = it.description;
+    if (it.dimensions && !desc.includes(it.dimensions)) {
+      desc += ` (${it.dimensions})`;
+    }
+
     const row: any[] = [
-      (idx + 1).toString(),
+      (it.item_number || idx + 1).toString(),
       it.code,
-      it.description,
-      it.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 2 }),
+      desc,
+      it.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 4 }),
       it.unit,
     ];
 

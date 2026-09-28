@@ -13,6 +13,11 @@ export function round2(val: number): number {
   return Math.round((val + Number.EPSILON) * 100) / 100;
 }
 
+// Arredondamento com precisão de 4 casas decimais para quantidades em m² e fita
+export function round4(val: number): number {
+  return Math.round((val + Number.EPSILON) * 10000) / 10000;
+}
+
 // Normalização de código para comparação consistente
 export function normalizeCode(value: unknown): string {
   return String(value ?? '').trim().toLowerCase();
@@ -250,6 +255,17 @@ export function calculateItemPrice(
     unit_cost?: number;
     margin?: number;
     price_unlinked?: boolean;
+    rep?: number;
+    unit_quantity?: number;
+    dimensions?: string;
+    category?: string;
+    external_model?: string;
+    table_price?: number;
+    final_price?: number;
+    is_parent_module?: boolean;
+    is_chapa?: boolean;
+    is_fita?: boolean;
+    fita_metros?: number;
   },
   database: ProductItem[],
   settings: BudgetSettings
@@ -260,43 +276,28 @@ export function calculateItemPrice(
   // 2. Se não encontrou no banco direto, roda o Smart Matcher de Chapas por Marca (Arauco, Duratex, etc.)
   const smart = !matched && !item.price_unlinked ? smartMatchPromobChapa(item.code, item.description) : null;
 
-  const found = !!matched || (smart ? smart.matched : false);
-  const isItemChapa = isChapa(item.code, item.description) || (smart ? smart.matched : false);
-  const isItemFita = isFitaBorda(item.code, item.description);
+  const found = !item.price_unlinked && (!!matched || (smart ? smart.matched : false));
+  const isItemChapa = item.is_chapa !== undefined ? item.is_chapa : (isChapa(item.code, item.description) || (smart ? smart.matched : false));
+  const isItemFita = item.is_fita !== undefined ? item.is_fita : isFitaBorda(item.code, item.description);
 
-  // Custo base unitário
-  let unit_cost = 0;
-  if (item.unit_cost !== undefined && item.unit_cost >= 0) {
-    unit_cost = item.unit_cost;
-  } else if (matched) {
-    unit_cost = matched.unit_price;
-  } else if (smart && smart.matched) {
-    unit_cost = smart.m2Cost;
+  // Quantidade efetiva e unidade:
+  // Se veio rep e unit_quantity do Promob, calcula rep * unit_quantity com alta precisão
+  let effectiveQuantity = item.quantity;
+  if (item.rep !== undefined && item.unit_quantity !== undefined && item.rep > 0 && item.unit_quantity > 0) {
+    effectiveQuantity = round4(item.rep * item.unit_quantity);
+  } else if (!effectiveQuantity || effectiveQuantity <= 0) {
+    effectiveQuantity = 1;
   }
+  effectiveQuantity = round4(effectiveQuantity);
 
-  const fitaMetros = matched?.fita_metros || extractFitaMetros(item.description) || 20;
-
-  // Se for Fita de Borda em rolo e a lista vier em metros lineares (M):
-  if (isItemFita && fitaMetros > 0 && item.unit?.toUpperCase() === 'M' && unit_cost > 0) {
-    unit_cost = round2(unit_cost / fitaMetros);
-  }
-
-  // Margem de lucro do item ou margem padrão
-  const marginPercent = Math.max(0, Number(item.margin !== undefined ? item.margin : settings.margin) || 0);
-
-  // Fator de acréscimos globais
-  const additionsFactor = calculateAdditionsFactor(settings);
-
-  // Fórmula central: Custo x (1 + Margem/100) x Fator de Acréscimos
-  const priceWithMargin = unit_cost * (1 + marginPercent / 100);
-  const unit_price = round2(priceWithMargin * additionsFactor);
-
-  // Quantidade e unidade (considera modo chapa se aplicável)
-  let effectiveQuantity = Math.max(0.01, Number(item.quantity) || 1);
   let displayUnit = matched?.unit || item.unit || 'UN';
 
-  if (isItemChapa && settings.chapa_mode === 'chapa' && displayUnit.toUpperCase() === 'M2') {
-    const chapasCount = item.quantity / CHAPA_AREA_M2;
+  // Importante: NÃO converte peças de corte Promob (com m² quebrado, rep ou dimensões) para chapa inteira!
+  // Apenas converte para chapa se explicitamente não for uma peça de corte individual
+  const isPromobCutPiece = !!item.dimensions || (item.rep !== undefined && item.rep > 0) || (displayUnit.toUpperCase() === 'M2' && effectiveQuantity < CHAPA_AREA_M2);
+
+  if (!isPromobCutPiece && isItemChapa && settings.chapa_mode === 'chapa' && displayUnit.toUpperCase() === 'M2') {
+    const chapasCount = effectiveQuantity / CHAPA_AREA_M2;
     if (settings.chapa_rounding === 'up') {
       effectiveQuantity = Math.ceil(chapasCount);
     } else if (settings.chapa_rounding === 'down') {
@@ -307,8 +308,49 @@ export function calculateItemPrice(
     displayUnit = 'CHAPA';
   }
 
-  const total_cost = round2(unit_cost * effectiveQuantity);
-  const total_price = round2(unit_price * effectiveQuantity);
+  // Custo base unitário (preço tabela do Promob ou catálogo)
+  let unit_cost = 0;
+  if (item.price_unlinked) {
+    unit_cost = item.unit_cost !== undefined ? item.unit_cost : 0;
+  } else if (item.table_price !== undefined && item.table_price >= 0) {
+    unit_cost = item.table_price;
+  } else if (item.unit_cost !== undefined && item.unit_cost >= 0) {
+    unit_cost = item.unit_cost;
+  } else if (matched) {
+    unit_cost = matched.unit_price;
+  } else if (smart && smart.matched) {
+    unit_cost = smart.m2Cost;
+  }
+
+  const fitaMetros = matched?.fita_metros || extractFitaMetros(item.description) || 20;
+
+  // Se for Fita de Borda em rolo e a lista vier em metros lineares (M):
+  if (isItemFita && fitaMetros > 0 && displayUnit.toUpperCase() === 'M' && unit_cost > 0 && !item.table_price) {
+    unit_cost = round2(unit_cost / fitaMetros);
+  }
+
+  // Preço de venda, custo total e margem
+  let unit_price = 0;
+  let total_cost = 0;
+  let total_price = 0;
+  let marginPercent = 0;
+
+  if (item.final_price !== undefined && item.final_price > 0 && effectiveQuantity > 0) {
+    total_cost = round2(unit_cost * effectiveQuantity);
+    total_price = round2(item.final_price);
+    unit_price = round2(total_price / effectiveQuantity);
+    marginPercent = total_cost > 0
+      ? round2(((total_price - total_cost) / total_cost) * 100)
+      : (Number(item.margin !== undefined ? item.margin : settings.margin) || 0);
+  } else {
+    // Margem de lucro do item ou margem padrão
+    marginPercent = Math.max(0, Number(item.margin !== undefined ? item.margin : settings.margin) || 0);
+    const additionsFactor = calculateAdditionsFactor(settings);
+    const priceWithMargin = unit_cost * (1 + marginPercent / 100);
+    unit_price = round2(priceWithMargin * additionsFactor);
+    total_cost = round2(unit_cost * effectiveQuantity);
+    total_price = round2(unit_price * effectiveQuantity);
+  }
 
   let finalDescription = item.description;
   if (smart && smart.matched && smart.brand && smart.line) {
@@ -338,6 +380,14 @@ export function calculateItemPrice(
     original_quantity: item.quantity,
     original_unit: item.unit,
     resolved_from_subcode: isSubcodeMatch || (smart ? smart.matched : false),
+    rep: item.rep,
+    unit_quantity: item.unit_quantity,
+    dimensions: item.dimensions,
+    category: item.category,
+    external_model: item.external_model,
+    table_price: item.table_price !== undefined ? item.table_price : unit_cost,
+    final_price: item.final_price !== undefined ? item.final_price : total_price,
+    is_parent_module: item.is_parent_module,
   };
 }
 
@@ -366,6 +416,17 @@ export function recalculateBudget(
         unit_cost: it.unit_cost,
         margin: it.margin,
         price_unlinked: it.price_unlinked,
+        rep: it.rep,
+        unit_quantity: it.unit_quantity,
+        dimensions: it.dimensions,
+        category: it.category,
+        external_model: it.external_model,
+        table_price: it.price_unlinked ? 0 : it.table_price,
+        final_price: it.price_unlinked ? undefined : it.final_price,
+        is_parent_module: it.is_parent_module,
+        is_chapa: it.is_chapa,
+        is_fita: it.is_fita,
+        fita_metros: it.fita_metros,
       },
       database,
       settings
@@ -373,12 +434,27 @@ export function recalculateBudget(
     return {
       ...updated,
       id: it.id,
-      item_number: idx + 1,
+      item_number: it.item_number || idx + 1,
+      rep: it.rep,
+      unit_quantity: it.unit_quantity,
+      dimensions: it.dimensions,
+      category: it.category,
+      external_model: it.external_model,
+      table_price: it.price_unlinked ? 0 : (it.table_price !== undefined ? it.table_price : updated.unit_cost),
+      final_price: it.price_unlinked ? updated.total_price : (it.final_price !== undefined ? it.final_price : updated.total_price),
+      is_parent_module: it.is_parent_module,
     };
   });
 
-  const total_cost = round2(recalculatedItems.reduce((acc, curr) => acc + curr.total_cost, 0));
-  const total_price = round2(recalculatedItems.reduce((acc, curr) => acc + curr.total_price, 0));
+  // Se houver módulos pais agrupadores (Promob), não duplicamos a contagem!
+  // Itens faturáveis são os itens que não são módulos agrupadores pais
+  const hasParentModules = recalculatedItems.some(it => it.is_parent_module);
+  const billableItems = hasParentModules
+    ? recalculatedItems.filter(it => !it.is_parent_module)
+    : recalculatedItems;
+
+  const total_cost = round2(billableItems.reduce((acc, curr) => acc + curr.total_cost, 0));
+  const total_price = round2(billableItems.reduce((acc, curr) => acc + curr.total_price, 0));
   const gross_profit = round2(total_price - total_cost);
   const profit_margin_percent = total_cost > 0 ? round2((gross_profit / total_cost) * 100) : 0;
 

@@ -17,6 +17,7 @@ export interface BudgetItem {
   found: boolean;
   price_unlinked?: boolean;
   has_children?: boolean;
+  is_parent_module?: boolean;
   is_chapa?: boolean;
   is_fita?: boolean;
   fita_metros?: number;
@@ -24,7 +25,25 @@ export interface BudgetItem {
   original_quantity?: number;
   original_unit?: string;
   resolved_from_subcode?: boolean;
+  rep?: number;
+  unit_quantity?: number;
+  dimensions?: string;
+  category?: string;
+  external_model?: string;
+  table_price?: number;
+  final_price?: number;
   notes?: string;
+}
+
+export interface PromobReportMetadata {
+  client_name?: string;
+  client_phone?: string;
+  client_email?: string;
+  project_name?: string;
+  report_date?: string;
+  report_time?: string;
+  total_tabela?: number;
+  total_final?: number;
 }
 
 export interface AdditionItem {
