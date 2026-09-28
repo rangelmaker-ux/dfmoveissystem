@@ -58,64 +58,182 @@ function areaFromDimensions(width: number, height: number, count: number): numbe
   return (width * height * count) / divisor;
 }
 
-// 1. Promob XML Parser (Supports Promob Plus <ITEM>, exploded lists and generic <Item>)
-export function parsePromobXML(xmlContent: string): ParsedItemRow[] {
-  const parser = new DOMParser();
-  const xmlDoc = parser.parseFromString(xmlContent, 'text/xml');
-  
-  const parseError = xmlDoc.getElementsByTagName('parsererror');
-  if (parseError.length > 0) {
-    throw new Error('Arquivo XML inválido ou corrompido.');
+function parseDimensionsString(rawDim?: string, w?: string, h?: string, d?: string, t?: string): { dimensions: string; unitArea: number; isPlate: boolean } {
+  let dimStr = String(rawDim || '').trim();
+  if (!dimStr) {
+    const parts = [w, h || t, d || t].filter(Boolean);
+    if (parts.length >= 2) {
+      dimStr = parts.join(' x ');
+    }
+  }
+  if (!dimStr) return { dimensions: '', unitArea: 0, isPlate: false };
+
+  const nums = (dimStr.match(/[\d.,]+/g) || [])
+    .map(n => parseLocaleNumber(n))
+    .filter(n => n > 0);
+
+  if (nums.length >= 2) {
+    const [d1, d2] = [...nums].sort((a, b) => b - a);
+    if (d1 > 20 || d2 > 20) {
+      const unitArea = Math.round(((d1 * d2) / 1_000_000 + Number.EPSILON) * 10000) / 10000;
+      return { dimensions: dimStr, unitArea, isPlate: true };
+    }
   }
 
+  return { dimensions: dimStr, unitArea: 0, isPlate: false };
+}
+
+function parseXmlAttributes(attrString: string): Record<string, string> {
+  const attrs: Record<string, string> = {};
+  const regex = /([a-zA-Z0-9_:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g;
+  let match;
+  while ((match = regex.exec(attrString)) !== null) {
+    const key = match[1].toLowerCase();
+    const val = match[2] ?? match[3] ?? match[4] ?? '';
+    attrs[key] = val.trim();
+  }
+  return attrs;
+}
+
+// 1. Promob XML Parser (Supports Promob Plus / Start <ITEM>, <Item>, <PECA>, cut lists and client metadata)
+export function parsePromobXML(
+  xmlContent: string
+): { items: ParsedItemRow[]; metadata: PromobReportMetadata } {
+  const metadata: PromobReportMetadata = {};
   const items: ParsedItemRow[] = [];
-  const itemElements = xmlDoc.getElementsByTagName('ITEM');
 
-  if (itemElements.length > 0) {
-    for (let i = 0; i < itemElements.length; i++) {
-      const el = itemElements[i];
-      const reference = el.getAttribute('REFERENCE') || el.getAttribute('CODE') || '';
-      const description = el.getAttribute('DESCRIPTION') || el.getAttribute('NAME') || '';
-      const quantity = parseFloat(el.getAttribute('QUANTITY') || el.getAttribute('REPETITION') || '1') || 1;
-      const unit = el.getAttribute('UNIT') || 'UN';
-      const dimensions = el.getAttribute('DIMENSION') || el.getAttribute('DIMENSIONS') || '';
-      const hasChildren = el.getElementsByTagName('ITEM').length > 0;
+  // Previne falhas com entidades HTML não declaradas
+  const cleanXml = xmlContent.replace(/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[a-fA-F0-9]+);)/g, '&amp;');
 
-      if (!reference && !description) continue;
-      if (hasChildren) continue;
+  // Metadados do cliente e projeto no cabeçalho do XML
+  const nameMatch = cleanXml.match(/<(?:NAME|NOME|Cliente|Client)[^>]*>([^<]+)<\//i);
+  if (nameMatch) metadata.client_name = nameMatch[1].trim();
+  const phoneMatch = cleanXml.match(/<(?:PHONE|TELEFONE|CELULAR|Celular)[^>]*>([^<]+)<\//i);
+  if (phoneMatch) metadata.client_phone = phoneMatch[1].trim();
+  const emailMatch = cleanXml.match(/<(?:EMAIL|E-MAIL|Email)[^>]*>([^<]+)<\//i);
+  if (emailMatch) metadata.client_email = emailMatch[1].trim();
+  const projMatch = cleanXml.match(/<(?:PROJECT|PROJETO|Projeto|AMBIENTE|Ambiente)[^>]*>([^<]+)<\//i);
+  if (projMatch) metadata.project_name = projMatch[1].trim();
 
-      items.push({
-        code: reference.trim(),
-        description: description.trim(),
-        quantity: Math.max(0.01, quantity),
-        unit: unit.trim().toUpperCase() || 'UN',
-        dimensions,
-        has_children: hasChildren,
-      });
+  const totTabMatch = cleanXml.match(/<(?:TOTAL_TABELA|TotalTabela|TOTAL_TABLE)[^>]*>([^<]+)<\//i);
+  if (totTabMatch) metadata.total_tabela = parseLocaleNumber(totTabMatch[1]);
+  const totFinMatch = cleanXml.match(/<(?:TOTAL_FINAL|TotalFinal|FINAL_TOTAL)[^>]*>([^<]+)<\//i);
+  if (totFinMatch) metadata.total_final = parseLocaleNumber(totFinMatch[1]);
+
+  // Extração de tags de itens (<ITEM>, <PECA>, <PART>, <Item>, <Peca>, <Part>)
+  const tagRegex = /<(ITEM|PECA|PART|Item|Peca|Part)([\s\S]*?)(?:>(?:([\s\S]*?)<\/\1>)?|\/>)/gi;
+  let match;
+  let itemCounter = 1;
+
+  while ((match = tagRegex.exec(cleanXml)) !== null) {
+    const attrStr = match[2] || '';
+    const bodyStr = match[3] || '';
+    const attrs = parseXmlAttributes(attrStr);
+
+    const getVal = (keys: string[]): string => {
+      for (const k of keys) {
+        const lower = k.toLowerCase();
+        const compact = lower.replace(/[_\s-]/g, '');
+        for (const [attrKey, attrVal] of Object.entries(attrs)) {
+          if (attrKey === lower || attrKey.replace(/[_\s-]/g, '') === compact) {
+            if (attrVal !== '') return attrVal;
+          }
+        }
+        if (bodyStr) {
+          const pattern = k.replace(/_/g, '[_\\s-]?');
+          const bodyRegex = new RegExp(`<(${pattern})[^>]*>([^<]+)<\\/\\1>`, 'i');
+          const m = bodyStr.match(bodyRegex);
+          if (m && m[2].trim()) return m[2].trim();
+        }
+      }
+      return '';
+    };
+
+    // Pula elementos agrupadores que já contêm subitens internos no XML
+    const hasChildren = bodyStr && /<(?:ITEM|PECA|PART|Item|Peca|Part)\b/i.test(bodyStr);
+    if (hasChildren) {
+      continue;
     }
-  } else {
-    const genericItems = xmlDoc.getElementsByTagName('Item');
-    for (let i = 0; i < genericItems.length; i++) {
-      const el = genericItems[i];
-      const ref = el.getElementsByTagName('Referencia')[0]?.textContent || el.getElementsByTagName('Codigo')[0]?.textContent || '';
-      const desc = el.getElementsByTagName('Descricao')[0]?.textContent || '';
-      const qtd = parseFloat(el.getElementsByTagName('QtdTotal')[0]?.textContent || el.getElementsByTagName('Quantidade')[0]?.textContent || '1') || 1;
-      const un = el.getElementsByTagName('Unidade')[0]?.textContent || 'UN';
-      const dim = el.getElementsByTagName('Dimensoes')[0]?.textContent || '';
 
-      if (!ref && !desc) continue;
+    const code = getVal(['reference', 'code', 'referencia', 'codigo', 'id']);
+    const description = getVal(['description', 'name', 'descricao', 'nome', 'desc']);
+    if (!code && !description) continue;
 
-      items.push({
-        code: ref.trim(),
-        description: desc.trim(),
-        quantity: Math.max(0.01, qtd),
-        unit: un.trim().toUpperCase() || 'UN',
-        dimensions: dim,
-      });
+    const rawRep = getVal(['repetition', 'repeticao', 'rep', 'quantidade_repeticao', 'qtd_pecas', 'quantidade_pecas']);
+    const rawQty = getVal(['quantity', 'quantidade', 'qtd', 'qtdtotal', 'quant', 'quantidade_total', 'qtd_total']);
+    const rawUnit = getVal(['unit', 'unidade', 'un']);
+    const rawDim = getVal(['dimension', 'dimensions', 'dimensao', 'dimensoes', 'dimensoes_formatada']);
+    const w = getVal(['width', 'largura', 'comprimento', 'comp']);
+    const h = getVal(['height', 'altura', 'alt']);
+    const d = getVal(['depth', 'profundidade', 'prof']);
+    const t = getVal(['thickness', 'espessura', 'esp']);
+
+    const tablePrice = parseLocaleNumber(getVal(['table_price', 'preco_tabela', 'valor_tabela', 'price', 'preco', 'unit_price', 'custo']));
+    const finalPrice = parseLocaleNumber(getVal(['final_price', 'preco_final', 'valor_final', 'total_price', 'valor_total']));
+    const category = getVal(['category', 'categoria', 'grupo']);
+    const externalModel = getVal(['external_model', 'modelo_externo', 'model', 'modelo']);
+
+    const rep = rawRep
+      ? Math.max(1, Math.round(parseLocaleNumber(rawRep, 1)))
+      : (rawQty && Number.isInteger(parseLocaleNumber(rawQty)) && parseLocaleNumber(rawQty) > 0 && !rawDim && (!w || !h)
+          ? parseLocaleNumber(rawQty)
+          : 1);
+
+    const dimInfo = parseDimensionsString(rawDim, w, h, d, t);
+    let unit = rawUnit.toUpperCase();
+
+    const isPlateMaterial =
+      unit === 'M2' ||
+      dimInfo.isPlate ||
+      ['mdf', 'mdp', 'chapa', 'painel', 'fundo', 'porta', 'base', 'lateral', 'prateleira', 'travessa', 'sarrafo', 'tampo', 'frente', 'divisoria'].some(k =>
+        (description + ' ' + code).toLowerCase().includes(k)
+      );
+
+    const qtyMatch = rawQty.match(/^([\d.,]+)\s*([A-Za-z0-9]+)?/);
+    const parsedQtyNum = qtyMatch ? parseLocaleNumber(qtyMatch[1], 0) : parseLocaleNumber(rawQty, 0);
+    if (!unit && qtyMatch?.[2]) unit = qtyMatch[2].toUpperCase();
+
+    let unit_quantity = 1;
+    if (isPlateMaterial && dimInfo.unitArea > 0) {
+      unit = 'M2';
+      if (parsedQtyNum > 0 && parsedQtyNum < 15 && Math.abs(parsedQtyNum - dimInfo.unitArea) < 0.05) {
+        unit_quantity = parsedQtyNum;
+      } else {
+        unit_quantity = dimInfo.unitArea;
+      }
+    } else if (unit === 'M2' && parsedQtyNum > 0 && parsedQtyNum < 15) {
+      unit_quantity = parsedQtyNum;
+    } else if (parsedQtyNum > 0 && parsedQtyNum < 1) {
+      unit_quantity = parsedQtyNum;
+      if (!unit || unit === 'UN') unit = 'M2';
+    } else {
+      unit_quantity = 1;
+      if (!unit) unit = 'UN';
     }
+
+    const totalQuantity = Math.round((rep * unit_quantity + Number.EPSILON) * 10000) / 10000;
+    const is_parent_module =
+      (unit === 'UN' && ['armário', 'balcão', 'torre', 'caixa armário', 'caixa gaveta'].some(k => description.toLowerCase().includes(k)));
+
+    items.push({
+      item_number: itemCounter++,
+      code: code || `ITEM-${itemCounter}`,
+      description: description || code,
+      quantity: totalQuantity,
+      unit,
+      rep,
+      unit_quantity,
+      dimensions: dimInfo.dimensions,
+      category,
+      external_model: externalModel === '-' ? '' : externalModel,
+      unit_cost: tablePrice,
+      table_price: tablePrice,
+      final_price: finalPrice,
+      is_parent_module,
+    });
   }
 
-  return aggregateItems(items);
+  return { items: aggregateItems(items), metadata };
 }
 
 // 2. TXT Parser (Standard cutting list / semicolon separated lines)
@@ -225,15 +343,19 @@ export function parseJSON(jsonContent: string): ParsedItemRow[] {
   })).filter(item => item.code || item.description));
 }
 
-// Helper: Aggregates duplicate items by code and description
+// Helper: Aggregates duplicate items by code, description and dimensions
 function aggregateItems(items: ParsedItemRow[]): ParsedItemRow[] {
   const map = new Map<string, ParsedItemRow>();
 
   for (const item of items) {
-    const key = `${item.code.toLowerCase()}|||${item.description.toLowerCase()}`;
+    const dimKey = (item.dimensions || '').toLowerCase().trim();
+    const key = `${item.code.toLowerCase()}|||${item.description.toLowerCase()}|||${dimKey}`;
     if (map.has(key)) {
       const existing = map.get(key)!;
-      existing.quantity += item.quantity;
+      existing.quantity = Math.round((existing.quantity + item.quantity + Number.EPSILON) * 10000) / 10000;
+      if (item.rep !== undefined) {
+        existing.rep = (existing.rep || 1) + item.rep;
+      }
     } else {
       map.set(key, { ...item });
     }

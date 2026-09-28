@@ -185,7 +185,7 @@ export function OrcamentoCurrentTab({
     return items.filter(it => isSimilarPromobItem(linkingItem, it, isAcc)).length;
   }, [items, linkingItem, selectedBrand]);
 
-  // Handle File Upload (Somente arquivos .xml do Promob)
+  // Handle File Upload (Aceita arquivos .xml, .pdf, .txt, .csv do Promob)
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
@@ -193,31 +193,65 @@ export function OrcamentoCurrentTab({
     setIsUploading(true);
     let parsedCount = 0;
     const allRawItems: any[] = [];
+    let recognizedClient = '';
+    let recognizedPhone = '';
+    let recognizedProject = '';
 
     try {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const filename = file.name.toLowerCase();
 
-        if (!filename.endsWith('.xml')) {
-          toast.error(`Formato não aceito: ${file.name}. Somente arquivos XML (.xml) do Promob são permitidos.`);
+        if (filename.endsWith('.pdf')) {
+          const buffer = await file.arrayBuffer();
+          const res = await parsePromobPDF(buffer);
+          if (res.metadata.client_name && !recognizedClient) recognizedClient = res.metadata.client_name;
+          if (res.metadata.client_phone && !recognizedPhone) recognizedPhone = res.metadata.client_phone;
+          if (res.metadata.project_name && !recognizedProject) recognizedProject = res.metadata.project_name;
+          allRawItems.push(...res.items);
+          parsedCount += res.items.length;
+        } else if (filename.endsWith('.xml')) {
+          const content = await file.text();
+          const res = parsePromobXML(content);
+          const xmlItems = Array.isArray(res) ? res : res.items;
+          if (!Array.isArray(res) && res.metadata) {
+            if (res.metadata.client_name && !recognizedClient) recognizedClient = res.metadata.client_name;
+            if (res.metadata.client_phone && !recognizedPhone) recognizedPhone = res.metadata.client_phone;
+            if (res.metadata.project_name && !recognizedProject) recognizedProject = res.metadata.project_name;
+          }
+          allRawItems.push(...xmlItems);
+          parsedCount += xmlItems.length;
+        } else if (filename.endsWith('.txt') || filename.endsWith('.csv')) {
+          const content = await file.text();
+          const res = parsePromobTextTable(content);
+          if (res.items.length > 0) {
+            if (res.metadata.client_name && !recognizedClient) recognizedClient = res.metadata.client_name;
+            if (res.metadata.client_phone && !recognizedPhone) recognizedPhone = res.metadata.client_phone;
+            if (res.metadata.project_name && !recognizedProject) recognizedProject = res.metadata.project_name;
+            allRawItems.push(...res.items);
+            parsedCount += res.items.length;
+          } else {
+            const parsed = filename.endsWith('.csv') ? parseCSV(content) : parseTXT(content);
+            allRawItems.push(...parsed);
+            parsedCount += parsed.length;
+          }
+        } else {
+          toast.error(`Formato não aceito: ${file.name}. Formatos aceitos: .xml, .pdf, .txt, .csv do Promob.`);
           continue;
         }
-
-        const content = await file.text();
-        const parsed = parsePromobXML(content);
-
-        allRawItems.push(...parsed);
-        parsedCount += parsed.length;
       }
 
       if (allRawItems.length === 0) {
-        toast.warning('Nenhum item válido encontrado no arquivo XML.');
+        toast.warning('Nenhum item válido encontrado no(s) arquivo(s) selecionado(s).');
         setIsUploading(false);
         return;
       }
 
-      // Preserva preços de custo (tabela) e valores finais do Promob com alta precisão
+      if (recognizedClient) setClientName(recognizedClient);
+      if (recognizedPhone) setClientPhone(recognizedPhone);
+      if (recognizedProject) setProjectName(recognizedProject);
+
+      // Preserva repetições, consumo em m² e preços de tabela do Promob com alta precisão
       const newBudgetItems: BudgetItem[] = allRawItems.map((raw, idx) => {
         const calculated = calculateItemPrice(
           {
@@ -250,7 +284,7 @@ export function OrcamentoCurrentTab({
       onStartNewBudget();
 
       toast.success(`${parsedCount} itens importados do Promob com sucesso!`, {
-        description: `Quantidades em m² quebrados e preços de tabela preservados com exatidão.`,
+        description: `Repetições de peças e consumo em m² lidos e calculados com exatidão matemática.`,
       });
     } catch (err: any) {
       console.error('Erro ao processar arquivo:', err);
@@ -409,12 +443,108 @@ export function OrcamentoCurrentTab({
     setItems(res.items);
   };
 
-  // Atualizar quantidade de um item inline
+  // Atualizar repetição (número de peças) inline
+  const handleUpdateItemRep = (itemId: string, newRep: number) => {
+    const safeRep = isNaN(newRep) || newRep < 1 ? 1 : Math.round(newRep);
+    const updated = items.map(it => {
+      if (it.id === itemId) {
+        const unitQty = it.unit_quantity !== undefined ? it.unit_quantity : (it.quantity / (it.rep || 1));
+        const newTotalQty = Math.round((safeRep * unitQty + Number.EPSILON) * 10000) / 10000;
+        const calculated = calculateItemPrice(
+          {
+            code: it.code,
+            description: it.description,
+            quantity: newTotalQty,
+            unit: it.original_unit || it.unit,
+            unit_cost: it.unit_cost,
+            margin: it.margin,
+            price_unlinked: it.price_unlinked,
+            rep: safeRep,
+            unit_quantity: unitQty,
+            dimensions: it.dimensions,
+            category: it.category,
+            external_model: it.external_model,
+            table_price: it.table_price,
+            final_price: it.final_price,
+            is_parent_module: it.is_parent_module,
+            is_chapa: it.is_chapa,
+            is_fita: it.is_fita,
+            fita_metros: it.fita_metros,
+          },
+          database,
+          settings,
+          catalog
+        );
+        return {
+          ...calculated,
+          id: it.id,
+          rep: safeRep,
+          unit_quantity: unitQty,
+          price_unlinked: it.price_unlinked,
+        };
+      }
+      return it;
+    });
+
+    const res = recalculateBudget(updated, database, settings, catalog);
+    setItems(res.items);
+  };
+
+  // Atualizar quantidade unitária (m² por peça ou fração) inline
+  const handleUpdateItemUnitQty = (itemId: string, newUnitQty: number) => {
+    const safeUnitQty = isNaN(newUnitQty) || newUnitQty <= 0 ? 0.01 : newUnitQty;
+    const updated = items.map(it => {
+      if (it.id === itemId) {
+        const rep = it.rep || 1;
+        const newTotalQty = Math.round((rep * safeUnitQty + Number.EPSILON) * 10000) / 10000;
+        const calculated = calculateItemPrice(
+          {
+            code: it.code,
+            description: it.description,
+            quantity: newTotalQty,
+            unit: it.original_unit || it.unit,
+            unit_cost: it.unit_cost,
+            margin: it.margin,
+            price_unlinked: it.price_unlinked,
+            rep,
+            unit_quantity: safeUnitQty,
+            dimensions: it.dimensions,
+            category: it.category,
+            external_model: it.external_model,
+            table_price: it.table_price,
+            final_price: it.final_price,
+            is_parent_module: it.is_parent_module,
+            is_chapa: it.is_chapa,
+            is_fita: it.is_fita,
+            fita_metros: it.fita_metros,
+          },
+          database,
+          settings,
+          catalog
+        );
+        return {
+          ...calculated,
+          id: it.id,
+          rep,
+          unit_quantity: safeUnitQty,
+          price_unlinked: it.price_unlinked,
+        };
+      }
+      return it;
+    });
+
+    const res = recalculateBudget(updated, database, settings, catalog);
+    setItems(res.items);
+  };
+
+  // Atualizar consumo total de matéria-prima inline
   const handleUpdateItemQty = (itemId: string, newQty: number) => {
     const safeQty = isNaN(newQty) || newQty <= 0 ? 1 : newQty;
     const updated = items.map(it => {
       if (it.id === itemId) {
-        return { ...it, ...calculateItemPrice(
+        const rep = it.rep || 1;
+        const unitQty = Math.round((safeQty / rep + Number.EPSILON) * 10000) / 10000;
+        const calculated = calculateItemPrice(
           {
             code: it.code,
             description: it.description,
@@ -423,15 +553,34 @@ export function OrcamentoCurrentTab({
             unit_cost: it.unit_cost,
             margin: it.margin,
             price_unlinked: it.price_unlinked,
+            rep,
+            unit_quantity: unitQty,
+            dimensions: it.dimensions,
+            category: it.category,
+            external_model: it.external_model,
+            table_price: it.table_price,
+            final_price: it.final_price,
+            is_parent_module: it.is_parent_module,
+            is_chapa: it.is_chapa,
+            is_fita: it.is_fita,
+            fita_metros: it.fita_metros,
           },
           database,
-          settings
-        ), id: it.id, price_unlinked: it.price_unlinked };
+          settings,
+          catalog
+        );
+        return {
+          ...calculated,
+          id: it.id,
+          rep,
+          unit_quantity: unitQty,
+          price_unlinked: it.price_unlinked,
+        };
       }
       return it;
     });
 
-    const res = recalculateBudget(updated, database, settings);
+    const res = recalculateBudget(updated, database, settings, catalog);
     setItems(res.items);
   };
 
@@ -1092,7 +1241,7 @@ export function OrcamentoCurrentTab({
             type="file"
             ref={fileInputRef}
             onChange={handleFileUpload}
-            accept=".xml"
+            accept=".xml,.pdf,.txt,.csv"
             multiple
             className="hidden"
           />
@@ -1103,7 +1252,7 @@ export function OrcamentoCurrentTab({
             className="bg-[#17191d] text-xs text-white hover:bg-slate-800"
           >
             <Upload className="mr-1.5 h-4 w-4" />
-            {isUploading ? 'Processando Arquivo...' : 'Importar Promob (XML)'}
+            {isUploading ? 'Processando Arquivo...' : 'Importar Promob (XML / PDF)'}
           </Button>
 
           <Button
@@ -1258,7 +1407,7 @@ export function OrcamentoCurrentTab({
             Nenhum arquivo ou item carregado
           </h3>
           <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">
-            Importe o arquivo XML exportado pelo <strong>Promob Plus ou Promob Start (.xml)</strong>. Os números quebrados em m² e dados das peças serão calculados com exatidão matemática.
+            Importe o arquivo exportado pelo <strong>Promob Plus ou Promob Start (.xml ou .pdf)</strong>. As repetições de peças e o consumo em m² quebrados serão calculados com exatidão matemática.
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
             <Button
@@ -1266,7 +1415,7 @@ export function OrcamentoCurrentTab({
               className="bg-[#c92031] text-white hover:bg-[#aa1726]"
             >
               <Upload className="mr-2 h-4 w-4" />
-              Selecionar Arquivo XML Promob
+              Selecionar Arquivo Promob (XML / PDF)
             </Button>
             <Button
               variant="outline"
@@ -1294,9 +1443,9 @@ export function OrcamentoCurrentTab({
                   <th className="py-3 pl-3 pr-1 font-semibold w-10 text-center">#</th>
                   <th className="px-2 py-3 font-semibold">Código / Peça</th>
                   <th className="px-3 py-3 font-semibold">Descrição do Material / Dimensões</th>
-                  <th className="px-2 py-3 text-center font-semibold w-12" title="Repetições da peça">Rep</th>
-                  <th className="px-2 py-3 text-center font-semibold w-16" title="Quantidade unitária no Promob">Qtd Unit</th>
-                  <th className="px-2 py-3 text-center font-semibold w-20" title="Quantidade total (Rep * Qtd Unit)">Qtd Total</th>
+                  <th className="px-2 py-3 text-center font-semibold w-16" title="Repetições da peça no projeto (ex: 2 bases, 26 dobradiças)">Rep (Peças)</th>
+                  <th className="px-2 py-3 text-center font-semibold w-20" title="Matéria-prima unitária por peça (m² da chapa ou unidade)">Qtd Unit. (M²)</th>
+                  <th className="px-2 py-3 text-center font-semibold w-20" title="Consumo total de matéria-prima (Rep × Qtd Unit)">Total Matéria</th>
                   <th className="px-2 py-3 text-center font-semibold w-12">Un</th>
                   <th className="px-3 py-3 text-right font-semibold text-amber-300">
                     Custo Tabela (R$) ✏️
@@ -1383,17 +1532,33 @@ export function OrcamentoCurrentTab({
                         </div>
                       </td>
 
-                      {/* Repetição */}
-                      <td className="px-2 py-2 text-center font-semibold text-slate-700">
-                        {item.rep || 1}
+                      {/* Repetição (Peças) */}
+                      <td className="px-2 py-2 text-center">
+                        <BudgetNumberInput
+                          type="number"
+                          step="1"
+                          min="1"
+                          value={item.rep || 1}
+                          onCommit={value => handleUpdateItemRep(item.id, value)}
+                          className="h-7 w-12 text-center text-xs font-bold text-slate-800 px-1 py-0 border-slate-200 mx-auto bg-slate-50/50 hover:bg-white focus:bg-white"
+                          title="Clique para alterar a repetição de peças"
+                        />
                       </td>
 
-                      {/* Quantidade Unitária */}
-                      <td className="px-2 py-2 text-center font-mono text-slate-600 text-xs">
-                        {item.unit_quantity !== undefined ? item.unit_quantity : item.quantity}
+                      {/* Quantidade Unitária (M² ou UN por peça) */}
+                      <td className="px-2 py-2 text-center">
+                        <BudgetNumberInput
+                          type="number"
+                          step="any"
+                          min="0.001"
+                          value={item.unit_quantity !== undefined ? item.unit_quantity : item.quantity}
+                          onCommit={value => handleUpdateItemUnitQty(item.id, value)}
+                          className="h-7 w-16 text-center text-xs font-mono text-slate-700 px-1 py-0 border-slate-200 mx-auto"
+                          title="Matéria-prima unitária por peça (m² ou UN)"
+                        />
                       </td>
 
-                      {/* Quantidade Total Efetiva */}
+                      {/* Consumo Total Efetivo de Matéria-prima */}
                       <td className="px-2 py-2 text-center">
                         <BudgetNumberInput
                           type="number"
@@ -1401,7 +1566,8 @@ export function OrcamentoCurrentTab({
                           min="0.001"
                           value={item.quantity}
                           onCommit={value => handleUpdateItemQty(item.id, value)}
-                          className="h-7 w-16 text-center text-xs font-semibold px-1 py-0 border-slate-200 mx-auto"
+                          className="h-7 w-16 text-center text-xs font-bold text-slate-900 px-1 py-0 border-slate-200 mx-auto bg-slate-50/50 hover:bg-white focus:bg-white"
+                          title="Consumo total de matéria-prima (Rep × Qtd Unit)"
                         />
                       </td>
 

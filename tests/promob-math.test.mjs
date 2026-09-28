@@ -133,3 +133,77 @@ test('recalculateBudget evita duplicação de módulos pais agrupadores no total
   assert.equal(budget.totals.total_price, 197.70);
   assert.equal(budget.totals.total_cost, 65.89);
 });
+
+test('parsePromobXML extrai repetição, dimensões em m², preços e metadados com precisão', () => {
+  const xml = `
+<PROMOB_XML>
+  <CLIENTE>
+    <NOME>Paula Dias</NOME>
+    <CELULAR>66999999999</CELULAR>
+    <PROJETO>Cozinha</PROJETO>
+  </CLIENTE>
+  <ITEMS>
+    <ITEM REFERENCE="1.2006.15.Branco.MDF" DESCRIPTION="Base 15" REPETITION="2" QUANTITY="1" WIDTH="670" HEIGHT="15" DEPTH="580" TABLE_PRICE="56.22" FINAL_PRICE="131.58" />
+    <ITEM REFERENCE="1.1086.000" DESCRIPTION="Dobradiça Aço" REPETITION="26" QUANTITY="1" UNIT="UN" TABLE_PRICE="10.00" FINAL_PRICE="260.00" />
+    <ITEM REFERENCE="1.2014.6.Branco.Aglom" DESCRIPTION="Fundo 6mm" REPETITION="1" QUANTITY="0.49" DIMENSION="700 x 6 x 700" TABLE_PRICE="44.97" FINAL_PRICE="66.12" />
+  </ITEMS>
+</PROMOB_XML>
+  `;
+
+  const res = parsers.parsePromobXML(xml);
+  assert.equal(res.metadata.client_name, 'Paula Dias');
+  assert.equal(res.metadata.client_phone, '66999999999');
+  assert.equal(res.metadata.project_name, 'Cozinha');
+
+  assert.equal(res.items.length, 3);
+
+  // Item 0: Base 15 com 2 repetições e dimensões 670x15x580 -> área unitária = 0.3886 m² -> total = 0.7772 m²
+  assert.equal(res.items[0].rep, 2);
+  assert.equal(res.items[0].unit_quantity, 0.3886);
+  assert.equal(res.items[0].quantity, 0.7772);
+  assert.equal(res.items[0].unit, 'M2');
+  assert.equal(res.items[0].table_price, 56.22);
+  assert.equal(res.items[0].final_price, 131.58);
+
+  // Item 1: Dobradiça com 26 repetições
+  assert.equal(res.items[1].rep, 26);
+  assert.equal(res.items[1].unit_quantity, 1);
+  assert.equal(res.items[1].quantity, 26);
+  assert.equal(res.items[1].unit, 'UN');
+  assert.equal(res.items[1].table_price, 10);
+  assert.equal(res.items[1].final_price, 260);
+
+  // Item 2: Fundo 6mm
+  assert.equal(res.items[2].rep, 1);
+  assert.equal(res.items[2].unit_quantity, 0.49);
+  assert.equal(res.items[2].quantity, 0.49);
+  assert.equal(res.items[2].unit, 'M2');
+});
+
+test('parsePromobXML aceita tags em português (Item, Referencia, Repeticao, Quantidade)', () => {
+  const xml = `
+<Orcamento>
+  <Cliente>Paula Dias</Cliente>
+  <Itens>
+    <Item>
+      <Referencia>1.2006.15.Branco.MDF</Referencia>
+      <Descricao>Base 15</Descricao>
+      <Repeticao>2</Repeticao>
+      <Quantidade>0.39</Quantidade>
+      <Dimensoes>670 x 15 x 580</Dimensoes>
+      <Unidade>M2</Unidade>
+      <PrecoTabela>56,22</PrecoTabela>
+      <PrecoFinal>131,58</PrecoFinal>
+    </Item>
+  </Itens>
+</Orcamento>
+  `;
+
+  const res = parsers.parsePromobXML(xml);
+  assert.equal(res.items[0].rep, 2);
+  assert.equal(res.items[0].unit_quantity, 0.39);
+  assert.equal(res.items[0].quantity, 0.78);
+  assert.equal(res.items[0].table_price, 56.22);
+  assert.equal(res.items[0].final_price, 131.58);
+});
+
