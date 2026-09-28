@@ -97,10 +97,9 @@ export function generateBudgetPdf(opts: GenerateBudgetPdfOptions): void {
   }
   doc.text(`Ambiente / Projeto: ${opts.projectName || 'Móveis Planejados'}`, pageWidth / 2 + 10, clientCardY + 14);
 
-  // Items Table
+  // Items Table (Lista completa e integral de todos os itens do projeto)
   const tableStartY = clientCardY + 28;
-  const printableItems = opts.items.filter(it => !it.is_parent_module);
-  const itemsToPrint = printableItems.length > 0 ? printableItems : opts.items;
+  const itemsToPrint = opts.items;
 
   const tableRows = itemsToPrint.map((it, idx) => {
     let desc = it.description;

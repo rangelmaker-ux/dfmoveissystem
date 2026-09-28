@@ -120,15 +120,26 @@ export function parsePromobXML(
   const totFinMatch = cleanXml.match(/<(?:TOTAL_FINAL|TotalFinal|FINAL_TOTAL)[^>]*>([^<]+)<\//i);
   if (totFinMatch) metadata.total_final = parseLocaleNumber(totFinMatch[1]);
 
-  // Extração de tags de itens (<ITEM>, <PECA>, <PART>, <Item>, <Peca>, <Part>)
-  const tagRegex = /<(ITEM|PECA|PART|Item|Peca|Part)([\s\S]*?)(?:>(?:([\s\S]*?)<\/\1>)?|\/>)/gi;
+  // Extração precisa de tags de itens (<ITEM>, <PECA>, <PART>, <Item>, <Peca>, <Part>), incluindo subitens aninhados
+  const tagStartRegex = /<(ITEM|PECA|PART|Item|Peca|Part)\b([^>]*?)(\/?)>/gi;
   let match;
   let itemCounter = 1;
 
-  while ((match = tagRegex.exec(cleanXml)) !== null) {
+  while ((match = tagStartRegex.exec(cleanXml)) !== null) {
+    const tagName = match[1];
     const attrStr = match[2] || '';
-    const bodyStr = match[3] || '';
+    const isSelfClosing = match[3] === '/';
     const attrs = parseXmlAttributes(attrStr);
+
+    let innerContent = '';
+    if (!isSelfClosing) {
+      const startIdx = match.index + match[0].length;
+      const closingTag = `</${tagName}>`;
+      const closeIdx = cleanXml.indexOf(closingTag, startIdx);
+      if (closeIdx !== -1) {
+        innerContent = cleanXml.slice(startIdx, closeIdx);
+      }
+    }
 
     const getVal = (keys: string[]): string => {
       for (const k of keys) {
@@ -139,25 +150,26 @@ export function parsePromobXML(
             if (attrVal !== '') return attrVal;
           }
         }
-        if (bodyStr) {
+        if (innerContent) {
           const pattern = k.replace(/_/g, '[_\\s-]?');
           const bodyRegex = new RegExp(`<(${pattern})[^>]*>([^<]+)<\\/\\1>`, 'i');
-          const m = bodyStr.match(bodyRegex);
+          const m = innerContent.match(bodyRegex);
           if (m && m[2].trim()) return m[2].trim();
         }
       }
       return '';
     };
 
-    // Pula elementos agrupadores que já contêm subitens internos no XML
-    const hasChildren = bodyStr && /<(?:ITEM|PECA|PART|Item|Peca|Part)\b/i.test(bodyStr);
-    if (hasChildren) {
-      continue;
-    }
-
     const code = getVal(['reference', 'code', 'referencia', 'codigo', 'id']);
     const description = getVal(['description', 'name', 'descricao', 'nome', 'desc']);
     if (!code && !description) continue;
+
+    // Detecta se é módulo pai/agrupador (sem descartar do orçamento)
+    const hasChildren = innerContent && /<(?:ITEM|PECA|PART|Item|Peca|Part)\b/i.test(innerContent);
+    const is_parent_module = Boolean(
+      hasChildren ||
+      (['armário', 'balcão', 'torre', 'caixa armário', 'caixa gaveta'].some(k => description.toLowerCase().includes(k)))
+    );
 
     const rawRep = getVal(['repetition', 'repeticao', 'rep', 'quantidade_repeticao', 'qtd_pecas', 'quantidade_pecas']);
     const rawQty = getVal(['quantity', 'quantidade', 'qtd', 'qtdtotal', 'quant', 'quantidade_total', 'qtd_total']);
@@ -175,9 +187,7 @@ export function parsePromobXML(
 
     const rep = rawRep
       ? Math.max(1, Math.round(parseLocaleNumber(rawRep, 1)))
-      : (rawQty && Number.isInteger(parseLocaleNumber(rawQty)) && parseLocaleNumber(rawQty) > 0 && !rawDim && (!w || !h)
-          ? parseLocaleNumber(rawQty)
-          : 1);
+      : 1;
 
     const dimInfo = parseDimensionsString(rawDim, w, h, d, t);
     let unit = rawUnit.toUpperCase();
@@ -212,8 +222,6 @@ export function parsePromobXML(
     }
 
     const totalQuantity = Math.round((rep * unit_quantity + Number.EPSILON) * 10000) / 10000;
-    const is_parent_module =
-      (unit === 'UN' && ['armário', 'balcão', 'torre', 'caixa armário', 'caixa gaveta'].some(k => description.toLowerCase().includes(k)));
 
     items.push({
       item_number: itemCounter++,
@@ -233,7 +241,8 @@ export function parsePromobXML(
     });
   }
 
-  return { items: aggregateItems(items), metadata };
+  // Preserva cada linha exata do projeto do Promob sem agregação indevida
+  return { items, metadata };
 }
 
 // 2. TXT Parser (Standard cutting list / semicolon separated lines)

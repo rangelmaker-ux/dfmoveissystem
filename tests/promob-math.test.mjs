@@ -207,3 +207,33 @@ test('parsePromobXML aceita tags em português (Item, Referencia, Repeticao, Qua
   assert.equal(res.items[0].final_price, 131.58);
 });
 
+test('parsePromobXML extrai módulos pais, peças aninhadas e ferragens sem pular ou agregar', () => {
+  const xml = `
+<PROMOB_XML>
+  <ITEMS>
+    <ITEM ID="1" REFERENCE="1.1086.000" DESCRIPTION="Dobradiça Aço s/ Amort" REPETITION="26" TABLE_PRICE="10.00" FINAL_PRICE="260.00" />
+    <ITEM ID="2" REFERENCE="4.9999" DESCRIPTION="Torre" TABLE_PRICE="139.55" FINAL_PRICE="418.65">
+      <ITEM ID="3" REFERENCE="BASE-15" DESCRIPTION="Base 15" REPETITION="2" WIDTH="670" HEIGHT="15" DEPTH="580" TABLE_PRICE="56.22" FINAL_PRICE="131.58" />
+      <ITEM ID="4" REFERENCE="FUNDO-6" DESCRIPTION="Fundo 6mm" REPETITION="1" WIDTH="700" HEIGHT="6" DEPTH="700" TABLE_PRICE="44.97" FINAL_PRICE="66.12" />
+      <ITEM ID="5" REFERENCE="LAT-15" DESCRIPTION="Lateral 15" REPETITION="2" WIDTH="700" HEIGHT="15" DEPTH="580" TABLE_PRICE="56.22" FINAL_PRICE="138.30" />
+    </ITEM>
+    <ITEM ID="6" REFERENCE="0684371004" DESCRIPTION="Corrediça Telescópica" REPETITION="4" TABLE_PRICE="25.00" FINAL_PRICE="100.00" />
+  </ITEMS>
+</PROMOB_XML>
+  `;
+
+  const res = parsers.parsePromobXML(xml);
+  // Todos os 6 itens devem ser extraídos individualmente (sem pular e sem agregar)
+  assert.equal(res.items.length, 6);
+  assert.equal(res.items[0].description, 'Dobradiça Aço s/ Amort');
+  assert.equal(res.items[0].rep, 26);
+  assert.equal(res.items[1].description, 'Torre');
+  assert.equal(res.items[1].is_parent_module, true);
+  assert.equal(res.items[2].description, 'Base 15');
+  assert.equal(res.items[3].description, 'Fundo 6mm');
+  assert.equal(res.items[4].description, 'Lateral 15');
+  assert.equal(res.items[5].description, 'Corrediça Telescópica');
+  assert.equal(res.items[5].rep, 4);
+});
+
+
