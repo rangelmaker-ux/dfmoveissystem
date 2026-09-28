@@ -539,6 +539,86 @@ export function matchProduct(
   return { product: undefined, isSubcodeMatch: false };
 }
 
+// Identifica se outro item do orçamento é semelhante (mesmo material de chapa ou mesma ferragem)
+export function isSimilarPromobItem(
+  target: { code: string; description: string; dimensions?: string; unit?: string; is_parent_module?: boolean; is_chapa?: boolean },
+  candidate: { id?: string; code: string; description: string; dimensions?: string; unit?: string; is_parent_module?: boolean; is_chapa?: boolean },
+  isAccessoryTarget = false
+): boolean {
+  if (candidate.is_parent_module) return false;
+
+  const tCode = normalizeCode(target.code);
+  const cCode = normalizeCode(candidate.code);
+  const tDesc = normalizeText(target.description);
+  const cDesc = normalizeText(candidate.description);
+
+  // 1. Mesmo código exato
+  if (tCode && cCode && tCode === cCode) return true;
+
+  if (isAccessoryTarget) {
+    const families = [
+      'dobradica', 'dobradiça',
+      'corredica', 'corrediça', 'telescopica', 'telescópica',
+      'puxador',
+      'pistao', 'pistão',
+      'cabideiro',
+      'rodizio', 'rodízio',
+      'parafuso',
+      'ponteira'
+    ];
+    for (const fam of families) {
+      const normFam = normalizeText(fam);
+      if ((cCode.includes(normFam) || cDesc.includes(normFam)) && (tCode.includes(normFam) || tDesc.includes(normFam))) {
+        const cMm = (candidate.code + ' ' + candidate.description).match(/\b(300|350|400|450|500|550)\b/);
+        const tMm = (target.code + ' ' + target.description).match(/\b(300|350|400|450|500|550)\b/);
+        if (cMm && tMm && cMm[1] !== tMm[1]) {
+          continue;
+        }
+        return true;
+      }
+    }
+    return tDesc === cDesc && tDesc.length > 3;
+  }
+
+  // Chapas MDF/MDP
+  const isTargetChapa = target.is_chapa || isChapa(target.code, target.description) || (target.unit || '').toUpperCase() === 'M2';
+  const isCandChapa = candidate.is_chapa || isChapa(candidate.code, candidate.description) || (candidate.unit || '').toUpperCase() === 'M2';
+  if (!isTargetChapa || !isCandChapa) return false;
+
+  const extractThick = (str: string) => {
+    const m = str.match(/\b(6|15|18|25)mm\b|\.(6|15|18|25)\./i);
+    return m ? (m[1] || m[2]) : null;
+  };
+  const cThick = extractThick(candidate.code) || extractThick(candidate.description);
+  const tThick = extractThick(target.code) || extractThick(target.description);
+  if (cThick && tThick && cThick !== tThick) {
+    return false;
+  }
+
+  const extractSignature = (code: string) => {
+    const parts = code.split('.');
+    if (parts.length >= 4) {
+      return parts.slice(2).join('.').toLowerCase();
+    }
+    return '';
+  };
+  const cSig = extractSignature(candidate.code);
+  const tSig = extractSignature(target.code);
+  if (cSig && tSig && cSig === tSig) {
+    return true;
+  }
+
+  const finishes = ['branco', 'freijo', 'freijó', 'carmel', 'louro', 'noce', 'carvalho', 'grafite', 'preto', 'cinza', 'titanio', 'titânio', 'argila'];
+  for (const fin of finishes) {
+    const normFin = normalizeText(fin);
+    if ((cCode.includes(normFin) || cDesc.includes(normFin)) && (tCode.includes(normFin) || tDesc.includes(normFin))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export interface PriceMatchResult {
   matched: boolean;
   source: 'database' | 'catalog_chapa' | 'catalog_acessorio' | 'mdf_padrao';

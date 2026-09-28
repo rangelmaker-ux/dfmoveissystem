@@ -2,7 +2,7 @@ import { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   Upload, Plus, Trash2, Edit2, AlertTriangle, 
   CheckCircle2, FileSpreadsheet, Download, Save, Layers, Search, Check, Loader2, Link2, Unlink, Sparkles,
-  User, FolderKanban, Info, ClipboardPaste, FileText
+  User, FolderKanban, Info, ClipboardPaste, FileText, Eye, EyeOff
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -20,7 +20,8 @@ import { BudgetItem, BudgetSettings, ProductItem } from '@/lib/orcamento/types';
 import { parsePromobXML, parseTXT, parseCSV, parseJSON, parsePromobPDF, parsePromobTextTable } from '@/lib/orcamento/parsers';
 import { 
   calculateItemPrice, recalculateBudget, CHAPA_AREA_M2, round2, isChapa,
-  smartMatchPromobChapa, matchProduct, chapaSalePrice, resolveItemPrice, smartMatchAccessory
+  smartMatchPromobChapa, matchProduct, chapaSalePrice, resolveItemPrice, smartMatchAccessory,
+  isSimilarPromobItem
 } from '@/lib/orcamento/calculator';
 import { generateBudgetPdf } from '@/lib/orcamento/pdf-generator';
 import { BrandCatalog, CatalogByBrand } from '@/lib/orcamento/chapas-catalog';
@@ -161,7 +162,30 @@ export function OrcamentoCurrentTab({
     return chapaSalePrice(currentBoardPrice);
   }, [currentBoardPrice]);
 
-  // Handle File Upload (Promob PDF, XML, TXT, CSV, JSON)
+  // Ocultar valores financeiros para atendimento com cliente na tela
+  const [hideFinancialValues, setHideFinancialValues] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('df_orcamento_hide_values') === 'true';
+  });
+
+  const toggleHideFinancialValues = () => {
+    setHideFinancialValues(prev => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('df_orcamento_hide_values', String(next));
+      }
+      return next;
+    });
+  };
+
+  // Contagem de itens semelhantes identificados no orçamento
+  const similarItemsCount = useMemo(() => {
+    if (!linkingItem) return 0;
+    const isAcc = selectedBrand === 'Acessórios';
+    return items.filter(it => isSimilarPromobItem(linkingItem, it, isAcc)).length;
+  }, [items, linkingItem, selectedBrand]);
+
+  // Handle File Upload (Somente arquivos .xml do Promob)
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
@@ -175,53 +199,20 @@ export function OrcamentoCurrentTab({
         const file = files[i];
         const filename = file.name.toLowerCase();
 
-        let parsed: any[] = [];
-        if (filename.endsWith('.pdf')) {
-          const arrayBuffer = await file.arrayBuffer();
-          const pdfResult = await parsePromobPDF(arrayBuffer);
-          parsed = pdfResult.items;
-          if (pdfResult.metadata.client_name) setClientName(pdfResult.metadata.client_name);
-          if (pdfResult.metadata.client_phone) setClientPhone(pdfResult.metadata.client_phone);
-          if (pdfResult.metadata.project_name) setProjectName(pdfResult.metadata.project_name);
-        } else if (filename.endsWith('.xml')) {
-          const content = await file.text();
-          parsed = parsePromobXML(content);
-        } else if (filename.endsWith('.txt')) {
-          const content = await file.text();
-          if (content.toLowerCase().includes('item') && content.toLowerCase().includes('tabela')) {
-            const res = parsePromobTextTable(content);
-            parsed = res.items;
-            if (res.metadata.client_name) setClientName(res.metadata.client_name);
-            if (res.metadata.client_phone) setClientPhone(res.metadata.client_phone);
-            if (res.metadata.project_name) setProjectName(res.metadata.project_name);
-          } else {
-            parsed = parseTXT(content);
-          }
-        } else if (filename.endsWith('.csv')) {
-          const content = await file.text();
-          if (content.toLowerCase().includes('item') && content.toLowerCase().includes('tabela')) {
-            const res = parsePromobTextTable(content);
-            parsed = res.items;
-            if (res.metadata.client_name) setClientName(res.metadata.client_name);
-            if (res.metadata.client_phone) setClientPhone(res.metadata.client_phone);
-            if (res.metadata.project_name) setProjectName(res.metadata.project_name);
-          } else {
-            parsed = parseCSV(content);
-          }
-        } else if (filename.endsWith('.json')) {
-          const content = await file.text();
-          parsed = parseJSON(content);
-        } else {
-          toast.error(`Formato não suportado: ${file.name}. Use PDF, XML, TXT, CSV ou JSON.`);
+        if (!filename.endsWith('.xml')) {
+          toast.error(`Formato não aceito: ${file.name}. Somente arquivos XML (.xml) do Promob são permitidos.`);
           continue;
         }
+
+        const content = await file.text();
+        const parsed = parsePromobXML(content);
 
         allRawItems.push(...parsed);
         parsedCount += parsed.length;
       }
 
       if (allRawItems.length === 0) {
-        toast.warning('Nenhum item válido encontrado nos arquivos.');
+        toast.warning('Nenhum item válido encontrado no arquivo XML.');
         setIsUploading(false);
         return;
       }
@@ -681,15 +672,15 @@ export function OrcamentoCurrentTab({
     if (selectedBrand === 'Acessórios') {
       if (!selectedAcessorio) return;
       const unitCost = selectedAcessorio.price;
-      const targetCode = linkingItem.code;
-      const targetDesc = linkingItem.description;
+      let matchedCount = 0;
 
       const updated = items.map(it => {
         const isTarget = applyToAllSimilar
-          ? it.code === targetCode || it.description === targetDesc
+          ? isSimilarPromobItem(linkingItem, it, true)
           : it.id === linkingItem.id;
 
         if (isTarget) {
+          matchedCount++;
           const calculated = calculateItemPrice(
             {
               code: selectedAcessorio.id || it.code,
@@ -720,7 +711,7 @@ export function OrcamentoCurrentTab({
       setLinkModalOpen(false);
 
       if (applyToAllSimilar) {
-        toast.success(`Vinculado "${selectedAcessorio.name}" a todos os itens similares!`, {
+        toast.success(`Vinculado "${selectedAcessorio.name}" a ${matchedCount} itens semelhantes!`, {
           description: `Preço de custo definido como ${unitCost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.`,
         });
       } else {
@@ -739,15 +730,15 @@ export function OrcamentoCurrentTab({
 
     if (boardPrice <= 0) { toast.error('Esta espessura não tem preço cadastrado.'); return; }
 
-    const targetCode = linkingItem.code;
-    const targetDesc = linkingItem.description;
+    let matchedCount = 0;
 
     const updated = items.map(it => {
       const isTarget = applyToAllSimilar
-        ? it.code === targetCode || it.description === targetDesc
+        ? isSimilarPromobItem(linkingItem, it, false)
         : it.id === linkingItem.id;
 
       if (isTarget) {
+        matchedCount++;
         const calculated = calculateItemPrice(
           {
             code: `${selectedBrand.toUpperCase()}-${lineObj.name.toUpperCase().replace(/\s+/g, '_')}-${selectedThickness}`,
@@ -778,7 +769,7 @@ export function OrcamentoCurrentTab({
     setLinkModalOpen(false);
 
     if (applyToAllSimilar) {
-      toast.success(`Vinculado a todos os itens com "${linkingItem.code}"!`, {
+      toast.success(`Vinculado a ${matchedCount} peças semelhantes (${selectedThickness})!`, {
         description: `Preço de custo definido como ${m2Cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m².`,
       });
     } else {
@@ -862,63 +853,90 @@ export function OrcamentoCurrentTab({
 
   return (
     <div className="space-y-6">
-      {/* Top Banner & Quick Metrics */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="border-l-4 border-l-[#c92031] bg-white shadow-sm">
-          <CardHeader className="p-4 pb-1">
-            <CardDescription className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              Valor Total de Venda
-            </CardDescription>
-            <CardTitle className="text-2xl font-bold text-slate-900">
-              {totals.total_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-1 text-xs text-slate-500">
-            Com margem de <strong>{settings.margin}%</strong> e acréscimos
-          </CardContent>
-        </Card>
+      {/* Resumo Financeiro Compacto com Botão de Ocultar Valores para Atendimento ao Cliente */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              Resumo Financeiro
+            </span>
+            {hideFinancialValues && (
+              <Badge variant="outline" className="border-amber-300 bg-amber-50 text-[10px] text-amber-800 font-semibold py-0 h-5">
+                Valores Ocultos (Modo Cliente)
+              </Badge>
+            )}
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={toggleHideFinancialValues}
+            className="h-7 gap-1.5 px-2.5 text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 bg-white shadow-xs rounded-lg transition-colors cursor-pointer"
+            title={hideFinancialValues ? "Exibir valores financeiros" : "Ocultar valores do cliente"}
+          >
+            {hideFinancialValues ? (
+              <>
+                <EyeOff className="h-3.5 w-3.5 text-amber-600" />
+                <span className="text-[11px] font-medium text-slate-700">Exibir Valores</span>
+              </>
+            ) : (
+              <>
+                <Eye className="h-3.5 w-3.5 text-slate-500" />
+                <span className="text-[11px] font-medium text-slate-700">Ocultar Valores</span>
+              </>
+            )}
+          </Button>
+        </div>
 
-        <Card className="border-l-4 border-l-slate-600 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-1">
-            <CardDescription className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              Custo Total dos Materiais
-            </CardDescription>
-            <CardTitle className="text-2xl font-bold text-slate-700">
-              {totals.total_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-1 text-xs text-slate-500">
-            {totals.items_count} peças processadas
-          </CardContent>
-        </Card>
+        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+          <Card className="border-l-4 border-l-[#c92031] bg-white shadow-xs py-2 px-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                Valor Total de Venda
+              </span>
+              <span className="text-[10px] text-slate-400">Total</span>
+            </div>
+            <div className="mt-1 flex items-baseline justify-between">
+              <div className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                {hideFinancialValues
+                  ? '••••••••'
+                  : totals.total_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+              </div>
+            </div>
+          </Card>
 
-        <Card className="border-l-4 border-l-emerald-600 bg-white shadow-sm">
-          <CardHeader className="p-4 pb-1">
-            <CardDescription className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              Lucro Bruto Estimado
-            </CardDescription>
-            <CardTitle className="text-2xl font-bold text-emerald-700">
-              {totals.gross_profit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-1 text-xs text-slate-500">
-            Diferença líquida sobre os insumos
-          </CardContent>
-        </Card>
+          <Card className="border-l-4 border-l-slate-500 bg-white shadow-xs py-2 px-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                Custo Total dos Materiais
+              </span>
+              <span className="text-[10px] text-slate-400">{totals.items_count} peças</span>
+            </div>
+            <div className="mt-1 flex items-baseline justify-between">
+              <div className="text-base sm:text-lg font-bold text-slate-700 tracking-tight">
+                {hideFinancialValues
+                  ? '••••••••'
+                  : totals.total_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+              </div>
+            </div>
+          </Card>
 
-        <Card className="border-l-4 border-l-[#cbb27a] bg-white shadow-sm">
-          <CardHeader className="p-4 pb-1">
-            <CardDescription className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              Margem Real / Markup
-            </CardDescription>
-            <CardTitle className="text-2xl font-bold text-[#b09657]">
-              {totals.profit_margin_percent}%
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-1 text-xs text-slate-500">
-            Margem aplicada sobre custo total
-          </CardContent>
-        </Card>
+          <Card className="border-l-4 border-l-emerald-600 bg-white shadow-xs py-2 px-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                Lucro Bruto Estimado
+              </span>
+              <span className="text-[10px] text-emerald-600 font-semibold">Líquido</span>
+            </div>
+            <div className="mt-1 flex items-baseline justify-between">
+              <div className="text-base sm:text-lg font-bold text-emerald-700 tracking-tight">
+                {hideFinancialValues
+                  ? '••••••••'
+                  : totals.gross_profit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+              </div>
+            </div>
+          </Card>
+        </div>
       </div>
 
       {/* Quadrante Cliente, Ambiente e Projeto */}
@@ -1074,7 +1092,7 @@ export function OrcamentoCurrentTab({
             type="file"
             ref={fileInputRef}
             onChange={handleFileUpload}
-            accept=".pdf,.xml,.txt,.csv,.json"
+            accept=".xml"
             multiple
             className="hidden"
           />
@@ -1085,7 +1103,7 @@ export function OrcamentoCurrentTab({
             className="bg-[#17191d] text-xs text-white hover:bg-slate-800"
           >
             <Upload className="mr-1.5 h-4 w-4" />
-            {isUploading ? 'Processando Arquivo...' : 'Importar Promob (PDF / XML / TXT)'}
+            {isUploading ? 'Processando Arquivo...' : 'Importar Promob (XML)'}
           </Button>
 
           <Button
@@ -1240,7 +1258,7 @@ export function OrcamentoCurrentTab({
             Nenhum arquivo ou item carregado
           </h3>
           <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">
-            Importe o relatório exportado pelo <strong>Promob Plus ou Promob Start (PDF, XML ou TXT)</strong> ou cole a tabela diretamente. Os números quebrados em m² e preços de tabela serão calculados com exatidão matemática.
+            Importe o arquivo XML exportado pelo <strong>Promob Plus ou Promob Start (.xml)</strong>. Os números quebrados em m² e dados das peças serão calculados com exatidão matemática.
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
             <Button
@@ -1248,7 +1266,7 @@ export function OrcamentoCurrentTab({
               className="bg-[#c92031] text-white hover:bg-[#aa1726]"
             >
               <Upload className="mr-2 h-4 w-4" />
-              Selecionar PDF ou Arquivo Promob
+              Selecionar Arquivo XML Promob
             </Button>
             <Button
               variant="outline"
@@ -1283,7 +1301,6 @@ export function OrcamentoCurrentTab({
                   <th className="px-3 py-3 text-right font-semibold text-amber-300">
                     Custo Tabela (R$) ✏️
                   </th>
-                  <th className="px-2 py-3 text-center font-semibold">Margem</th>
                   <th className="px-3 py-3 text-right font-semibold">Preço Unit.</th>
                   <th className="px-3 py-3 text-right font-semibold">Total Linha</th>
                   <th className="py-3 pl-2 pr-4 text-center font-semibold">Ação</th>
@@ -1396,51 +1413,48 @@ export function OrcamentoCurrentTab({
 
                       {/* Custo Unitário Manual Inline */}
                       <td className="px-3 py-2 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <span className="text-slate-400 text-[10px] font-medium">R$</span>
-                          <BudgetNumberInput
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={item.unit_cost === 0 ? '' : item.unit_cost}
-                            onCommit={value => handleUpdateItemCost(item.id, value)}
-                            placeholder="0,00"
-                            className={`h-7 w-24 text-right text-xs font-bold px-2 py-0 border ${
-                              item.unit_cost === 0
-                                ? 'border-amber-300 bg-amber-50/50 text-amber-900 placeholder:text-amber-400'
-                                : 'border-slate-200 text-slate-900 focus:border-[#c92031]'
-                            }`}
-                            title="Digite o custo unitário do material ou clique no link para trazer da tabela"
-                          />
-                        </div>
-                      </td>
-
-                      {/* Margem Individual Inline */}
-                      <td className="px-2 py-2 text-center">
-                        <div className="flex items-center justify-center gap-0.5">
-                          <BudgetNumberInput
-                            type="number"
-                            step="1"
-                            min="0"
-                            value={item.margin}
-                            onCommit={value => handleUpdateItemMargin(item.id, value)}
-                            className="h-7 w-14 text-center text-xs font-medium px-1 py-0 border-slate-200"
-                          />
-                          <span className="text-slate-400 text-[10px]">%</span>
-                        </div>
+                        {hideFinancialValues ? (
+                          <span className="text-slate-400 font-mono text-xs">••••••</span>
+                        ) : (
+                          <div className="flex items-center justify-end gap-1">
+                            <span className="text-slate-400 text-[10px] font-medium">R$</span>
+                            <BudgetNumberInput
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={item.unit_cost === 0 ? '' : item.unit_cost}
+                              onCommit={value => handleUpdateItemCost(item.id, value)}
+                              placeholder="0,00"
+                              className={`h-7 w-24 text-right text-xs font-bold px-2 py-0 border ${
+                                item.unit_cost === 0
+                                  ? 'border-amber-300 bg-amber-50/50 text-amber-900 placeholder:text-amber-400'
+                                  : 'border-slate-200 text-slate-900 focus:border-[#c92031]'
+                              }`}
+                              title="Digite o custo unitário do material ou clique no link para trazer da tabela"
+                            />
+                          </div>
+                        )}
                       </td>
 
                       <td className="px-3 py-2.5 text-right font-medium text-slate-600">
-                        {item.unit_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        {hideFinancialValues
+                          ? '••••••'
+                          : item.unit_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </td>
 
                       <td className="px-3 py-2.5 text-right">
-                        <span className="font-bold text-slate-900">
-                          {item.total_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                        </span>
-                        <span className="block text-[10px] text-slate-400">
-                          Custo: {item.total_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                        </span>
+                        {hideFinancialValues ? (
+                          <span className="font-bold text-slate-400 font-mono text-xs">••••••</span>
+                        ) : (
+                          <>
+                            <span className="font-bold text-slate-900">
+                              {item.total_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </span>
+                            <span className="block text-[10px] text-slate-400">
+                              Custo: {item.total_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </span>
+                          </>
+                        )}
                       </td>
 
                       <td className="py-2.5 pl-2 pr-4 text-center">
@@ -1478,37 +1492,59 @@ export function OrcamentoCurrentTab({
               </tbody>
             </table>
           </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/70 px-4 py-2.5 text-[11px] text-slate-500">
+            <span>
+              {items.length} itens no orçamento ({items.filter(it => it.found && !it.price_unlinked).length} vinculados à tabela de preços)
+            </span>
+            <span className="text-slate-500">
+              Margem de cálculo aplicada: <strong className="font-semibold text-slate-700">{settings.margin}%</strong> (definida em Configurações)
+            </span>
+          </div>
         </div>
       )}
 
       {/* MODAL: Vincular Chapa ou Acessório / Linha Inteligente */}
       <Dialog open={linkModalOpen} onOpenChange={setLinkModalOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-xl w-full max-h-[88vh] overflow-y-auto overflow-x-hidden p-5 sm:p-6">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+            <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900">
               <Sparkles className="h-5 w-5 text-[#cbb27a]" />
               Vincular Preço da Tabela DF Móveis
             </DialogTitle>
           </DialogHeader>
 
           {linkingItem && (
-            <div className="space-y-4 py-2">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs space-y-1">
-                <p className="text-slate-500">Item Selecionado:</p>
-                <p className="font-mono font-bold text-slate-900">{linkingItem.code}</p>
-                <p className="font-medium text-slate-700">{linkingItem.description}</p>
+            <div className="space-y-4 py-1">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-xs space-y-1.5 overflow-hidden">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Item Selecionado:</span>
+                  <Badge variant="outline" className="border-slate-300 text-[10px] bg-white">
+                    {linkingItem.unit || 'UN'}
+                  </Badge>
+                </div>
+                <p className="font-mono font-bold text-slate-900 break-all">{linkingItem.code}</p>
+                <p className="font-medium text-slate-700 break-words">{linkingItem.description}</p>
+                {linkingItem.dimensions && (
+                  <p className="text-[10px] text-slate-500 font-mono">Dimensões: {linkingItem.dimensions}</p>
+                )}
+                {similarItemsCount > 1 && (
+                  <div className="flex items-center gap-1.5 pt-1 text-[11px] text-blue-700 font-medium border-t border-slate-200 mt-2">
+                    <span>⚡</span>
+                    <span><strong>{similarItemsCount} itens semelhantes</strong> encontrados no orçamento com este padrão/material.</span>
+                  </div>
+                )}
               </div>
 
               {selectedBrand === 'Acessórios' ? (
                 <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="min-w-0">
                       <Label className="text-xs font-semibold">1. Categoria</Label>
                       <Select value={selectedBrand} onValueChange={setSelectedBrand}>
-                        <SelectTrigger className="mt-1 text-xs">
+                        <SelectTrigger className="mt-1 text-xs w-full">
                           <SelectValue />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent className="max-h-60">
                           {brandsList.map(b => (
                             <SelectItem key={b} value={b}>{b}</SelectItem>
                           ))}
@@ -1516,7 +1552,7 @@ export function OrcamentoCurrentTab({
                       </Select>
                     </div>
 
-                    <div>
+                    <div className="min-w-0">
                       <Label className="text-xs font-semibold">2. Tipo</Label>
                       <div className="mt-1 flex h-9 items-center rounded-md border border-slate-200 bg-slate-100 px-3 text-xs font-medium text-slate-600">
                         Ferragem / Acessório
@@ -1524,10 +1560,10 @@ export function OrcamentoCurrentTab({
                     </div>
                   </div>
 
-                  <div>
+                  <div className="min-w-0">
                     <Label className="text-xs font-semibold">3. Acessório / Ferragem da Tabela</Label>
                     <Select value={selectedAcessorioId} onValueChange={setSelectedAcessorioId}>
-                      <SelectTrigger className="mt-1 text-xs font-semibold">
+                      <SelectTrigger className="mt-1 text-xs font-semibold w-full">
                         <SelectValue placeholder="Selecione o acessório..." />
                       </SelectTrigger>
                       <SelectContent className="max-h-60">
@@ -1540,14 +1576,14 @@ export function OrcamentoCurrentTab({
                     </Select>
                   </div>
 
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs flex items-center justify-between">
-                    <div>
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0">
                       <span className="font-bold text-emerald-900 block">Preço de Custo na Tabela:</span>
-                      <span className="text-slate-600">
+                      <span className="text-slate-600 block truncate">
                         {selectedAcessorio?.name} {selectedAcessorio?.size ? `(${selectedAcessorio.size})` : ''}
                       </span>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right ml-auto">
                       <span className="text-base font-black text-emerald-800 block">
                         {(selectedAcessorio?.price || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </span>
@@ -1557,14 +1593,14 @@ export function OrcamentoCurrentTab({
                 </>
               ) : (
                 <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="min-w-0">
                       <Label className="text-xs font-semibold">1. Marca</Label>
                       <Select value={selectedBrand} onValueChange={setSelectedBrand}>
-                        <SelectTrigger className="mt-1 text-xs">
+                        <SelectTrigger className="mt-1 text-xs w-full">
                           <SelectValue />
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent className="max-h-60">
                           {brandsList.map(b => (
                             <SelectItem key={b} value={b}>{b}</SelectItem>
                           ))}
@@ -1572,13 +1608,13 @@ export function OrcamentoCurrentTab({
                       </Select>
                     </div>
 
-                    <div>
+                    <div className="min-w-0">
                       <Label className="text-xs font-semibold">2. Espessura</Label>
                       <Select
                         value={selectedThickness}
                         onValueChange={(val: '6mm' | '15mm' | '18mm' | '25mm') => setSelectedThickness(val)}
                       >
-                        <SelectTrigger className="mt-1 text-xs font-bold">
+                        <SelectTrigger className="mt-1 text-xs font-bold w-full">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -1591,10 +1627,10 @@ export function OrcamentoCurrentTab({
                     </div>
                   </div>
 
-                  <div>
+                  <div className="min-w-0">
                     <Label className="text-xs font-semibold">3. Linha / Padrão da Marca ({selectedBrand})</Label>
                     <Select value={selectedLine} onValueChange={setSelectedLine}>
-                      <SelectTrigger className="mt-1 text-xs font-semibold">
+                      <SelectTrigger className="mt-1 text-xs font-semibold w-full">
                         <SelectValue placeholder="Selecione a linha..." />
                       </SelectTrigger>
                       <SelectContent className="max-h-60">
@@ -1610,18 +1646,18 @@ export function OrcamentoCurrentTab({
                     </Select>
                   </div>
 
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs flex items-center justify-between">
-                    <div>
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0">
                       <span className="font-bold text-emerald-900 block">Preço de Custo na Tabela:</span>
-                      <span className="text-slate-600">
+                      <span className="text-slate-600 block truncate">
                         {selectedBrand} - {selectedLine || 'Selecione a linha'} ({selectedThickness})
                       </span>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right ml-auto">
                       <span className="text-base font-black text-emerald-800 block">
                         {currentM2Cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²
                       </span>
-                      <span className="text-[10px] text-slate-500 font-medium">
+                      <span className="text-[10px] text-slate-500 font-medium block">
                         (Chapa inteira: {currentBoardPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})
                       </span>
                     </div>
@@ -1631,19 +1667,21 @@ export function OrcamentoCurrentTab({
             </div>
           )}
 
-          <DialogFooter className="flex flex-col sm:flex-row gap-2">
+          <DialogFooter className="flex flex-col sm:flex-row gap-2 pt-2">
             <Button
+              type="button"
               variant="outline"
               onClick={() => handleApplyLink(false)}
-              className="text-xs flex-1 border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 font-semibold"
+              className="text-xs flex-1 border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 font-semibold h-9"
             >
               📥 Trazer Preço para Este Item
             </Button>
             <Button
+              type="button"
               onClick={() => handleApplyLink(true)}
-              className="bg-[#c92031] text-white hover:bg-[#aa1726] text-xs flex-1 font-semibold"
+              className="bg-[#c92031] text-white hover:bg-[#aa1726] text-xs flex-1 font-semibold h-9"
             >
-              📥 Trazer para TODOS Similares
+              📥 Trazer para TODOS Similares ({similarItemsCount})
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1651,13 +1689,13 @@ export function OrcamentoCurrentTab({
 
       {/* MODAL: Inserir Item Manual */}
       <Dialog open={addItemModalOpen} onOpenChange={setAddItemModalOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg w-full max-h-[88vh] overflow-y-auto overflow-x-hidden p-5 sm:p-6">
           <DialogHeader>
-            <DialogTitle>Adicionar Item Manual</DialogTitle>
+            <DialogTitle className="text-base font-bold text-slate-900">Adicionar Item Manual</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div>
-              <Label className="text-xs">Código / Referência</Label>
+              <Label className="text-xs font-semibold">Código / Referência</Label>
               <Input
                 placeholder="Ex: MDF-BRANCO-15"
                 value={newItemCode}
@@ -1666,7 +1704,7 @@ export function OrcamentoCurrentTab({
               />
             </div>
             <div>
-              <Label className="text-xs">Descrição do Item</Label>
+              <Label className="text-xs font-semibold">Descrição do Item</Label>
               <Input
                 placeholder="Ex: Tampo de Ilha 18mm"
                 value={newItemDesc}
@@ -1674,9 +1712,9 @@ export function OrcamentoCurrentTab({
                 className="mt-1 text-xs"
               />
             </div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <div>
-                <Label className="text-xs">Quantidade</Label>
+                <Label className="text-xs font-semibold">Quantidade</Label>
                 <Input
                   type="number"
                   step="0.01"
@@ -1686,9 +1724,9 @@ export function OrcamentoCurrentTab({
                 />
               </div>
               <div>
-                <Label className="text-xs">Unidade</Label>
+                <Label className="text-xs font-semibold">Unidade</Label>
                 <Select value={newItemUnit} onValueChange={setNewItemUnit}>
-                  <SelectTrigger className="mt-1 text-xs">
+                  <SelectTrigger className="mt-1 text-xs w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1701,7 +1739,7 @@ export function OrcamentoCurrentTab({
                 </Select>
               </div>
               <div>
-                <Label className="text-xs">Custo Base (R$)</Label>
+                <Label className="text-xs font-semibold">Custo Base (R$)</Label>
                 <Input
                   placeholder="0,00"
                   value={newItemCost}
@@ -1711,11 +1749,11 @@ export function OrcamentoCurrentTab({
               </div>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddItemModalOpen(false)}>
+          <DialogFooter className="gap-2 sm:gap-0 pt-2">
+            <Button type="button" variant="outline" onClick={() => setAddItemModalOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={handleAddManualItem} className="bg-[#c92031] text-white hover:bg-[#aa1726]">
+            <Button type="button" onClick={handleAddManualItem} className="bg-[#c92031] text-white hover:bg-[#aa1726]">
               Adicionar Item
             </Button>
           </DialogFooter>
@@ -1724,7 +1762,7 @@ export function OrcamentoCurrentTab({
 
       {/* MODAL: Colar Relatório Promob */}
       <Dialog open={pasteModalOpen} onOpenChange={setPasteModalOpen}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="sm:max-w-2xl w-full max-h-[88vh] overflow-y-auto overflow-x-hidden p-5 sm:p-6">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900">
               <ClipboardPaste className="h-5 w-5 text-blue-600" />

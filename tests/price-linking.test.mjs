@@ -23,6 +23,7 @@ const {
   resolveItemPrice,
   calculateItemPrice,
   recalculateBudget,
+  isSimilarPromobItem,
 } = modules;
 
 const settings = {
@@ -189,3 +190,68 @@ test('resolveItemPrice e Trazer Preços da Tabela vinculam todos os itens do or�
   assert.equal(budget.totals.total_cost, 384.89);
   assert.ok(budget.totals.total_price > budget.totals.total_cost);
 });
+
+test('isSimilarPromobItem detecta peças com mesmo material e ferragens semelhantes', () => {
+  const base15Branco = {
+    code: '1.2006.15.Branco.MDF BP 2L Revest',
+    description: 'Base 15',
+    unit: 'M2',
+    is_chapa: true,
+  };
+
+  const lateral15Branco = {
+    code: '1.2007.15.Branco.MDF BP 2L Revest',
+    description: 'Lateral 15',
+    unit: 'M2',
+    is_chapa: true,
+  };
+
+  const fundo6Branco = {
+    code: '1.2014.6.Branco.Aglom',
+    description: 'Fundo 6mm',
+    unit: 'M2',
+    is_chapa: true,
+  };
+
+  const lateral18Carmel = {
+    code: '1.0309.18.Greenplac.Carmel.MDF BP 2L Revest',
+    description: 'Lateral 18',
+    unit: 'M2',
+    is_chapa: true,
+  };
+
+  // Base 15 Branco e Lateral 15 Branco são similares (mesmo material e espessura 15mm)
+  assert.equal(isSimilarPromobItem(base15Branco, lateral15Branco, false), true);
+
+  // Fundo 6mm NÃO é similar a Base 15mm (espessuras diferentes: 6mm vs 15mm)
+  assert.equal(isSimilarPromobItem(base15Branco, fundo6Branco, false), false);
+
+  // Lateral 18 Carmel NÃO é similar a Base 15 Branco (material e espessuras diferentes)
+  assert.equal(isSimilarPromobItem(base15Branco, lateral18Carmel, false), false);
+
+  // Teste de Acessórios
+  const dobradicaReta = {
+    code: '1.1086.000',
+    description: 'Dobradiça Aço s/ Amort. Reta / Baixa',
+    unit: 'UN',
+  };
+
+  const dobradicaCurva = {
+    code: '1.1087.000',
+    description: 'Dobradiça Curva Canto L',
+    unit: 'UN',
+  };
+
+  const corredica = {
+    code: '0684371004',
+    description: 'Corrediça Telescópica 450mm',
+    unit: 'PAR',
+  };
+
+  // Dobradiças são da mesma família de ferragens
+  assert.equal(isSimilarPromobItem(dobradicaReta, dobradicaCurva, true), true);
+
+  // Corrediça NÃO é similar a Dobradiça
+  assert.equal(isSimilarPromobItem(dobradicaReta, corredica, true), false);
+});
+
