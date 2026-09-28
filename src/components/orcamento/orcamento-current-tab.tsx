@@ -2,7 +2,8 @@ import { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   Upload, Plus, Trash2, Edit2, AlertTriangle, 
   CheckCircle2, FileSpreadsheet, Download, Save, Layers, Search, Check, Loader2, Link2, Unlink, Sparkles,
-  User, FolderKanban, Info, ClipboardPaste, FileText, Eye, EyeOff
+  User, FolderKanban, Info, ClipboardPaste, FileText, Eye, EyeOff,
+  ChevronDown, ChevronRight, Wrench, FolderTree, Box
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,15 +17,15 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue 
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { BudgetItem, BudgetSettings, ProductItem } from '@/lib/orcamento/types';
+import { BudgetItem, BudgetSettings, ProductItem, ModuleGroup } from '@/lib/orcamento/types';
 import { parsePromobXML, parseTXT, parseCSV, parseJSON, parsePromobPDF, parsePromobTextTable } from '@/lib/orcamento/parsers';
 import { 
   calculateItemPrice, recalculateBudget, CHAPA_AREA_M2, round2, isChapa,
   smartMatchPromobChapa, matchProduct, chapaSalePrice, resolveItemPrice, smartMatchAccessory,
-  isSimilarPromobItem
+  smartMatchMaoDeObra, isSimilarPromobItem, groupItemsByModule
 } from '@/lib/orcamento/calculator';
 import { generateBudgetPdf } from '@/lib/orcamento/pdf-generator';
-import { BrandCatalog, CatalogByBrand } from '@/lib/orcamento/chapas-catalog';
+import { BrandCatalog, CatalogByBrand, MaoDeObraCatalog } from '@/lib/orcamento/chapas-catalog';
 
 function BudgetNumberInput({ value, onCommit, ...props }: Omit<React.ComponentProps<typeof Input>, 'value' | 'onChange'> & { value: number | string; onCommit: (value: number) => void }) {
   const [draft, setDraft] = useState(String(value));
@@ -109,7 +110,8 @@ export function OrcamentoCurrentTab({
 
   // Filter / Search inside current table
   const [filterSearch, setFilterSearch] = useState('');
-  const [itemsViewFilter, setItemsViewFilter] = useState<'all' | 'leaves' | 'modules'>('all');
+  const [itemsViewFilter, setItemsViewFilter] = useState<'grouped' | 'leaves' | 'all'>('grouped');
+  const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({});
 
   // Modal para colar texto / tabela exportada do Promob
   const [pasteModalOpen, setPasteModalOpen] = useState(false);
@@ -129,6 +131,7 @@ export function OrcamentoCurrentTab({
   const [selectedLine, setSelectedLine] = useState('');
   const [selectedThickness, setSelectedThickness] = useState<'6mm' | '15mm' | '18mm' | '25mm'>('15mm');
   const [selectedAcessorioId, setSelectedAcessorioId] = useState('');
+  const [selectedMaoDeObraId, setSelectedMaoDeObraId] = useState('');
 
   // Available brands and categories in catalog
   const brandsList = Object.keys(catalog);
@@ -143,6 +146,16 @@ export function OrcamentoCurrentTab({
     return acessoriosList.find(a => a.id === selectedAcessorioId) || acessoriosList[0];
   }, [acessoriosList, selectedAcessorioId]);
 
+  // Mão de Obra Fixa list from catalog
+  const maoDeObraList = useMemo(() => {
+    const mo = catalog['Mão de Obra Fixa'];
+    return mo && mo.type === 'maodeobra' ? (mo as MaoDeObraCatalog).items : [];
+  }, [catalog]);
+
+  const selectedMaoDeObra = useMemo(() => {
+    return maoDeObraList.find(m => m.id === selectedMaoDeObraId) || maoDeObraList[0];
+  }, [maoDeObraList, selectedMaoDeObraId]);
+
   // Lines for selected brand in modal
   const brandLines = useMemo(() => {
     const b = catalog[selectedBrand];
@@ -151,7 +164,7 @@ export function OrcamentoCurrentTab({
 
   // Current selected board price and m2 cost in modal
   const currentBoardPrice = useMemo(() => {
-    if (selectedBrand === 'Acessórios') return 0;
+    if (selectedBrand === 'Acessórios' || selectedBrand === 'Mão de Obra Fixa') return 0;
     const brandData = catalog[selectedBrand] as BrandCatalog;
     const lineObj = brandData?.lines?.find(l => l.name === selectedLine);
     if (!lineObj) return 0;
@@ -639,43 +652,65 @@ export function OrcamentoCurrentTab({
     }
   };
 
-  // Open Link Modal for Item (Chapas ou Acessórios)
+  // Open Link Modal for Item (Chapas, Acessórios ou Mão de Obra)
   const handleOpenLinkModal = (item: BudgetItem) => {
     setLinkingItem(item);
     const raw = `${item.code} ${item.description}`.toLowerCase();
 
-    // Se for acessório ou ferragem conhecida:
-    const isAccessory = raw.includes('dobradica') ||
-      raw.includes('corredica') ||
-      raw.includes('telescopica') ||
-      raw.includes('pistao') ||
-      raw.includes('puxador') ||
-      raw.includes('ponteira') ||
-      raw.includes('cabideiro') ||
-      raw.includes('rodizio') ||
-      raw.includes('lixeira') ||
-      raw.includes('tabua') ||
-      raw.includes('parafuso');
+    const isLabor = raw.includes('processo') ||
+      raw.includes('porta reta') ||
+      raw.includes('porta cava') ||
+      raw.includes('frente cava') ||
+      raw.includes('cava horizontal') ||
+      raw.includes('usinagem') ||
+      raw.includes('mao de obra') ||
+      raw.includes('mão de obra') ||
+      item.is_processo ||
+      item.is_mao_de_obra ||
+      (item.category || '').toLowerCase().includes('processo');
 
-    if (isAccessory && catalog['Acessórios']) {
-      setSelectedBrand('Acessórios');
-      const match = smartMatchAccessory(item.code, item.description, item.dimensions, catalog, database);
+    if (isLabor && catalog['Mão de Obra Fixa']) {
+      setSelectedBrand('Mão de Obra Fixa');
+      const match = smartMatchMaoDeObra(item.code, item.description, catalog, database);
       if (match.matched && match.code) {
-        setSelectedAcessorioId(match.code);
-      } else if (acessoriosList.length > 0) {
-        setSelectedAcessorioId(acessoriosList[0].id);
+        setSelectedMaoDeObraId(match.code);
+      } else if (maoDeObraList.length > 0) {
+        setSelectedMaoDeObraId(maoDeObraList[0].id);
       }
     } else {
-      // É uma Chapa de MDF / MDP
-      const smart = smartMatchPromobChapa(item.code, item.description, catalog);
-      const foundBrand = smart.brand || brandsList.find(b => catalog[b]?.type === 'brand' && raw.includes(b.toLowerCase()));
-      const targetBrand = foundBrand && catalog[foundBrand] ? foundBrand : (catalog['Arauco'] ? 'Arauco' : (brandsList.find(b => catalog[b]?.type === 'brand') || 'Arauco'));
-      setSelectedBrand(targetBrand);
-      setSelectedThickness(smart.thickness || '15mm');
+      // Se for acessório ou ferragem conhecida:
+      const isAccessory = raw.includes('dobradica') ||
+        raw.includes('corredica') ||
+        raw.includes('telescopica') ||
+        raw.includes('pistao') ||
+        raw.includes('puxador') ||
+        raw.includes('ponteira') ||
+        raw.includes('cabideiro') ||
+        raw.includes('rodizio') ||
+        raw.includes('lixeira') ||
+        raw.includes('tabua') ||
+        raw.includes('parafuso');
 
-      const b = catalog[targetBrand] as BrandCatalog;
-      if (b && b.lines) {
-        setSelectedLine(smart.line || b.lines[0]?.name || '');
+      if (isAccessory && catalog['Acessórios']) {
+        setSelectedBrand('Acessórios');
+        const match = smartMatchAccessory(item.code, item.description, item.dimensions, catalog, database);
+        if (match.matched && match.code) {
+          setSelectedAcessorioId(match.code);
+        } else if (acessoriosList.length > 0) {
+          setSelectedAcessorioId(acessoriosList[0].id);
+        }
+      } else {
+        // É uma Chapa de MDF / MDP
+        const smart = smartMatchPromobChapa(item.code, item.description, catalog);
+        const foundBrand = smart.brand || brandsList.find(b => catalog[b]?.type === 'brand' && raw.includes(b.toLowerCase()));
+        const targetBrand = foundBrand && catalog[foundBrand] ? foundBrand : (catalog['Arauco'] ? 'Arauco' : (brandsList.find(b => catalog[b]?.type === 'brand') || 'Arauco'));
+        setSelectedBrand(targetBrand);
+        setSelectedThickness(smart.thickness || '15mm');
+
+        const b = catalog[targetBrand] as BrandCatalog;
+        if (b && b.lines) {
+          setSelectedLine(smart.line || b.lines[0]?.name || '');
+        }
       }
     }
 
@@ -869,6 +904,63 @@ export function OrcamentoCurrentTab({
       return;
     }
 
+    if (selectedBrand === 'Mão de Obra Fixa') {
+      if (!selectedMaoDeObra) return;
+      const unitCost = selectedMaoDeObra.price;
+      let matchedCount = 0;
+
+      const updated = items.map(it => {
+        const isTarget = applyToAllSimilar
+          ? isSimilarPromobItem(linkingItem, it, false)
+          : it.id === linkingItem.id;
+
+        if (isTarget) {
+          matchedCount++;
+          const calculated = calculateItemPrice(
+            {
+              code: selectedMaoDeObra.id || it.code,
+              description: it.description.includes(selectedMaoDeObra.name)
+                ? it.description
+                : `${it.description} (${selectedMaoDeObra.name})`,
+              quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
+              unit: selectedMaoDeObra.unit || it.original_unit || it.unit || 'UN',
+              unit_cost: unitCost,
+              margin: it.margin,
+              table_price: unitCost,
+              rep: it.rep,
+              unit_quantity: it.unit_quantity,
+              dimensions: it.dimensions,
+              category: 'Processo de Fabricação',
+            },
+            database,
+            settings,
+            catalog
+          );
+          return {
+            ...calculated,
+            id: it.id,
+            price_unlinked: false,
+            found: true,
+            table_price: unitCost,
+          };
+        }
+        return it;
+      });
+
+      const res = recalculateBudget(updated, database, settings, catalog);
+      setItems(res.items);
+      setLinkModalOpen(false);
+
+      if (applyToAllSimilar) {
+        toast.success(`Vinculado "${selectedMaoDeObra.name}" a ${matchedCount} processos semelhantes!`, {
+          description: `Preço de custo definido como ${unitCost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.`,
+        });
+      } else {
+        toast.success(`Preço ${unitCost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} vinculado de ${selectedMaoDeObra.name}!`);
+      }
+      return;
+    }
+
     // Caso de Chapa
     const brandData = catalog[selectedBrand] as BrandCatalog;
     const lineObj = brandData?.lines?.find(l => l.name === selectedLine);
@@ -985,8 +1077,6 @@ export function OrcamentoCurrentTab({
 
     if (itemsViewFilter === 'leaves') {
       result = result.filter(it => !it.is_parent_module);
-    } else if (itemsViewFilter === 'modules') {
-      result = result.filter(it => it.is_parent_module);
     }
 
     if (!filterSearch.trim()) return result;
@@ -999,6 +1089,259 @@ export function OrcamentoCurrentTab({
         (it.dimensions && it.dimensions.toLowerCase().includes(term))
     );
   }, [items, filterSearch, itemsViewFilter]);
+
+  // Agrupamento hierárquico por Móvel / Módulo
+  const moduleGroups = useMemo(() => {
+    return groupItemsByModule(items);
+  }, [items]);
+
+  const filteredModuleGroups = useMemo(() => {
+    if (!filterSearch.trim()) return moduleGroups;
+    const term = filterSearch.toLowerCase();
+    return moduleGroups
+      .map(g => {
+        const matchesGroup =
+          g.name.toLowerCase().includes(term) ||
+          (g.category && g.category.toLowerCase().includes(term)) ||
+          (g.dimensions && g.dimensions.toLowerCase().includes(term));
+        const matchingItems = g.items.filter(
+          it =>
+            it.code.toLowerCase().includes(term) ||
+            it.description.toLowerCase().includes(term) ||
+            (it.dimensions && it.dimensions.toLowerCase().includes(term))
+        );
+        if (matchesGroup) return g;
+        if (matchingItems.length > 0) {
+          return {
+            ...g,
+            items: matchingItems,
+          };
+        }
+        return null;
+      })
+      .filter(Boolean) as ModuleGroup[];
+  }, [moduleGroups, filterSearch]);
+
+  const handleToggleModuleExpand = (groupId: string) => {
+    setExpandedModules(prev => ({
+      ...prev,
+      [groupId]: prev[groupId] === false ? true : false,
+    }));
+  };
+
+  const handleExpandAllModules = (expand: boolean) => {
+    const next: Record<string, boolean> = {};
+    moduleGroups.forEach(g => {
+      next[g.id] = expand;
+    });
+    setExpandedModules(next);
+  };
+
+  const renderItemRow = (item: BudgetItem, index: number) => {
+    return (
+      <tr
+        key={item.id}
+        className="hover:bg-slate-50/80 transition-colors"
+      >
+        <td className="py-2.5 pl-3 pr-1 text-center font-medium text-slate-400">
+          {item.item_number || index + 1}
+        </td>
+
+        <td className="px-2 py-2.5 font-mono font-semibold text-slate-900">
+          <div className="flex items-center gap-1.5">
+            <span className="truncate max-w-[180px]" title={item.code}>
+              {item.code}
+            </span>
+
+            {item.unit_cost === 0 || !item.found || item.price_unlinked ? (
+              <button
+                onClick={() => handleConsultarVincularPreco(item)}
+                className="flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 hover:bg-blue-100 border border-blue-200 transition-colors shrink-0"
+                title="Trazer preço da tabela para este item"
+              >
+                <Link2 className="h-3 w-3 text-blue-600" />
+                Trazer Preço
+              </button>
+            ) : (
+              <button
+                onClick={() => handleOpenLinkModal(item)}
+                className="flex items-center gap-0.5 text-[10px] font-semibold text-emerald-700 hover:underline shrink-0"
+                title="Item vinculado à tabela de preços. Clique para consultar ou trocar de linha."
+              >
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                <span>Vinculado</span>
+              </button>
+            )}
+          </div>
+        </td>
+
+        <td className="px-3 py-2.5">
+          <div className="space-y-0.5">
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="font-medium text-slate-800">{item.description}</span>
+              {item.is_parent_module && (
+                <Badge variant="outline" className="border-amber-300 bg-amber-50 text-[9px] text-amber-800 font-semibold">
+                  Módulo Promob
+                </Badge>
+              )}
+              {item.category && (
+                <Badge variant="outline" className="border-slate-300 bg-slate-100 text-[9px] text-slate-700">
+                  {item.category}
+                </Badge>
+              )}
+              {item.external_model && (
+                <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-[9px] text-emerald-700">
+                  {item.external_model}
+                </Badge>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500">
+              {item.dimensions && (
+                <span className="font-mono text-slate-600 bg-slate-100 px-1 py-0.5 rounded">
+                  {item.dimensions}
+                </span>
+              )}
+              {item.found && (
+                <span className="text-emerald-700 font-medium">✓ Vinculado na Tabela</span>
+              )}
+              {item.is_fita && item.fita_metros && (
+                <span className="font-mono text-indigo-600">
+                  Fita: {item.fita_metros.toFixed(2)}m
+                </span>
+              )}
+              {item.is_parent_module && (
+                <span className="text-amber-700 italic">
+                  (Móvel montado / composto por suas peças)
+                </span>
+              )}
+            </div>
+          </div>
+        </td>
+
+        {/* Repetição de Peças (coluna Rep do Promob) */}
+        <td className="px-2 py-2 text-center">
+          <BudgetNumberInput
+            type="number"
+            step="1"
+            min="1"
+            value={item.rep || 1}
+            onCommit={value => handleUpdateItemRep(item.id, value)}
+            className="h-7 w-12 text-center text-xs font-bold text-slate-800 px-1 py-0 border-slate-200 mx-auto bg-slate-50/50 hover:bg-white focus:bg-white"
+            title="Clique para alterar a repetição de peças"
+          />
+        </td>
+
+        {/* Quantidade Unitária (M² ou UN por peça) */}
+        <td className="px-2 py-2 text-center">
+          <BudgetNumberInput
+            type="number"
+            step="any"
+            min="0.001"
+            value={item.unit_quantity !== undefined ? item.unit_quantity : item.quantity}
+            onCommit={value => handleUpdateItemUnitQty(item.id, value)}
+            className="h-7 w-16 text-center text-xs font-mono text-slate-700 px-1 py-0 border-slate-200 mx-auto"
+            title="Matéria-prima unitária por peça (m² ou UN)"
+          />
+        </td>
+
+        {/* Consumo Total Efetivo de Matéria-prima */}
+        <td className="px-2 py-2 text-center">
+          <BudgetNumberInput
+            type="number"
+            step="any"
+            min="0.001"
+            value={item.quantity}
+            onCommit={value => handleUpdateItemQty(item.id, value)}
+            className="h-7 w-16 text-center text-xs font-bold text-slate-900 px-1 py-0 border-slate-200 mx-auto bg-slate-50/50 hover:bg-white focus:bg-white"
+            title="Consumo total de matéria-prima (Rep × Qtd Unit)"
+          />
+        </td>
+
+        <td className="px-2 py-2.5 text-center">
+          <span className="rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600 text-[11px]">
+            {item.unit}
+          </span>
+        </td>
+
+        {/* Custo Unitário Manual Inline */}
+        <td className="px-3 py-2 text-right">
+          {hideFinancialValues ? (
+            <span className="text-slate-400 font-mono text-xs">••••••</span>
+          ) : (
+            <div className="flex items-center justify-end gap-1">
+              <span className="text-slate-400 text-[10px] font-medium">R$</span>
+              <BudgetNumberInput
+                type="number"
+                step="0.01"
+                min="0"
+                value={item.unit_cost === 0 ? '' : item.unit_cost}
+                onCommit={value => handleUpdateItemCost(item.id, value)}
+                placeholder="0,00"
+                className={`h-7 w-24 text-right text-xs font-bold px-2 py-0 border ${
+                  item.unit_cost === 0
+                    ? 'border-amber-300 bg-amber-50/50 text-amber-900 placeholder:text-amber-400'
+                    : 'border-slate-200 text-slate-900 focus:border-[#c92031]'
+                }`}
+                title="Digite o custo unitário do material ou clique no link para trazer da tabela"
+              />
+            </div>
+          )}
+        </td>
+
+        <td className="px-3 py-2.5 text-right font-medium text-slate-600">
+          {hideFinancialValues
+            ? '••••••'
+            : item.unit_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+        </td>
+
+        <td className="px-3 py-2.5 text-right">
+          {hideFinancialValues ? (
+            <span className="font-bold text-slate-400 font-mono text-xs">••••••</span>
+          ) : (
+            <>
+              <span className="font-bold text-slate-900">
+                {item.total_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+              </span>
+              <span className="block text-[10px] text-slate-400">
+                Custo: {item.total_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+              </span>
+            </>
+          )}
+        </td>
+
+        <td className="py-2.5 pl-2 pr-4 text-center">
+          <div className="flex items-center justify-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                if (item.found && !item.price_unlinked) {
+                  setItems(prev => recalculateBudget(prev.map(it => it.id === item.id
+                    ? { ...it, price_unlinked: true, found: false, unit_cost: 0 }
+                    : it), database, settings, catalog).items);
+                  toast.success('Preço desvinculado.');
+                } else handleConsultarVincularPreco(item);
+              }}
+              className="h-7 w-7 text-blue-600 hover:bg-blue-50 hover:text-blue-800"
+              title={item.found && !item.price_unlinked ? "Desvincular preço da tabela" : "Vincular preço da tabela"}
+            >
+              {item.found && !item.price_unlinked ? <Unlink className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => handleRemoveItem(item.id)}
+              className="h-7 w-7 text-slate-400 hover:bg-red-50 hover:text-red-600"
+              title="Remover Item"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </td>
+      </tr>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -1301,41 +1644,62 @@ export function OrcamentoCurrentTab({
         {/* Chapa Conversion Controls & View Filter */}
         <div className="flex flex-wrap items-center gap-3">
           {items.length > 0 && (
-            <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-[11px]">
-              <button
-                type="button"
-                onClick={() => setItemsViewFilter('all')}
-                className={`px-2 py-1 rounded-md font-medium transition-colors ${
-                  itemsViewFilter === 'all'
-                    ? 'bg-white shadow text-slate-900 font-bold'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Todos ({items.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setItemsViewFilter('leaves')}
-                className={`px-2 py-1 rounded-md font-medium transition-colors ${
-                  itemsViewFilter === 'leaves'
-                    ? 'bg-white shadow text-slate-900 font-bold'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Peças de Corte ({items.filter(it => !it.is_parent_module).length})
-              </button>
-              {items.some(it => it.is_parent_module) && (
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-[11px]">
                 <button
                   type="button"
-                  onClick={() => setItemsViewFilter('modules')}
-                  className={`px-2 py-1 rounded-md font-medium transition-colors ${
-                    itemsViewFilter === 'modules'
+                  onClick={() => setItemsViewFilter('grouped')}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md font-semibold transition-colors ${
+                    itemsViewFilter === 'grouped'
                       ? 'bg-white shadow text-slate-900 font-bold'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  Módulos ({items.filter(it => it.is_parent_module).length})
+                  <Box className="h-3.5 w-3.5 text-blue-600" />
+                  <span>Por Móvel / Módulo ({moduleGroups.length})</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setItemsViewFilter('leaves')}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md font-medium transition-colors ${
+                    itemsViewFilter === 'leaves'
+                      ? 'bg-white shadow text-slate-900 font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span>Peças de Corte ({items.filter(it => !it.is_parent_module).length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setItemsViewFilter('all')}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md font-medium transition-colors ${
+                    itemsViewFilter === 'all'
+                      ? 'bg-white shadow text-slate-900 font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <span>Todas as Linhas ({items.length})</span>
+                </button>
+              </div>
+
+              {itemsViewFilter === 'grouped' && (
+                <div className="flex items-center gap-1 text-[11px] text-slate-500">
+                  <button
+                    type="button"
+                    onClick={() => handleExpandAllModules(true)}
+                    className="px-1.5 py-0.5 text-blue-600 hover:text-blue-800 hover:underline font-medium cursor-pointer"
+                  >
+                    Expandir Todos
+                  </button>
+                  <span>•</span>
+                  <button
+                    type="button"
+                    onClick={() => handleExpandAllModules(false)}
+                    className="px-1.5 py-0.5 text-slate-500 hover:text-slate-800 hover:underline cursor-pointer"
+                  >
+                    Recolher Todos
+                  </button>
+                </div>
               )}
             </div>
           )}
@@ -1434,6 +1798,153 @@ export function OrcamentoCurrentTab({
             </Button>
           </div>
         </Card>
+      ) : itemsViewFilter === 'grouped' ? (
+        <div className="space-y-4">
+          {filteredModuleGroups.length === 0 ? (
+            <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+              Nenhum móvel ou módulo encontrado com o filtro pesquisado.
+            </div>
+          ) : (
+            filteredModuleGroups.map(group => {
+              const isExpanded = expandedModules[group.id] !== false;
+              return (
+                <div
+                  key={group.id}
+                  className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs transition-shadow hover:shadow-sm"
+                >
+                  {/* Cabeçalho do Móvel / Módulo */}
+                  <div
+                    onClick={() => handleToggleModuleExpand(group.id)}
+                    className="flex flex-wrap items-center justify-between gap-3 bg-slate-50/90 hover:bg-slate-100/90 px-4 py-3 cursor-pointer transition-colors border-b border-slate-100 select-none"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <button
+                        type="button"
+                        className="p-1 rounded hover:bg-slate-200 text-slate-500 transition-colors shrink-0"
+                        title={isExpanded ? 'Recolher peças' : 'Expandir peças'}
+                      >
+                        {isExpanded ? (
+                          <ChevronDown className="h-4 w-4" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4" />
+                        )}
+                      </button>
+
+                      {group.is_hardware_only ? (
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700 shrink-0">
+                          <Wrench className="h-4 w-4" />
+                        </div>
+                      ) : group.is_process_only ? (
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100 text-purple-700 shrink-0">
+                          <Sparkles className="h-4 w-4" />
+                        </div>
+                      ) : (
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-amber-800 shrink-0">
+                          <Box className="h-4 w-4" />
+                        </div>
+                      )}
+
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-bold text-sm text-slate-900 truncate">
+                            {group.name}
+                          </span>
+                          {group.category && (
+                            <Badge variant="outline" className="text-[10px] py-0 border-slate-300 bg-white text-slate-600">
+                              {group.category}
+                            </Badge>
+                          )}
+                          {group.dimensions && (
+                            <span className="font-mono text-[10px] text-slate-600 bg-slate-200/70 px-1.5 py-0.5 rounded">
+                              {group.dimensions}
+                            </span>
+                          )}
+                          <span className="text-[11px] text-slate-500 font-medium">
+                            ({group.items.length} {group.items.length === 1 ? 'peça/item' : 'peças/itens'})
+                          </span>
+                        </div>
+                        {group.parent_item && (
+                          <span className="text-[11px] text-slate-500 block truncate">
+                            Módulo Promob: {group.parent_item.code} {group.parent_item.dimensions ? `(${group.parent_item.dimensions})` : ''}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Subtotais do Móvel */}
+                    <div className="flex items-center gap-4 text-right">
+                      <div>
+                        <span className="text-[10px] uppercase font-semibold text-slate-400 block">Custo Materiais</span>
+                        <span className="font-semibold text-xs text-slate-700">
+                          {hideFinancialValues
+                            ? '••••••'
+                            : group.subtotal_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </span>
+                      </div>
+                      <div className="border-l border-slate-200 pl-3">
+                        <span className="text-[10px] uppercase font-semibold text-slate-400 block">Preço de Venda</span>
+                        <span className="font-bold text-sm text-[#c92031]">
+                          {hideFinancialValues
+                            ? '••••••'
+                            : group.subtotal_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Tabela de Peças do Móvel */}
+                  {isExpanded && (
+                    <div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs text-slate-700">
+                          <thead className="bg-[#17191d] text-[10px] uppercase tracking-wider text-white">
+                            <tr>
+                              <th className="py-2.5 pl-3 pr-1 font-semibold w-10 text-center">#</th>
+                              <th className="px-2 py-2.5 font-semibold">Código / Peça</th>
+                              <th className="px-3 py-2.5 font-semibold">Descrição do Material / Dimensões</th>
+                              <th className="px-2 py-2.5 text-center font-semibold w-16" title="Repetições da peça">Rep (Peças)</th>
+                              <th className="px-2 py-2.5 text-center font-semibold w-20" title="Matéria-prima unitária por peça (m²)">Qtd Unit. (M²)</th>
+                              <th className="px-2 py-2.5 text-center font-semibold w-20" title="Consumo total de matéria-prima">Total Matéria</th>
+                              <th className="px-2 py-2.5 text-center font-semibold w-12">Un</th>
+                              <th className="px-3 py-2.5 text-right font-semibold text-amber-300">Custo Tabela (R$) ✏️</th>
+                              <th className="px-3 py-2.5 text-right font-semibold">Preço Unit.</th>
+                              <th className="px-3 py-2.5 text-right font-semibold">Total Linha</th>
+                              <th className="py-2.5 pl-2 pr-4 text-center font-semibold">Ação</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {group.items.map((item, idx) => renderItemRow(item, idx))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/50 px-4 py-2 text-[11px] text-slate-500">
+                        <span>Subtotal deste móvel: {group.items.length} itens</span>
+                        <div className="flex items-center gap-3 font-medium">
+                          <span>
+                            Custo: {hideFinancialValues ? '••••••' : group.subtotal_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </span>
+                          <span>•</span>
+                          <span className="font-bold text-slate-900">
+                            Venda: {hideFinancialValues ? '••••••' : group.subtotal_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-[11px] text-slate-500">
+            <span>
+              {moduleGroups.length} móveis / módulos ({items.length} peças totais, {items.filter(it => it.found && !it.price_unlinked).length} vinculados à tabela de preços)
+            </span>
+            <span className="text-slate-500">
+              Margem de cálculo aplicada: <strong className="font-semibold text-slate-700">{settings.margin}%</strong> (definida em Configurações)
+            </span>
+          </div>
+        </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
@@ -1456,205 +1967,7 @@ export function OrcamentoCurrentTab({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredItems.map((item, index) => {
-                  return (
-                    <tr
-                      key={item.id}
-                      className="hover:bg-slate-50/80 transition-colors"
-                    >
-                      <td className="py-2.5 pl-3 pr-1 text-center font-medium text-slate-400">
-                        {item.item_number || index + 1}
-                      </td>
-
-                      <td className="px-2 py-2.5 font-mono font-semibold text-slate-900">
-                        <div className="flex items-center gap-1.5">
-                          <span className="truncate max-w-[180px]" title={item.code}>
-                            {item.code}
-                          </span>
-
-                          {item.unit_cost === 0 || !item.found || item.price_unlinked ? (
-                            <button
-                              onClick={() => handleConsultarVincularPreco(item)}
-                              className="flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 hover:bg-blue-100 border border-blue-200 transition-colors shrink-0"
-                              title="Trazer preço da tabela para este item"
-                            >
-                              <Link2 className="h-3 w-3 text-blue-600" />
-                              Trazer Preço
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => handleOpenLinkModal(item)}
-                              className="flex items-center gap-0.5 text-[10px] font-semibold text-emerald-700 hover:underline shrink-0"
-                              title="Item vinculado à tabela de preços. Clique para consultar ou trocar de linha."
-                            >
-                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                              <span>Vinculado</span>
-                            </button>
-                          )}
-                        </div>
-                      </td>
-
-                      <td className="px-3 py-2.5">
-                        <div className="space-y-0.5">
-                          <div className="flex flex-wrap items-center gap-1">
-                            <span className="font-medium text-slate-800">{item.description}</span>
-                            {item.is_parent_module && (
-                              <Badge variant="outline" className="border-amber-300 bg-amber-50 text-[9px] text-amber-800 font-semibold">
-                                Módulo Promob
-                              </Badge>
-                            )}
-                            {item.category && (
-                              <Badge variant="outline" className="border-slate-300 bg-slate-100 text-[9px] text-slate-700">
-                                {item.category}
-                              </Badge>
-                            )}
-                            {item.external_model && (
-                              <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-[9px] text-emerald-700">
-                                {item.external_model}
-                              </Badge>
-                            )}
-                            {item.is_chapa && (
-                              <Badge variant="outline" className="border-blue-200 bg-blue-50 text-[9px] text-blue-700">
-                                Chapa
-                              </Badge>
-                            )}
-                            {item.is_fita && (
-                              <Badge variant="outline" className="border-purple-200 bg-purple-50 text-[9px] text-purple-700">
-                                Fita
-                              </Badge>
-                            )}
-                          </div>
-                          {item.dimensions && (
-                            <span className="block text-[10px] text-slate-500 font-mono">
-                              Dimensões: {item.dimensions}
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Repetição (Peças) */}
-                      <td className="px-2 py-2 text-center">
-                        <BudgetNumberInput
-                          type="number"
-                          step="1"
-                          min="1"
-                          value={item.rep || 1}
-                          onCommit={value => handleUpdateItemRep(item.id, value)}
-                          className="h-7 w-12 text-center text-xs font-bold text-slate-800 px-1 py-0 border-slate-200 mx-auto bg-slate-50/50 hover:bg-white focus:bg-white"
-                          title="Clique para alterar a repetição de peças"
-                        />
-                      </td>
-
-                      {/* Quantidade Unitária (M² ou UN por peça) */}
-                      <td className="px-2 py-2 text-center">
-                        <BudgetNumberInput
-                          type="number"
-                          step="any"
-                          min="0.001"
-                          value={item.unit_quantity !== undefined ? item.unit_quantity : item.quantity}
-                          onCommit={value => handleUpdateItemUnitQty(item.id, value)}
-                          className="h-7 w-16 text-center text-xs font-mono text-slate-700 px-1 py-0 border-slate-200 mx-auto"
-                          title="Matéria-prima unitária por peça (m² ou UN)"
-                        />
-                      </td>
-
-                      {/* Consumo Total Efetivo de Matéria-prima */}
-                      <td className="px-2 py-2 text-center">
-                        <BudgetNumberInput
-                          type="number"
-                          step="any"
-                          min="0.001"
-                          value={item.quantity}
-                          onCommit={value => handleUpdateItemQty(item.id, value)}
-                          className="h-7 w-16 text-center text-xs font-bold text-slate-900 px-1 py-0 border-slate-200 mx-auto bg-slate-50/50 hover:bg-white focus:bg-white"
-                          title="Consumo total de matéria-prima (Rep × Qtd Unit)"
-                        />
-                      </td>
-
-                      <td className="px-2 py-2.5 text-center">
-                        <span className="rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600 text-[11px]">
-                          {item.unit}
-                        </span>
-                      </td>
-
-                      {/* Custo Unitário Manual Inline */}
-                      <td className="px-3 py-2 text-right">
-                        {hideFinancialValues ? (
-                          <span className="text-slate-400 font-mono text-xs">••••••</span>
-                        ) : (
-                          <div className="flex items-center justify-end gap-1">
-                            <span className="text-slate-400 text-[10px] font-medium">R$</span>
-                            <BudgetNumberInput
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={item.unit_cost === 0 ? '' : item.unit_cost}
-                              onCommit={value => handleUpdateItemCost(item.id, value)}
-                              placeholder="0,00"
-                              className={`h-7 w-24 text-right text-xs font-bold px-2 py-0 border ${
-                                item.unit_cost === 0
-                                  ? 'border-amber-300 bg-amber-50/50 text-amber-900 placeholder:text-amber-400'
-                                  : 'border-slate-200 text-slate-900 focus:border-[#c92031]'
-                              }`}
-                              title="Digite o custo unitário do material ou clique no link para trazer da tabela"
-                            />
-                          </div>
-                        )}
-                      </td>
-
-                      <td className="px-3 py-2.5 text-right font-medium text-slate-600">
-                        {hideFinancialValues
-                          ? '••••••'
-                          : item.unit_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                      </td>
-
-                      <td className="px-3 py-2.5 text-right">
-                        {hideFinancialValues ? (
-                          <span className="font-bold text-slate-400 font-mono text-xs">••••••</span>
-                        ) : (
-                          <>
-                            <span className="font-bold text-slate-900">
-                              {item.total_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                            </span>
-                            <span className="block text-[10px] text-slate-400">
-                              Custo: {item.total_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                            </span>
-                          </>
-                        )}
-                      </td>
-
-                      <td className="py-2.5 pl-2 pr-4 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => {
-                              if (item.found && !item.price_unlinked) {
-                                setItems(prev => recalculateBudget(prev.map(it => it.id === item.id
-                                  ? { ...it, price_unlinked: true, found: false, unit_cost: 0 }
-                                  : it), database, settings, catalog).items);
-                                toast.success('Preço desvinculado.');
-                              } else handleConsultarVincularPreco(item);
-                            }}
-                            className="h-7 w-7 text-blue-600 hover:bg-blue-50 hover:text-blue-800"
-                            title={item.found && !item.price_unlinked ? "Desvincular preço da tabela" : "Vincular preço da tabela"}
-                          >
-                            {item.found && !item.price_unlinked ? <Unlink className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleRemoveItem(item.id)}
-                            className="h-7 w-7 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                            title="Remover Item"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {filteredItems.map((item, index) => renderItemRow(item, index))}
               </tbody>
             </table>
           </div>
@@ -1754,6 +2067,62 @@ export function OrcamentoCurrentTab({
                         {(selectedAcessorio?.price || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </span>
                       <span className="text-[10px] text-slate-500 font-medium">custo unitário</span>
+                    </div>
+                  </div>
+                </>
+              ) : selectedBrand === 'Mão de Obra Fixa' ? (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="min-w-0">
+                      <Label className="text-xs font-semibold">1. Categoria</Label>
+                      <Select value={selectedBrand} onValueChange={setSelectedBrand}>
+                        <SelectTrigger className="mt-1 text-xs w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-60">
+                          {brandsList.map(b => (
+                            <SelectItem key={b} value={b}>{b}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="min-w-0">
+                      <Label className="text-xs font-semibold">2. Tipo</Label>
+                      <div className="mt-1 flex h-9 items-center rounded-md border border-slate-200 bg-slate-100 px-3 text-xs font-medium text-slate-600">
+                        Processo / Mão de Obra Fixa
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="min-w-0">
+                    <Label className="text-xs font-semibold">3. Processo / Mão de Obra da Tabela</Label>
+                    <Select value={selectedMaoDeObraId} onValueChange={setSelectedMaoDeObraId}>
+                      <SelectTrigger className="mt-1 text-xs font-semibold w-full">
+                        <SelectValue placeholder="Selecione o processo de fabricação..." />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-60">
+                        {maoDeObraList.map(m => (
+                          <SelectItem key={m.id} value={m.id}>
+                            {m.name} — {m.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} / {m.unit || 'UN'}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className="font-bold text-emerald-900 block">Preço Unitário do Processo:</span>
+                      <span className="text-slate-600 block truncate">
+                        {selectedMaoDeObra?.name}
+                      </span>
+                    </div>
+                    <div className="text-right ml-auto">
+                      <span className="text-base font-black text-emerald-800 block">
+                        {(selectedMaoDeObra?.price || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-medium">por {selectedMaoDeObra?.unit || 'unidade'}</span>
                     </div>
                   </div>
                 </>

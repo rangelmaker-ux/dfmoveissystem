@@ -24,6 +24,8 @@ const {
   calculateItemPrice,
   recalculateBudget,
   isSimilarPromobItem,
+  smartMatchMaoDeObra,
+  groupItemsByModule,
 } = modules;
 
 const settings = {
@@ -254,4 +256,63 @@ test('isSimilarPromobItem detecta peças com mesmo material e ferragens semelhan
   // Corrediça NÃO é similar a Dobradiça
   assert.equal(isSimilarPromobItem(dobradicaReta, corredica, true), false);
 });
+
+test('smartMatchMaoDeObra reconhece processos fixos de fabricação Promob (Porta Reta, Porta Cava, Frente Cava)', () => {
+  // Item 95 do Promob: Porta Reta
+  const portaReta = smartMatchMaoDeObra('POR-RETA', 'Processo de Fabricação Porta Reta', INITIAL_CHAPAS_CATALOG, DEFAULT_MATERIALS);
+  assert.equal(portaReta.matched, true);
+  assert.equal(portaReta.price, 70.00);
+  assert.equal(portaReta.unit, 'UN');
+
+  // Item 96 do Promob: Porta Cava
+  const portaCava = smartMatchMaoDeObra('POR-CAVA', 'Porta Cava Horizontal', INITIAL_CHAPAS_CATALOG, DEFAULT_MATERIALS);
+  assert.equal(portaCava.matched, true);
+  assert.equal(portaCava.price, 70.00);
+
+  // Item 94 do Promob: Frente Cava
+  const frenteCava = smartMatchMaoDeObra('FRE-CAVA', 'Frente Cava Horizontal', INITIAL_CHAPAS_CATALOG, DEFAULT_MATERIALS);
+  assert.equal(frenteCava.matched, true);
+  assert.equal(frenteCava.price, 70.00);
+
+  // Montagem de Módulo
+  const montagem = smartMatchMaoDeObra('MONT-MOD', 'Montagem de Módulo no Cliente', INITIAL_CHAPAS_CATALOG, DEFAULT_MATERIALS);
+  assert.equal(montagem.matched, true);
+  assert.equal(montagem.price, 60.00);
+});
+
+test('groupItemsByModule agrupa módulos pais com suas respectivas peças de corte, acessórios e processos', () => {
+  const sampleItems = [
+    // Acessórios
+    { id: '1', code: 'DOBR-RETA', description: 'Dobradiça Reta', quantity: 26, rep: 26, unit: 'UN', unit_cost: 10, unit_price: 20, total_cost: 260, total_price: 520, category: 'Acessórios' },
+    // Módulo Torre e peças
+    { id: '2', code: 'MOD-TORRE', description: 'Torre 2 Portas', quantity: 1, rep: 1, unit: 'UN', unit_cost: 0, unit_price: 0, total_cost: 0, total_price: 0, is_parent_module: true, category: 'Cozinhas' },
+    { id: '3', code: 'BASE-15', description: 'Base Inferior', quantity: 0.8, rep: 1, unit: 'M2', unit_cost: 100, unit_price: 200, total_cost: 80, total_price: 160, module_name: 'Torre 2 Portas', category: 'Cozinhas' },
+    { id: '4', code: 'LAT-15', description: 'Lateral Direita', quantity: 1.2, rep: 1, unit: 'M2', unit_cost: 100, unit_price: 200, total_cost: 120, total_price: 240, module_name: 'Torre 2 Portas', category: 'Cozinhas' },
+    // Processos
+    { id: '5', code: 'POR-RETA', description: 'Porta Reta', quantity: 10, rep: 10, unit: 'UN', unit_cost: 70, unit_price: 140, total_cost: 700, total_price: 1400, category: 'Processo de Fabricação', is_processo: true },
+  ];
+
+  const groups = groupItemsByModule(sampleItems);
+  assert.equal(groups.length, 3);
+
+  // Grupo 1: Acessórios
+  const accGroup = groups.find(g => g.is_hardware_only);
+  assert.ok(accGroup);
+  assert.equal(accGroup.items.length, 1);
+  assert.equal(accGroup.subtotal_cost, 260);
+
+  // Grupo 2: Módulo Torre
+  const torreGroup = groups.find(g => g.name.includes('Torre'));
+  assert.ok(torreGroup);
+  assert.equal(torreGroup.items.length, 2); // Base + Lateral
+  assert.equal(torreGroup.subtotal_cost, 200); // 80 + 120
+  assert.equal(torreGroup.subtotal_price, 400); // 160 + 240
+
+  // Grupo 3: Processos
+  const procGroup = groups.find(g => g.is_process_only);
+  assert.ok(procGroup);
+  assert.equal(procGroup.items.length, 1);
+  assert.equal(procGroup.subtotal_cost, 700);
+});
+
 

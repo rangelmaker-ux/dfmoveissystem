@@ -21,6 +21,14 @@ export interface AcessorioItem {
   price: number;
 }
 
+export interface MaoDeObraItem {
+  id: string;
+  name: string;
+  unit: string;
+  price: number;
+  description?: string;
+}
+
 export interface BrandCatalog {
   brandName: string;
   type: 'brand';
@@ -33,7 +41,13 @@ export interface AcessoriosCatalog {
   items: AcessorioItem[];
 }
 
-export type CatalogByBrand = Record<string, BrandCatalog | AcessoriosCatalog>;
+export interface MaoDeObraCatalog {
+  brandName: 'Mão de Obra Fixa';
+  type: 'maodeobra';
+  items: MaoDeObraItem[];
+}
+
+export type CatalogByBrand = Record<string, BrandCatalog | AcessoriosCatalog | MaoDeObraCatalog>;
 
 export const INITIAL_CHAPAS_CATALOG: CatalogByBrand = {
   "Duratex": {
@@ -1701,6 +1715,82 @@ export const INITIAL_CHAPAS_CATALOG: CatalogByBrand = {
         "name": "Divisor de acrilico",
         "size": "",
         "price": 0
+      }
+    ]
+  },
+  "Mão de Obra Fixa": {
+    "brandName": "Mão de Obra Fixa",
+    "type": "maodeobra",
+    "items": [
+      {
+        "id": "mo-1",
+        "name": "Porta Reta",
+        "unit": "UN",
+        "price": 70,
+        "description": "Processo de fabricação de porta reta com fita de borda"
+      },
+      {
+        "id": "mo-2",
+        "name": "Porta Cava Horizontal",
+        "unit": "UN",
+        "price": 70,
+        "description": "Usinagem e acabamento de cava horizontal linear"
+      },
+      {
+        "id": "mo-3",
+        "name": "Frente Cava Horizontal",
+        "unit": "UN",
+        "price": 70,
+        "description": "Usinagem e acabamento de cava em frente de gaveta"
+      },
+      {
+        "id": "mo-4",
+        "name": "Porta Cava 45°",
+        "unit": "UN",
+        "price": 85,
+        "description": "Corte e usinagem de chanfro a 45 graus para puxador"
+      },
+      {
+        "id": "mo-5",
+        "name": "Porta Alumínio com Vidro",
+        "unit": "UN",
+        "price": 130,
+        "description": "Montagem de esquadria de alumínio e encaixe de vidro"
+      },
+      {
+        "id": "mo-6",
+        "name": "Usinagem Especial / Passa-cabos",
+        "unit": "UN",
+        "price": 35,
+        "description": "Furação e acabamento para passagens e tomadas"
+      },
+      {
+        "id": "mo-7",
+        "name": "Montagem de Gaveta Completa",
+        "unit": "UN",
+        "price": 40,
+        "description": "Montagem de caixa de gaveta e fixação de corrediça"
+      },
+      {
+        "id": "mo-8",
+        "name": "Instalação de Articulador / Pistão",
+        "unit": "UN",
+        "price": 30,
+        "description": "Instalação e regulagem de ferragem basculante"
+      },
+      {
+        "id": "mo-9",
+        "name": "Montagem Estrutural de Módulo",
+        "unit": "UN",
+        "price": 60,
+        "description": "Pré-montagem na marcenaria de módulo/caixaria"
+      },
+      {
+        "id": "mo-10",
+        "name": "Engrosso de Borda Dupla (M²)",
+        "unit": "M2",
+        "price": 45,
+        "description": "Colagem e acabamento de engrosso 30mm/36mm"
       }
     ]
   },

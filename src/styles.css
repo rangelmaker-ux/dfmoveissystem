@@ -4,8 +4,7 @@
 
 @layer base {
   html {
-    scroll-behavior: smooth;
-    content-visibility: auto;
+    scroll-behavior: auto;
   }
 }
 

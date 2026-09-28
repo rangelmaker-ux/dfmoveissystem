@@ -1,4 +1,4 @@
-import { BudgetItem, BudgetSettings, ProductItem } from './types';
+import { BudgetItem, BudgetSettings, ProductItem, ModuleGroup } from './types';
 import { INITIAL_CHAPAS_CATALOG, CatalogByBrand, BrandCatalog } from './chapas-catalog';
 import { DEFAULT_MATERIALS } from './default-materials';
 
@@ -301,8 +301,16 @@ export function smartMatchAccessory(
       }
     }
 
-    const retaMatch = findAcessorio(n => n.includes('dobradica') && n.includes('reta') && !n.includes('canto')) ||
-                      findAcessorio(n => n.includes('dobradica') && !n.includes('canto'));
+    const isSemAmort = normText.includes('s/ amort') || normText.includes('sem amort') || normText.includes('s/amort');
+    if (isSemAmort) {
+      const match = findAcessorio(n => n.includes('dobradica') && (n.includes('sem amort') || n.includes('s/ amort')));
+      if (match && match.price > 0) {
+        return { matched: true, name: match.name, price: match.price, unit: 'UN', source: 'catalog_acessorio', code: match.id };
+      }
+    }
+
+    const retaMatch = findAcessorio(n => n.includes('dobradica') && n.includes('reta') && !n.includes('canto') && !n.includes('sem amort')) ||
+                      findAcessorio(n => n.includes('dobradica') && !n.includes('canto') && !n.includes('sem amort'));
     if (retaMatch && retaMatch.price > 0) {
       return { matched: true, name: retaMatch.name, price: retaMatch.price, unit: 'UN', source: 'catalog_acessorio', code: retaMatch.id };
     }
@@ -493,6 +501,102 @@ export function smartMatchAccessory(
   return { matched: false, name: '', price: 0, unit: 'UN', source: 'catalog_acessorio' };
 }
 
+// Correspondência inteligente para processos de fabricação e mão de obra fixa
+export function smartMatchMaoDeObra(
+  code: string,
+  description: string,
+  catalog: CatalogByBrand = INITIAL_CHAPAS_CATALOG,
+  database: ProductItem[] = DEFAULT_MATERIALS
+): { matched: boolean; name: string; price: number; unit: string; code: string; source: 'catalog_maodeobra' | 'database' } {
+  const normText = normalizeText(`${code} ${description}`);
+
+  // 1. Catálogo Mão de Obra Fixa
+  const moCatalog = catalog['Mão de Obra Fixa'];
+  const moItems = moCatalog && moCatalog.type === 'maodeobra' ? moCatalog.items : [];
+
+  const findMo = (predicate: (name: string, desc: string) => boolean) => {
+    return moItems.find(item => predicate(normalizeText(item.name), normalizeText(item.description || '')));
+  };
+
+  // Porta Reta
+  if (normText.includes('porta reta') || (normText.includes('porta') && normText.includes('reta') && !normText.includes('cava'))) {
+    const match = findMo(n => n.includes('porta reta')) || moItems.find(i => i.id === 'mo-1');
+    if (match && match.price > 0) {
+      return { matched: true, name: match.name, price: match.price, unit: match.unit || 'UN', code: match.id, source: 'catalog_maodeobra' };
+    }
+  }
+
+  // Porta Cava Horizontal
+  if (normText.includes('porta cava') || (normText.includes('porta') && normText.includes('cava'))) {
+    const match = findMo(n => n.includes('porta cava horizontal') || n.includes('porta cava')) || moItems.find(i => i.id === 'mo-2');
+    if (match && match.price > 0) {
+      return { matched: true, name: match.name, price: match.price, unit: match.unit || 'UN', code: match.id, source: 'catalog_maodeobra' };
+    }
+  }
+
+  // Frente Cava Horizontal
+  if (normText.includes('frente cava') || (normText.includes('frente') && normText.includes('cava'))) {
+    const match = findMo(n => n.includes('frente cava')) || moItems.find(i => i.id === 'mo-3');
+    if (match && match.price > 0) {
+      return { matched: true, name: match.name, price: match.price, unit: match.unit || 'UN', code: match.id, source: 'catalog_maodeobra' };
+    }
+  }
+
+  // Cava 45
+  if (normText.includes('45') && normText.includes('cava')) {
+    const match = findMo(n => n.includes('45')) || moItems.find(i => i.id === 'mo-4');
+    if (match && match.price > 0) {
+      return { matched: true, name: match.name, price: match.price, unit: match.unit || 'UN', code: match.id, source: 'catalog_maodeobra' };
+    }
+  }
+
+  // Montagem
+  if (normText.includes('montagem')) {
+    if (normText.includes('gaveta')) {
+      const match = findMo(n => n.includes('gaveta'));
+      if (match && match.price > 0) {
+        return { matched: true, name: match.name, price: match.price, unit: match.unit || 'UN', code: match.id, source: 'catalog_maodeobra' };
+      }
+    }
+    const match = findMo(n => n.includes('modulo') || n.includes('estrutural')) ||
+                  findMo(n => n.includes('montagem') && !n.includes('gaveta')) ||
+                  findMo(n => n.includes('montagem')) ||
+                  moItems.find(i => i.id === 'mo-9');
+    if (match && match.price > 0) {
+      return { matched: true, name: match.name, price: match.price, unit: match.unit || 'UN', code: match.id, source: 'catalog_maodeobra' };
+    }
+  }
+
+  // Usinagem
+  if (normText.includes('usinagem')) {
+    const match = findMo(n => n.includes('usinagem')) || moItems.find(i => i.id === 'mo-6');
+    if (match && match.price > 0) {
+      return { matched: true, name: match.name, price: match.price, unit: match.unit || 'UN', code: match.id, source: 'catalog_maodeobra' };
+    }
+  }
+
+  // Processo de Fabricação genérico
+  if (normText.includes('processo de fabricacao') || normText.includes('processo de fabricação') || normText.includes('processo')) {
+    for (const item of moItems) {
+      const n = normalizeText(item.name);
+      if (normText.includes(n)) {
+        return { matched: true, name: item.name, price: item.price, unit: item.unit || 'UN', code: item.id, source: 'catalog_maodeobra' };
+      }
+    }
+  }
+
+  // 2. Busca no banco de dados de materiais com categoria MAO_DE_OBRA
+  const dbMo = database.find(p => p.category === 'MAO_DE_OBRA' && (
+    normText.includes(normalizeText(p.description)) ||
+    normalizeCode(p.code) === normalizeCode(code)
+  ));
+  if (dbMo && dbMo.unit_price > 0) {
+    return { matched: true, name: dbMo.description, price: dbMo.unit_price, unit: dbMo.unit || 'UN', code: dbMo.code, source: 'database' };
+  }
+
+  return { matched: false, name: '', price: 0, unit: 'UN', code: '', source: 'catalog_maodeobra' };
+}
+
 // Localiza o produto no banco cadastrado pelo código ou subcódigos
 export function matchProduct(
   code: string,
@@ -580,6 +684,16 @@ export function isSimilarPromobItem(
     return tDesc === cDesc && tDesc.length > 3;
   }
 
+  // Mão de Obra e Processos de Fabricação
+  const isLaborTarget = tDesc.includes('processo') || tDesc.includes('porta reta') || tDesc.includes('porta cava') || tDesc.includes('frente cava') || tDesc.includes('usinagem') || tDesc.includes('mao de obra') || tDesc.includes('mão de obra');
+  if (isLaborTarget) {
+    if (tDesc.includes('porta reta') && (cDesc.includes('porta reta') || cCode.includes('porta reta'))) return true;
+    if (tDesc.includes('porta cava') && (cDesc.includes('porta cava') || cCode.includes('porta cava'))) return true;
+    if (tDesc.includes('frente cava') && (cDesc.includes('frente cava') || cCode.includes('frente cava'))) return true;
+    if (tDesc.includes('usinagem') && (cDesc.includes('usinagem') || cCode.includes('usinagem'))) return true;
+    return tCode === cCode || tDesc === cDesc;
+  }
+
   // Chapas MDF/MDP
   const isTargetChapa = target.is_chapa || isChapa(target.code, target.description) || (target.unit || '').toUpperCase() === 'M2';
   const isCandChapa = candidate.is_chapa || isChapa(candidate.code, candidate.description) || (candidate.unit || '').toUpperCase() === 'M2';
@@ -621,7 +735,7 @@ export function isSimilarPromobItem(
 
 export interface PriceMatchResult {
   matched: boolean;
-  source: 'database' | 'catalog_chapa' | 'catalog_acessorio' | 'mdf_padrao';
+  source: 'database' | 'catalog_chapa' | 'catalog_acessorio' | 'mdf_padrao' | 'catalog_maodeobra';
   unit_cost: number;
   code: string;
   description: string;
@@ -633,7 +747,7 @@ export interface PriceMatchResult {
   matched_name?: string;
 }
 
-// Resolvedor Universal de Preços: vincula chapas, acessórios e materiais da tabela DF Móveis
+// Resolvedor Universal de Preços: vincula chapas, acessórios, mão de obra e materiais da tabela DF Móveis
 export function resolveItemPrice(
   item: {
     code: string;
@@ -657,6 +771,20 @@ export function resolveItemPrice(
       code: item.code,
       description: item.description,
       unit: item.unit || 'UN',
+    };
+  }
+
+  // 0. Verifica se é Processo de Fabricação / Mão de Obra Fixa (Porta Reta, Porta Cava, Frente Cava, etc.)
+  const moMatch = smartMatchMaoDeObra(item.code, item.description, catalog, database);
+  if (moMatch.matched && moMatch.price > 0) {
+    return {
+      matched: true,
+      source: moMatch.source,
+      unit_cost: moMatch.price,
+      code: moMatch.code || item.code,
+      description: item.description,
+      unit: moMatch.unit || item.unit || 'UN',
+      matched_name: moMatch.name,
     };
   }
 
@@ -1007,4 +1135,206 @@ export function recalculateBudget(
       items_count: recalculatedItems.length,
     },
   };
+}
+
+// Agrupa as peças e processos por Móvel / Módulo para visualização executiva
+export function groupItemsByModule(items: BudgetItem[]): ModuleGroup[] {
+  const groups: ModuleGroup[] = [];
+  let currentGroup: ModuleGroup | null = null;
+  let moduleCounter = 1;
+
+  for (const it of items) {
+    const normDesc = normalizeText(it.description || '');
+    const normCat = normalizeText(it.category || '');
+
+    // 1. Processos de Fabricação (Mão de Obra Fixa)
+    const isLabor = it.is_processo || it.is_mao_de_obra ||
+      normCat.includes('processo') || normCat.includes('mao de obra') ||
+      normDesc.includes('processo de fabricacao') || normDesc.includes('porta reta') ||
+      normDesc.includes('porta cava') || normDesc.includes('frente cava');
+
+    if (isLabor) {
+      let procGroup = groups.find(g => g.id === 'group-processos');
+      if (!procGroup) {
+        procGroup = {
+          id: 'group-processos',
+          name: 'Processos de Fabricação (Mão de Obra Fixa)',
+          category: 'Processo de Fabricação',
+          piecesCount: 0,
+          totalCost: 0,
+          totalPrice: 0,
+          subtotal_cost: 0,
+          subtotal_price: 0,
+          total_pieces: 0,
+          items: [],
+          is_process_only: true,
+        };
+        groups.push(procGroup);
+      }
+      procGroup.items.push(it);
+      procGroup.piecesCount += (it.rep || 1);
+      procGroup.total_pieces = procGroup.piecesCount;
+      procGroup.totalCost = round2(procGroup.totalCost + it.total_cost);
+      procGroup.subtotal_cost = procGroup.totalCost;
+      procGroup.totalPrice = round2(procGroup.totalPrice + it.total_price);
+      procGroup.subtotal_price = procGroup.totalPrice;
+      continue;
+    }
+
+    // 2. Eletrodomésticos
+    if (normCat.includes('electrolux') || normDesc.includes('forno') || normDesc.includes('fogao') || normDesc.includes('cooktop') || normDesc.includes('coifa') || normDesc.includes('lava loucas')) {
+      let eletroGroup = groups.find(g => g.id === 'group-eletros');
+      if (!eletroGroup) {
+        eletroGroup = {
+          id: 'group-eletros',
+          name: 'Eletrodomésticos & Equipamentos',
+          category: 'Eletrodomésticos',
+          piecesCount: 0,
+          totalCost: 0,
+          totalPrice: 0,
+          subtotal_cost: 0,
+          subtotal_price: 0,
+          total_pieces: 0,
+          items: [],
+        };
+        groups.push(eletroGroup);
+      }
+      eletroGroup.items.push(it);
+      eletroGroup.piecesCount += (it.rep || 1);
+      eletroGroup.total_pieces = eletroGroup.piecesCount;
+      eletroGroup.totalCost = round2(eletroGroup.totalCost + it.total_cost);
+      eletroGroup.subtotal_cost = eletroGroup.totalCost;
+      eletroGroup.totalPrice = round2(eletroGroup.totalPrice + it.total_price);
+      eletroGroup.subtotal_price = eletroGroup.totalPrice;
+      continue;
+    }
+
+    // 3. Ferragens e Acessórios Gerais avulsos
+    const isStandaloneHardware = (normCat.includes('acessorio') || normCat.includes('hettich') || normCat.includes('wurth') || normCat.includes('ferragem') ||
+      normDesc.includes('dobradica') || normDesc.includes('corredica') || normDesc.includes('pistao') || normDesc.includes('lift')) &&
+      !it.is_parent_module;
+
+    if (isStandaloneHardware && !currentGroup) {
+      let ferragemGroup = groups.find(g => g.id === 'group-ferragens');
+      if (!ferragemGroup) {
+        ferragemGroup = {
+          id: 'group-ferragens',
+          name: 'Ferragens & Acessórios Gerais',
+          category: 'Acessórios',
+          piecesCount: 0,
+          totalCost: 0,
+          totalPrice: 0,
+          subtotal_cost: 0,
+          subtotal_price: 0,
+          total_pieces: 0,
+          items: [],
+          is_hardware_only: true,
+        };
+        groups.push(ferragemGroup);
+      }
+      ferragemGroup.items.push(it);
+      ferragemGroup.piecesCount += (it.rep || 1);
+      ferragemGroup.total_pieces = ferragemGroup.piecesCount;
+      ferragemGroup.totalCost = round2(ferragemGroup.totalCost + it.total_cost);
+      ferragemGroup.subtotal_cost = ferragemGroup.totalCost;
+      ferragemGroup.totalPrice = round2(ferragemGroup.totalPrice + it.total_price);
+      ferragemGroup.subtotal_price = ferragemGroup.totalPrice;
+      continue;
+    }
+
+    // 4. Módulos / Móveis Mestres (Armário, Balcão, Torre)
+    const isTopModule = it.is_parent_module &&
+      !normDesc.includes('caixa armario') &&
+      !normDesc.includes('caixa gaveta') &&
+      !normDesc.includes('balcao 1 div') &&
+      !normDesc.includes('balcao gav/pia');
+
+    if (isTopModule) {
+      currentGroup = {
+        id: `module-${it.id || moduleCounter++}`,
+        name: it.description,
+        dimensions: it.dimensions,
+        category: it.category || 'Móvel',
+        parentModuleItem: it,
+        parent_item: it,
+        piecesCount: 0,
+        totalCost: 0,
+        totalPrice: 0,
+        subtotal_cost: 0,
+        subtotal_price: 0,
+        total_pieces: 0,
+        items: [],
+      };
+      groups.push(currentGroup);
+      continue;
+    }
+
+    // 5. Tamponamentos e Fechamentos
+    if (normDesc.includes('tamponamento') && !currentGroup?.name.toLowerCase().includes('balcão') && !currentGroup?.name.toLowerCase().includes('armário')) {
+      let tampGroup = groups.find(g => g.id === 'group-tamponamentos');
+      if (!tampGroup) {
+        tampGroup = {
+          id: 'group-tamponamentos',
+          name: 'Tamponamentos & Fechamentos',
+          category: 'Acabamentos',
+          piecesCount: 0,
+          totalCost: 0,
+          totalPrice: 0,
+          subtotal_cost: 0,
+          subtotal_price: 0,
+          total_pieces: 0,
+          items: [],
+        };
+        groups.push(tampGroup);
+      }
+      tampGroup.items.push(it);
+      tampGroup.piecesCount += (it.rep || 1);
+      tampGroup.total_pieces = tampGroup.piecesCount;
+      tampGroup.totalCost = round2(tampGroup.totalCost + it.total_cost);
+      tampGroup.subtotal_cost = tampGroup.totalCost;
+      tampGroup.totalPrice = round2(tampGroup.totalPrice + it.total_price);
+      tampGroup.subtotal_price = tampGroup.totalPrice;
+      continue;
+    }
+
+    // 6. Peça filha do móvel atual
+    if (currentGroup) {
+      currentGroup.items.push(it);
+      if (!it.is_parent_module) {
+        currentGroup.piecesCount += (it.rep || 1);
+        currentGroup.total_pieces = currentGroup.piecesCount;
+        currentGroup.totalCost = round2(currentGroup.totalCost + it.total_cost);
+        currentGroup.subtotal_cost = currentGroup.totalCost;
+        currentGroup.totalPrice = round2(currentGroup.totalPrice + it.total_price);
+        currentGroup.subtotal_price = currentGroup.totalPrice;
+      }
+    } else {
+      let generalGroup = groups.find(g => g.id === 'group-geral');
+      if (!generalGroup) {
+        generalGroup = {
+          id: 'group-geral',
+          name: 'Peças & Componentes Gerais',
+          piecesCount: 0,
+          totalCost: 0,
+          totalPrice: 0,
+          subtotal_cost: 0,
+          subtotal_price: 0,
+          total_pieces: 0,
+          items: [],
+        };
+        groups.push(generalGroup);
+      }
+      generalGroup.items.push(it);
+      if (!it.is_parent_module) {
+        generalGroup.piecesCount += (it.rep || 1);
+        generalGroup.total_pieces = generalGroup.piecesCount;
+        generalGroup.totalCost = round2(generalGroup.totalCost + it.total_cost);
+        generalGroup.subtotal_cost = generalGroup.totalCost;
+        generalGroup.totalPrice = round2(generalGroup.totalPrice + it.total_price);
+        generalGroup.subtotal_price = generalGroup.totalPrice;
+      }
+    }
+  }
+
+  return groups;
 }

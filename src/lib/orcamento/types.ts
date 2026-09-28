@@ -32,7 +32,30 @@ export interface BudgetItem {
   external_model?: string;
   table_price?: number;
   final_price?: number;
+  module_name?: string;
+  is_module_header?: boolean;
+  module_id?: string;
+  is_processo?: boolean;
+  is_mao_de_obra?: boolean;
   notes?: string;
+}
+
+export interface ModuleGroup {
+  id: string;
+  name: string;
+  category?: string;
+  dimensions?: string;
+  piecesCount: number;
+  totalCost: number;
+  totalPrice: number;
+  subtotal_cost: number;
+  subtotal_price: number;
+  total_pieces: number;
+  parentModuleItem?: BudgetItem;
+  parent_item?: BudgetItem;
+  items: BudgetItem[];
+  is_hardware_only?: boolean;
+  is_process_only?: boolean;
 }
 
 export interface PromobReportMetadata {

@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { 
   Search, Plus, Trash2, Edit2, RotateCcw, Package, Layers, Download, Upload, 
-  Check, DollarSign, ArrowRight, ShieldAlert, Sparkles, Filter
+  Check, DollarSign, ArrowRight, ShieldAlert, Sparkles, Filter, Wrench
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,7 @@ import { toast } from 'sonner';
 import { ProductItem, BudgetSettings } from '@/lib/orcamento/types';
 import { DEFAULT_MATERIALS } from '@/lib/orcamento/default-materials';
 import { 
-  INITIAL_CHAPAS_CATALOG, CatalogByBrand, ChapaLineItem, AcessorioItem, BrandCatalog, AcessoriosCatalog 
+  INITIAL_CHAPAS_CATALOG, CatalogByBrand, ChapaLineItem, AcessorioItem, BrandCatalog, AcessoriosCatalog, MaoDeObraItem, MaoDeObraCatalog 
 } from '@/lib/orcamento/chapas-catalog';
 import { CHAPA_AREA_M2, round2, chapaSalePrice, calculateAdditionsFactor } from '@/lib/orcamento/calculator';
 import { parseLocaleNumber } from '@/lib/orcamento/parsers';
@@ -50,6 +50,15 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
   const [addLineModalOpen, setAddLineModalOpen] = useState(false);
   const [newLineName, setNewLineName] = useState('');
 
+  // State for Mão de Obra Fixa
+  const [editMoModalOpen, setEditMoModalOpen] = useState(false);
+  const [editingMo, setEditingMo] = useState<MaoDeObraItem | null>(null);
+  const [editMoName, setEditMoName] = useState('');
+  const [editMoUnit, setEditMoUnit] = useState('UN');
+  const [editMoPrice, setEditMoPrice] = useState('');
+  const [editMoDesc, setEditMoDesc] = useState('');
+  const [addMoModalOpen, setAddMoModalOpen] = useState(false);
+
   // General Products tab states
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
@@ -75,6 +84,13 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
 
   const filteredAcessorios = activeBrandData && activeBrandData.type === 'acessorios'
     ? activeBrandData.items.filter(a => a.name.toLowerCase().includes(brandSearch.toLowerCase()))
+    : [];
+
+  const filteredMaoDeObra = activeBrandData && activeBrandData.type === 'maodeobra'
+    ? activeBrandData.items.filter(m =>
+        m.name.toLowerCase().includes(brandSearch.toLowerCase()) ||
+        (m.description && m.description.toLowerCase().includes(brandSearch.toLowerCase()))
+      )
     : [];
 
   // Calculate sale price with user margin and global additions
@@ -247,7 +263,103 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
     toast.success(`Linha "${newLine.name}" cadastrada na marca ${selectedBrand}!`);
   };
 
-  // Reset to original 2025 Excel catalog
+  // Mão de Obra Fixa Handlers
+  const handleOpenEditMo = (mo: MaoDeObraItem) => {
+    setEditingMo(mo);
+    setEditMoName(mo.name);
+    setEditMoUnit(mo.unit || 'UN');
+    setEditMoPrice(mo.price ? mo.price.toString() : '0');
+    setEditMoDesc(mo.description || '');
+    setEditMoModalOpen(true);
+  };
+
+  const handleSaveMo = () => {
+    if (!editingMo) return;
+    const priceNum = parseLocaleNumber(editMoPrice, -1);
+    if (priceNum < 0) {
+      toast.error('Informe um valor de preço válido.');
+      return;
+    }
+    setCatalog(prev => {
+      const moCat = prev['Mão de Obra Fixa'];
+      if (!moCat || moCat.type !== 'maodeobra') return prev;
+      return {
+        ...prev,
+        'Mão de Obra Fixa': {
+          ...moCat,
+          items: moCat.items.map(item => item.id === editingMo.id
+            ? { ...item, name: editMoName.trim() || item.name, unit: editMoUnit.trim() || 'UN', price: priceNum, description: editMoDesc.trim() || undefined }
+            : item
+          )
+        }
+      };
+    });
+
+    // Sincroniza com database
+    setDatabase(prev => prev.map(p => {
+      if (p.category === 'MAO_DE_OBRA' && (p.code.toLowerCase().includes(editingMo.id.toLowerCase()) || p.description.toLowerCase().includes(editingMo.name.toLowerCase()))) {
+        return { ...p, unit_price: priceNum };
+      }
+      return p;
+    }));
+
+    setEditMoModalOpen(false);
+    toast.success(`Preço de "${editMoName}" atualizado para R$ ${priceNum.toFixed(2)}!`);
+  };
+
+  const handleAddNewMo = () => {
+    if (!editMoName.trim()) {
+      toast.error('Informe o nome da mão de obra ou processo.');
+      return;
+    }
+    const priceNum = parseLocaleNumber(editMoPrice, -1);
+    if (priceNum < 0) {
+      toast.error('Informe um valor de preço válido.');
+      return;
+    }
+    const newMo: MaoDeObraItem = {
+      id: `mo-${Date.now()}`,
+      name: editMoName.trim(),
+      unit: editMoUnit.trim() || 'UN',
+      price: priceNum,
+      description: editMoDesc.trim() || undefined,
+    };
+    setCatalog(prev => {
+      const moCat = prev['Mão de Obra Fixa'];
+      if (!moCat || moCat.type !== 'maodeobra') return prev;
+      return {
+        ...prev,
+        'Mão de Obra Fixa': {
+          ...moCat,
+          items: [newMo, ...moCat.items],
+        }
+      };
+    });
+    setAddMoModalOpen(false);
+    setEditMoName('');
+    setEditMoPrice('');
+    setEditMoDesc('');
+    toast.success(`Mão de obra "${newMo.name}" adicionada com sucesso!`);
+  };
+
+  const handleDeleteMo = (id: string, name: string) => {
+    if (confirm(`Deseja remover "${name}" da tabela de mão de obra fixa?`)) {
+      setCatalog(prev => {
+        const moCat = prev['Mão de Obra Fixa'];
+        if (!moCat || moCat.type !== 'maodeobra') return prev;
+        return {
+          ...prev,
+          'Mão de Obra Fixa': {
+            ...moCat,
+            items: moCat.items.filter(item => item.id !== id),
+          }
+        };
+      });
+      toast.success(`"${name}" removido.`);
+    }
+  };
+
+  // Reset to original 2026 catalog
   const handleResetCatalog = () => {
     if (confirm('Deseja restaurar todos os preços de chapas para a tabela padrão de 2026?')) {
       setCatalog(INITIAL_CHAPAS_CATALOG);
@@ -302,10 +414,13 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
           <div className="flex items-center gap-2 overflow-x-auto pb-2">
             {brandNames.map(brand => {
               const isSelected = selectedBrand === brand;
+              const bData = catalog[brand];
               const count =
-                catalog[brand].type === 'brand'
-                  ? (catalog[brand] as BrandCatalog).lines.length
-                  : (catalog[brand] as AcessoriosCatalog).items.length;
+                bData.type === 'brand'
+                  ? (bData as BrandCatalog).lines.length
+                  : bData.type === 'acessorios'
+                  ? (bData as AcessoriosCatalog).items.length
+                  : (bData as MaoDeObraCatalog).items.length;
 
               return (
                 <button
@@ -368,6 +483,22 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                 >
                   <Plus className="mr-1.5 h-3.5 w-3.5 text-emerald-400" />
                   Nova Linha em {selectedBrand}
+                </Button>
+              )}
+
+              {activeBrandData.type === 'maodeobra' && (
+                <Button
+                  onClick={() => {
+                    setEditMoName('');
+                    setEditMoPrice('');
+                    setEditMoUnit('UN');
+                    setEditMoDesc('');
+                    setAddMoModalOpen(true);
+                  }}
+                  className="bg-[#17191d] text-xs text-white hover:bg-slate-800"
+                >
+                  <Plus className="mr-1.5 h-3.5 w-3.5 text-emerald-400" />
+                  Nova Mão de Obra Fixa
                 </Button>
               )}
             </div>
@@ -501,6 +632,82 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                                 <Edit2 className="mr-1 h-3 w-3" />
                                 Editar Preço
                               </Button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : activeBrandData.type === 'maodeobra' ? (
+            /* MÃO DE OBRA FIXA & PROCESSOS DE FABRICAÇÃO */
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-slate-700">
+                  <thead className="bg-[#17191d] text-[11px] uppercase tracking-wider text-white">
+                    <tr>
+                      <th className="py-3.5 pl-4 pr-3 font-semibold">Processo / Mão de Obra</th>
+                      <th className="px-3 py-3.5 font-semibold">Descrição do Processo</th>
+                      <th className="px-3 py-3.5 text-center font-semibold">Unidade</th>
+                      <th className="px-3 py-3.5 text-right font-semibold">Custo Base (Tabela)</th>
+                      <th className="px-3 py-3.5 text-right font-semibold">Preço Sugerido ({settings.margin}%)</th>
+                      <th className="py-3.5 pl-2 pr-4 text-center font-semibold">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredMaoDeObra.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-slate-400">
+                          Nenhum processo de mão de obra encontrado com "{brandSearch}".
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredMaoDeObra.map(mo => {
+                        const sale = getSalePrice(mo.price);
+                        return (
+                          <tr key={mo.id} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="py-3 pl-4 pr-3 font-bold text-slate-900">
+                              <div className="flex items-center gap-2">
+                                <Wrench className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                                <span>{mo.name}</span>
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 text-slate-500 text-[11px]">
+                              {mo.description || 'Processo de fabricação padrão'}
+                            </td>
+                            <td className="px-3 py-3 text-center">
+                              <span className="rounded bg-slate-100 px-2 py-0.5 font-semibold text-slate-700 text-[10px]">
+                                {mo.unit || 'UN'}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3 text-right font-black text-slate-900">
+                              {mo.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </td>
+                            <td className="px-3 py-3 text-right font-bold text-emerald-700">
+                              {sale ? sale.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}
+                            </td>
+                            <td className="py-3 pl-2 pr-4 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleOpenEditMo(mo)}
+                                  className="h-7 text-xs hover:bg-[#17191d] hover:text-white"
+                                >
+                                  <Edit2 className="mr-1 h-3 w-3" />
+                                  Editar Preço
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleDeleteMo(mo.id, mo.name)}
+                                  className="h-7 w-7 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -804,6 +1011,131 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
             </Button>
             <Button onClick={handleAddNewLine} className="bg-[#c92031] text-white hover:bg-[#aa1726]">
               Cadastrar Linha
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL: Editar Mão de Obra Fixa */}
+      <Dialog open={editMoModalOpen} onOpenChange={setEditMoModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900">
+              <Wrench className="h-5 w-5 text-amber-600" />
+              Editar Mão de Obra / Processo
+            </DialogTitle>
+          </DialogHeader>
+          {editingMo && (
+            <div className="space-y-3 py-2 text-xs">
+              <div>
+                <Label className="text-xs font-semibold">Nome do Processo</Label>
+                <Input
+                  value={editMoName}
+                  onChange={e => setEditMoName(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs font-semibold">Preço de Custo Base (R$)</Label>
+                  <Input
+                    placeholder="0,00"
+                    value={editMoPrice}
+                    onChange={e => setEditMoPrice(e.target.value)}
+                    className="mt-1 font-bold"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs font-semibold">Unidade</Label>
+                  <Input
+                    placeholder="UN"
+                    value={editMoUnit}
+                    onChange={e => setEditMoUnit(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-xs">Descrição do Serviço (Opcional)</Label>
+                <Input
+                  placeholder="Ex: Usinagem e fita de borda"
+                  value={editMoDesc}
+                  onChange={e => setEditMoDesc(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditMoModalOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSaveMo} className="bg-[#c92031] text-white hover:bg-[#aa1726]">
+              Salvar Alterações
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL: Adicionar Mão de Obra Fixa */}
+      <Dialog open={addMoModalOpen} onOpenChange={setAddMoModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900">
+              <Plus className="h-5 w-5 text-emerald-600" />
+              Nova Mão de Obra Fixa
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2 text-xs">
+            <div>
+              <Label className="text-xs font-semibold">Nome do Processo / Serviço</Label>
+              <Input
+                placeholder="Ex: Porta Cava 45°, Montagem de Ilha"
+                value={editMoName}
+                onChange={e => setEditMoName(e.target.value)}
+                className="mt-1"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-semibold">Preço de Custo Base (R$)</Label>
+                <Input
+                  placeholder="70,00"
+                  value={editMoPrice}
+                  onChange={e => setEditMoPrice(e.target.value)}
+                  className="mt-1 font-bold"
+                />
+              </div>
+              <div>
+                <Label className="text-xs font-semibold">Unidade</Label>
+                <Input
+                  placeholder="UN"
+                  value={editMoUnit}
+                  onChange={e => setEditMoUnit(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs">Descrição do Serviço (Opcional)</Label>
+              <Input
+                placeholder="Ex: Usinagem e acabamento especial"
+                value={editMoDesc}
+                onChange={e => setEditMoDesc(e.target.value)}
+                className="mt-1"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddMoModalOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleAddNewMo} className="bg-[#c92031] text-white hover:bg-[#aa1726]">
+              Cadastrar Mão de Obra
             </Button>
           </DialogFooter>
         </DialogContent>
