@@ -20,7 +20,7 @@ import { BudgetItem, BudgetSettings, ProductItem } from '@/lib/orcamento/types';
 import { parsePromobXML, parseTXT, parseCSV, parseJSON, parsePromobPDF, parsePromobTextTable } from '@/lib/orcamento/parsers';
 import { 
   calculateItemPrice, recalculateBudget, CHAPA_AREA_M2, round2, isChapa,
-  smartMatchPromobChapa, matchProduct, chapaSalePrice
+  smartMatchPromobChapa, matchProduct, chapaSalePrice, resolveItemPrice, smartMatchAccessory
 } from '@/lib/orcamento/calculator';
 import { generateBudgetPdf } from '@/lib/orcamento/pdf-generator';
 import { BrandCatalog, CatalogByBrand } from '@/lib/orcamento/chapas-catalog';
@@ -127,11 +127,20 @@ export function OrcamentoCurrentTab({
   const [selectedBrand, setSelectedBrand] = useState('Arauco');
   const [selectedLine, setSelectedLine] = useState('');
   const [selectedThickness, setSelectedThickness] = useState<'6mm' | '15mm' | '18mm' | '25mm'>('15mm');
+  const [selectedAcessorioId, setSelectedAcessorioId] = useState('');
 
-  // Available brands in catalog
-  const brandsList = Object.keys(catalog).filter(
-    b => catalog[b].type === 'brand'
-  );
+  // Available brands and categories in catalog
+  const brandsList = Object.keys(catalog);
+
+  // Accessories list from catalog
+  const acessoriosList = useMemo(() => {
+    const a = catalog['Acessórios'];
+    return a && a.type === 'acessorios' ? a.items : [];
+  }, [catalog]);
+
+  const selectedAcessorio = useMemo(() => {
+    return acessoriosList.find(a => a.id === selectedAcessorioId) || acessoriosList[0];
+  }, [acessoriosList, selectedAcessorioId]);
 
   // Lines for selected brand in modal
   const brandLines = useMemo(() => {
@@ -141,8 +150,9 @@ export function OrcamentoCurrentTab({
 
   // Current selected board price and m2 cost in modal
   const currentBoardPrice = useMemo(() => {
+    if (selectedBrand === 'Acessórios') return 0;
     const brandData = catalog[selectedBrand] as BrandCatalog;
-    const lineObj = brandData?.lines.find(l => l.name === selectedLine);
+    const lineObj = brandData?.lines?.find(l => l.name === selectedLine);
     if (!lineObj) return 0;
     return lineObj.prices[selectedThickness] || 0;
   }, [catalog, selectedBrand, selectedLine, selectedThickness]);
@@ -236,7 +246,8 @@ export function OrcamentoCurrentTab({
             is_parent_module: raw.is_parent_module,
           },
           database,
-          settings
+          settings,
+          catalog
         );
         return {
           ...calculated,
@@ -296,7 +307,8 @@ export function OrcamentoCurrentTab({
             is_parent_module: raw.is_parent_module,
           },
           database,
-          settings
+          settings,
+          catalog
         );
         return {
           ...calculated,
@@ -487,165 +499,239 @@ export function OrcamentoCurrentTab({
     }
   };
 
-  // Open Link Modal for Item
+  // Open Link Modal for Item (Chapas ou Acessórios)
   const handleOpenLinkModal = (item: BudgetItem) => {
     setLinkingItem(item);
+    const raw = `${item.code} ${item.description}`.toLowerCase();
 
-    // Usa smart match para identificar a marca e linha mais adequadas
-    const smart = smartMatchPromobChapa(item.code, item.description, catalog);
-    if (smart.brand && brandsList.includes(smart.brand)) {
-      setSelectedBrand(smart.brand);
-      setSelectedThickness(smart.thickness);
-      if (smart.line) {
-        setSelectedLine(smart.line);
-      } else {
-        const brandData = catalog[smart.brand] as BrandCatalog;
-        setSelectedLine(brandData?.lines[0]?.name || '');
+    // Se for acessório ou ferragem conhecida:
+    const isAccessory = raw.includes('dobradica') ||
+      raw.includes('corredica') ||
+      raw.includes('telescopica') ||
+      raw.includes('pistao') ||
+      raw.includes('puxador') ||
+      raw.includes('ponteira') ||
+      raw.includes('cabideiro') ||
+      raw.includes('rodizio') ||
+      raw.includes('lixeira') ||
+      raw.includes('tabua') ||
+      raw.includes('parafuso');
+
+    if (isAccessory && catalog['Acessórios']) {
+      setSelectedBrand('Acessórios');
+      const match = smartMatchAccessory(item.code, item.description, item.dimensions, catalog, database);
+      if (match.matched && match.code) {
+        setSelectedAcessorioId(match.code);
+      } else if (acessoriosList.length > 0) {
+        setSelectedAcessorioId(acessoriosList[0].id);
       }
     } else {
-      const raw = `${item.code} ${item.description}`.toLowerCase();
-      const foundBrand = brandsList.find(b => raw.includes(b.toLowerCase()));
-      if (foundBrand) setSelectedBrand(foundBrand);
+      // É uma Chapa de MDF / MDP
+      const smart = smartMatchPromobChapa(item.code, item.description, catalog);
+      const foundBrand = smart.brand || brandsList.find(b => catalog[b]?.type === 'brand' && raw.includes(b.toLowerCase()));
+      const targetBrand = foundBrand && catalog[foundBrand] ? foundBrand : (catalog['Arauco'] ? 'Arauco' : (brandsList.find(b => catalog[b]?.type === 'brand') || 'Arauco'));
+      setSelectedBrand(targetBrand);
+      setSelectedThickness(smart.thickness || '15mm');
 
-      if (/\b6mm\b|\.6\./i.test(raw)) setSelectedThickness('6mm');
-      else if (/\b18mm\b|\.18\./i.test(raw)) setSelectedThickness('18mm');
-      else if (/\b25mm\b|\.25\./i.test(raw)) setSelectedThickness('25mm');
-      else setSelectedThickness('15mm');
-
-      const b = catalog[foundBrand || 'Arauco'] as BrandCatalog;
-      setSelectedLine(b?.lines[0]?.name || '');
+      const b = catalog[targetBrand] as BrandCatalog;
+      if (b && b.lines) {
+        setSelectedLine(smart.line || b.lines[0]?.name || '');
+      }
     }
 
     setLinkModalOpen(true);
   };
 
-  // Puxar valor da tabela de preço diretamente ao clicar no botão "Consultar / Vincular Chapa da Tabela"
+  // Puxar valor da tabela de preço diretamente ao clicar no botão "Trazer Preço" de um item
   const handleConsultarVincularPreco = (item: BudgetItem) => {
-    // 1. Tenta correspondência inteligente no catálogo de chapas (Arauco, Duratex, Guararapes, etc.)
-    const smart = smartMatchPromobChapa(item.code, item.description, catalog);
-    if (smart.matched && smart.m2Cost > 0) {
+    // 1. Tenta correspondência inteligente direta via resolveItemPrice (chapas, acessórios ou insumos)
+    const res = resolveItemPrice(item, catalog, database);
+    if (res.matched && res.unit_cost > 0) {
       const updated = items.map(it => {
         if (it.id === item.id) {
-          return { ...it, ...calculateItemPrice(
+          const calculated = calculateItemPrice(
             {
-              code: `${smart.brand?.toUpperCase()}-${smart.line?.toUpperCase().replace(/\s+/g, '_')}-${smart.thickness}`,
+              code: res.code || it.code,
               description: it.description,
               quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
-              unit: it.original_unit || it.unit,
-              unit_cost: smart.m2Cost,
+              unit: res.unit || it.original_unit || it.unit,
+              unit_cost: res.unit_cost,
               margin: it.margin,
+              rep: it.rep,
+              unit_quantity: it.unit_quantity,
+              dimensions: it.dimensions,
+              category: it.category,
+              external_model: it.external_model,
+              table_price: res.unit_cost,
+              final_price: it.final_price,
+              is_parent_module: it.is_parent_module,
+              is_chapa: res.source === 'catalog_chapa' || res.source === 'mdf_padrao' || it.is_chapa,
+              is_fita: it.is_fita,
+              fita_metros: it.fita_metros,
             },
             database,
-            settings
-          ), id: it.id, price_unlinked: false };
+            settings,
+            catalog
+          );
+
+          return {
+            ...calculated,
+            id: it.id,
+            price_unlinked: false,
+            found: true,
+            table_price: res.unit_cost,
+          };
         }
         return it;
       });
 
-      const res = recalculateBudget(updated, database, settings);
-      setItems(res.items);
+      const recalculated = recalculateBudget(updated, database, settings, catalog);
+      setItems(recalculated.items);
 
-      toast.success(`Preço ${smart.m2Cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m² vinculado da tabela!`, {
-        description: `${smart.brand} - ${smart.line} (${smart.thickness}) | Chapa inteira: R$ ${smart.boardPrice.toFixed(2)}`,
+      toast.success(`Preço ${res.unit_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} vinculado da tabela!`, {
+        description: res.matched_name || res.description,
       });
       return;
     }
 
-    // 2. Tenta encontrar no banco de materiais/produtos cadastrados (database)
-    const prodMatch = matchProduct(item.code, item.description, database);
-    if (prodMatch.product && prodMatch.product.unit_price > 0) {
-      const cost = prodMatch.product.unit_price;
-      const updated = items.map(it => {
-        if (it.id === item.id) {
-          return { ...it, ...calculateItemPrice(
-            {
-              code: it.code,
-              description: it.description,
-              quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
-              unit: it.original_unit || it.unit,
-              unit_cost: cost,
-              margin: it.margin,
-            },
-            database,
-            settings
-          ), id: it.id, price_unlinked: false };
-        }
-        return it;
-      });
-
-      const res = recalculateBudget(updated, database, settings);
-      setItems(res.items);
-
-      toast.success(`Preço ${cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} vinculado da tabela de materiais!`, {
-        description: prodMatch.product.description,
-      });
-      return;
-    }
-
-    // 3. Se não houver correspondência 100% automática, abre o modal de consulta para o usuário escolher a linha/marca
+    // 2. Se não houver correspondência 100% automática, abre o modal de consulta para o usuário escolher
     handleOpenLinkModal(item);
-    toast.info('Consulte e selecione a linha da chapa para trazer o preço.');
+    toast.info('Consulte e selecione o material correspondente para trazer o preço.');
   };
 
-  // Vincular automaticamente todas as peças que possuem correspondência direta na tabela
+  // Vincular automaticamente todas as peças que possuem correspondência na tabela DF Móveis
   const handlePullAllPricesFromTable = () => {
-    let matchedCount = 0;
+    let chapaCount = 0;
+    let acessorioCount = 0;
+    let prodCount = 0;
+
     const updated = items.map(it => {
-      // Se já tiver custo definido e for maior que 0, preserva
+      // Pula módulos pais agrupadores do Promob (como Torre, Balcão 2 Portas)
+      if (it.is_parent_module) return it;
 
+      const res = resolveItemPrice(it, catalog, database);
+      if (res.matched && res.unit_cost > 0) {
+        if (res.source === 'catalog_chapa' || res.source === 'mdf_padrao') {
+          chapaCount++;
+        } else if (res.source === 'catalog_acessorio') {
+          acessorioCount++;
+        } else {
+          prodCount++;
+        }
 
-      const smart = smartMatchPromobChapa(it.code, it.description, catalog);
-      if (smart.matched && smart.m2Cost > 0) {
-        matchedCount++;
-        return { ...it, ...calculateItemPrice(
+        const calculated = calculateItemPrice(
           {
-            code: `${smart.brand?.toUpperCase()}-${smart.line?.toUpperCase().replace(/\s+/g, '_')}-${smart.thickness}`,
+            code: res.code || it.code,
             description: it.description,
             quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
-            unit: it.original_unit || it.unit,
-            unit_cost: smart.m2Cost,
+            unit: res.unit || it.original_unit || it.unit,
+            unit_cost: res.unit_cost,
             margin: it.margin,
+            rep: it.rep,
+            unit_quantity: it.unit_quantity,
+            dimensions: it.dimensions,
+            category: it.category,
+            external_model: it.external_model,
+            table_price: res.unit_cost,
+            final_price: it.final_price,
+            is_parent_module: it.is_parent_module,
+            is_chapa: res.source === 'catalog_chapa' || res.source === 'mdf_padrao' || it.is_chapa,
+            is_fita: it.is_fita,
+            fita_metros: it.fita_metros,
           },
           database,
-          settings
-        ), id: it.id, price_unlinked: false };
-      }
+          settings,
+          catalog
+        );
 
-      const prodMatch = matchProduct(it.code, it.description, database);
-      if (prodMatch.product && prodMatch.product.unit_price > 0) {
-        matchedCount++;
-        return { ...it, ...calculateItemPrice(
-          {
-            code: it.code,
-            description: it.description,
-            quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
-            unit: it.original_unit || it.unit,
-            unit_cost: prodMatch.product.unit_price,
-            margin: it.margin,
-          },
-          database,
-          settings
-        ), id: it.id, price_unlinked: false };
+        return {
+          ...calculated,
+          id: it.id,
+          price_unlinked: false,
+          found: true,
+          table_price: res.unit_cost,
+        };
       }
 
       return it;
     });
 
-    if (matchedCount > 0) {
-      const res = recalculateBudget(updated, database, settings);
+    const totalMatched = chapaCount + acessorioCount + prodCount;
+    if (totalMatched > 0) {
+      const res = recalculateBudget(updated, database, settings, catalog);
       setItems(res.items);
-      toast.success(`${matchedCount} materiais vinculados com valores da tabela de preços!`);
+
+      const parts = [];
+      if (chapaCount > 0) parts.push(`${chapaCount} chapa(s)`);
+      if (acessorioCount > 0) parts.push(`${acessorioCount} acessório(s)/ferragem`);
+      if (prodCount > 0) parts.push(`${prodCount} produto(s) do banco`);
+
+      toast.success(`${totalMatched} itens vinculados com preços da tabela DF Móveis!`, {
+        description: `${parts.join(', ')} atualizados com sucesso no orçamento.`,
+      });
     } else {
-      toast.info('Nenhuma chapa pendente com correspondência direta foi encontrada.');
+      toast.info('Nenhuma chapa ou acessório pendente com correspondência foi localizado na tabela de preços.');
     }
   };
 
   // Apply Linker to single item or all similar items
   const handleApplyLink = (applyToAllSimilar: boolean) => {
-    if (!linkingItem || !selectedLine) return;
+    if (!linkingItem) return;
 
+    if (selectedBrand === 'Acessórios') {
+      if (!selectedAcessorio) return;
+      const unitCost = selectedAcessorio.price;
+      const targetCode = linkingItem.code;
+      const targetDesc = linkingItem.description;
+
+      const updated = items.map(it => {
+        const isTarget = applyToAllSimilar
+          ? it.code === targetCode || it.description === targetDesc
+          : it.id === linkingItem.id;
+
+        if (isTarget) {
+          const calculated = calculateItemPrice(
+            {
+              code: selectedAcessorio.id || it.code,
+              description: `${it.description} (${selectedAcessorio.name})`,
+              quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
+              unit: it.original_unit || it.unit || 'UN',
+              unit_cost: unitCost,
+              margin: it.margin,
+              table_price: unitCost,
+            },
+            database,
+            settings,
+            catalog
+          );
+          return {
+            ...calculated,
+            id: it.id,
+            price_unlinked: false,
+            found: true,
+            table_price: unitCost,
+          };
+        }
+        return it;
+      });
+
+      const res = recalculateBudget(updated, database, settings, catalog);
+      setItems(res.items);
+      setLinkModalOpen(false);
+
+      if (applyToAllSimilar) {
+        toast.success(`Vinculado "${selectedAcessorio.name}" a todos os itens similares!`, {
+          description: `Preço de custo definido como ${unitCost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.`,
+        });
+      } else {
+        toast.success(`Preço ${unitCost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} vinculado de ${selectedAcessorio.name}!`);
+      }
+      return;
+    }
+
+    // Caso de Chapa
     const brandData = catalog[selectedBrand] as BrandCatalog;
-    const lineObj = brandData?.lines.find(l => l.name === selectedLine);
+    const lineObj = brandData?.lines?.find(l => l.name === selectedLine);
     if (!lineObj) return;
 
     const boardPrice = lineObj.prices[selectedThickness] || 0;
@@ -653,16 +739,16 @@ export function OrcamentoCurrentTab({
 
     if (boardPrice <= 0) { toast.error('Esta espessura não tem preço cadastrado.'); return; }
 
-    // Filter key to match similar items: e.g. "Arauco.Beige Matt"
     const targetCode = linkingItem.code;
+    const targetDesc = linkingItem.description;
 
     const updated = items.map(it => {
       const isTarget = applyToAllSimilar
-        ? it.code === targetCode || it.description === linkingItem.description
+        ? it.code === targetCode || it.description === targetDesc
         : it.id === linkingItem.id;
 
       if (isTarget) {
-        return { ...it, ...calculateItemPrice(
+        const calculated = calculateItemPrice(
           {
             code: `${selectedBrand.toUpperCase()}-${lineObj.name.toUpperCase().replace(/\s+/g, '_')}-${selectedThickness}`,
             description: `${it.description} [${selectedBrand} - ${lineObj.name} ${selectedThickness}]`,
@@ -670,15 +756,24 @@ export function OrcamentoCurrentTab({
             unit: it.original_unit || it.unit,
             unit_cost: m2Cost,
             margin: it.margin,
+            table_price: m2Cost,
           },
           database,
-          settings
-        ), id: it.id, price_unlinked: false };
+          settings,
+          catalog
+        );
+        return {
+          ...calculated,
+          id: it.id,
+          price_unlinked: false,
+          found: true,
+          table_price: m2Cost,
+        };
       }
       return it;
     });
 
-    const res = recalculateBudget(updated, database, settings);
+    const res = recalculateBudget(updated, database, settings, catalog);
     setItems(res.items);
     setLinkModalOpen(false);
 
@@ -710,11 +805,12 @@ export function OrcamentoCurrentTab({
         margin: settings.margin,
       },
       database,
-      settings
+      settings,
+      catalog
     );
 
     const updated = [...items, { ...calculated, item_number: items.length + 1 }];
-    const res = recalculateBudget(updated, database, settings);
+    const res = recalculateBudget(updated, database, settings, catalog);
     setItems(res.items);
 
     setNewItemCode('');
@@ -1210,18 +1306,11 @@ export function OrcamentoCurrentTab({
                             {item.code}
                           </span>
 
-                          {item.unit_cost === 0 ? (
+                          {item.unit_cost === 0 || !item.found || item.price_unlinked ? (
                             <button
-                              onClick={() => {
-                              if (item.found && !item.price_unlinked) {
-                                setItems(prev => recalculateBudget(prev.map(it => it.id === item.id
-                                  ? { ...it, price_unlinked: true, found: false, unit_cost: 0 }
-                                  : it), database, settings).items);
-                                toast.success('Preço desvinculado. Informe um valor ou vincule novamente.');
-                              } else handleConsultarVincularPreco(item);
-                            }}
+                              onClick={() => handleConsultarVincularPreco(item)}
                               className="flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 hover:bg-blue-100 border border-blue-200 transition-colors shrink-0"
-                              title="Consultar/Vincular Chapa da tabela para trazer o valor do custo unitário"
+                              title="Trazer preço da tabela para este item"
                             >
                               <Link2 className="h-3 w-3 text-blue-600" />
                               Trazer Preço
@@ -1230,7 +1319,7 @@ export function OrcamentoCurrentTab({
                             <button
                               onClick={() => handleOpenLinkModal(item)}
                               className="flex items-center gap-0.5 text-[10px] font-semibold text-emerald-700 hover:underline shrink-0"
-                              title="Chapa vinculada à tabela de preços. Clique para consultar ou trocar de linha."
+                              title="Item vinculado à tabela de preços. Clique para consultar ou trocar de linha."
                             >
                               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
                               <span>Vinculado</span>
@@ -1363,7 +1452,7 @@ export function OrcamentoCurrentTab({
                               if (item.found && !item.price_unlinked) {
                                 setItems(prev => recalculateBudget(prev.map(it => it.id === item.id
                                   ? { ...it, price_unlinked: true, found: false, unit_cost: 0 }
-                                  : it), database, settings).items);
+                                  : it), database, settings, catalog).items);
                                 toast.success('Preço desvinculado.');
                               } else handleConsultarVincularPreco(item);
                             }}
@@ -1392,13 +1481,13 @@ export function OrcamentoCurrentTab({
         </div>
       )}
 
-      {/* MODAL: Vincular Chapa / Linha Inteligente */}
+      {/* MODAL: Vincular Chapa ou Acessório / Linha Inteligente */}
       <Dialog open={linkModalOpen} onOpenChange={setLinkModalOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-[#cbb27a]" />
-              Vincular Marca & Linha de Chapa
+              Vincular Preço da Tabela DF Móveis
             </DialogTitle>
           </DialogHeader>
 
@@ -1410,75 +1499,135 @@ export function OrcamentoCurrentTab({
                 <p className="font-medium text-slate-700">{linkingItem.description}</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs font-semibold">1. Marca</Label>
-                  <Select value={selectedBrand} onValueChange={setSelectedBrand}>
-                    <SelectTrigger className="mt-1 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {brandsList.map(b => (
-                        <SelectItem key={b} value={b}>{b}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+              {selectedBrand === 'Acessórios' ? (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs font-semibold">1. Categoria</Label>
+                      <Select value={selectedBrand} onValueChange={setSelectedBrand}>
+                        <SelectTrigger className="mt-1 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {brandsList.map(b => (
+                            <SelectItem key={b} value={b}>{b}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-                <div>
-                  <Label className="text-xs font-semibold">2. Espessura</Label>
-                  <Select
-                    value={selectedThickness}
-                    onValueChange={(val: '6mm' | '15mm' | '18mm' | '25mm') => setSelectedThickness(val)}
-                  >
-                    <SelectTrigger className="mt-1 text-xs font-bold">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="6mm">6mm (Fundo)</SelectItem>
-                      <SelectItem value="15mm">15mm (Padrão)</SelectItem>
-                      <SelectItem value="18mm">18mm (Estrutura)</SelectItem>
-                      <SelectItem value="25mm">25mm (Engrosso)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+                    <div>
+                      <Label className="text-xs font-semibold">2. Tipo</Label>
+                      <div className="mt-1 flex h-9 items-center rounded-md border border-slate-200 bg-slate-100 px-3 text-xs font-medium text-slate-600">
+                        Ferragem / Acessório
+                      </div>
+                    </div>
+                  </div>
 
-              <div>
-                <Label className="text-xs font-semibold">3. Linha / Padrão da Marca ({selectedBrand})</Label>
-                <Select value={selectedLine} onValueChange={setSelectedLine}>
-                  <SelectTrigger className="mt-1 text-xs font-semibold">
-                    <SelectValue placeholder="Selecione a linha..." />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-60">
-                    {brandLines.map(line => {
-                      const p = line.prices[selectedThickness];
-                      return (
-                        <SelectItem key={line.id} value={line.name}>
-                          {line.name} {p ? `— R$ ${p.toFixed(2)}/chapa` : ''}
-                        </SelectItem>
-                      );
-                    })}
-                  </SelectContent>
-                </Select>
-              </div>
-              {/* Preço Calculado da Chapa e do M² */}
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs flex items-center justify-between">
-                <div>
-                  <span className="font-bold text-emerald-900 block">Preço de Custo na Tabela:</span>
-                  <span className="text-slate-600">
-                    {selectedBrand} - {selectedLine || 'Selecione a linha'} ({selectedThickness})
-                  </span>
-                </div>
-                <div className="text-right">
-                  <span className="text-base font-black text-emerald-800 block">
-                    {currentM2Cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²
-                  </span>
-                  <span className="text-[10px] text-slate-500 font-medium">
-                    (Chapa inteira: {currentBoardPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})
-                  </span>
-                </div>
-              </div>
+                  <div>
+                    <Label className="text-xs font-semibold">3. Acessório / Ferragem da Tabela</Label>
+                    <Select value={selectedAcessorioId} onValueChange={setSelectedAcessorioId}>
+                      <SelectTrigger className="mt-1 text-xs font-semibold">
+                        <SelectValue placeholder="Selecione o acessório..." />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-60">
+                        {acessoriosList.map(a => (
+                          <SelectItem key={a.id} value={a.id}>
+                            {a.name} {a.size ? `(${a.size})` : ''} — {a.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs flex items-center justify-between">
+                    <div>
+                      <span className="font-bold text-emerald-900 block">Preço de Custo na Tabela:</span>
+                      <span className="text-slate-600">
+                        {selectedAcessorio?.name} {selectedAcessorio?.size ? `(${selectedAcessorio.size})` : ''}
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-base font-black text-emerald-800 block">
+                        {(selectedAcessorio?.price || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-medium">custo unitário</span>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs font-semibold">1. Marca</Label>
+                      <Select value={selectedBrand} onValueChange={setSelectedBrand}>
+                        <SelectTrigger className="mt-1 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {brandsList.map(b => (
+                            <SelectItem key={b} value={b}>{b}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-semibold">2. Espessura</Label>
+                      <Select
+                        value={selectedThickness}
+                        onValueChange={(val: '6mm' | '15mm' | '18mm' | '25mm') => setSelectedThickness(val)}
+                      >
+                        <SelectTrigger className="mt-1 text-xs font-bold">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="6mm">6mm (Fundo)</SelectItem>
+                          <SelectItem value="15mm">15mm (Padrão)</SelectItem>
+                          <SelectItem value="18mm">18mm (Estrutura)</SelectItem>
+                          <SelectItem value="25mm">25mm (Engrosso)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label className="text-xs font-semibold">3. Linha / Padrão da Marca ({selectedBrand})</Label>
+                    <Select value={selectedLine} onValueChange={setSelectedLine}>
+                      <SelectTrigger className="mt-1 text-xs font-semibold">
+                        <SelectValue placeholder="Selecione a linha..." />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-60">
+                        {brandLines.map(line => {
+                          const p = line.prices[selectedThickness];
+                          return (
+                            <SelectItem key={line.id} value={line.name}>
+                              {line.name} {p ? `— R$ ${p.toFixed(2)}/chapa` : ''}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs flex items-center justify-between">
+                    <div>
+                      <span className="font-bold text-emerald-900 block">Preço de Custo na Tabela:</span>
+                      <span className="text-slate-600">
+                        {selectedBrand} - {selectedLine || 'Selecione a linha'} ({selectedThickness})
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-base font-black text-emerald-800 block">
+                        {currentM2Cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-medium">
+                        (Chapa inteira: {currentBoardPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})
+                      </span>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
