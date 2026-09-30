@@ -128,9 +128,11 @@ test('recalculateBudget evita duplicação de módulos pais agrupadores no total
   // Recalcula o orçamento com o módulo pai e suas peças
   const budget = calculator.recalculateBudget([moduleItem, piece1, piece2], [], settings);
 
-  // O total do orçamento deve considerar apenas as peças (sem duplicar o módulo pai)
-  // piece1 (131.58) + piece2 (66.12) = 197.70
-  assert.equal(budget.totals.total_price, 197.70);
+  // O total comercial do orçamento deve considerar o módulo pai precificado (418.65), sem duplicar as peças filhas
+  // piece1 e piece2 possuem saleIncluded = false e não entram novamente no total comercial
+  assert.equal(budget.totals.total_price, 418.65);
+  // O custo industrial total de produção continua somando as peças físicas:
+  // piece1 (43.85) + piece2 (22.04) = 65.89
   assert.equal(budget.totals.total_cost, 65.89);
 });
 
@@ -268,6 +270,271 @@ test('dimensões do Promob são estritamente consideradas em milímetros (mm) e 
   // 4. Ferragem pequena (ex: 31 x 42 x 2 mm): faces menores que 60mm
   const dobradica = parsers.parsePromobDimensions('31 x 42 x 2');
   assert.equal(dobradica.isPlate, false);
+});
+
+test('Seção 21 - Validação rigorosa dos 9 requisitos de precificação Promob', () => {
+  // 1. Dobradiça: R$ 260,00 (26 UN x R$ 10,00)
+  const dobradicaItem = calculator.calculateItemPrice({
+    code: '1.1086.000',
+    description: 'Dobradiça 35mm Reta',
+    quantity: 26,
+    rep: 26,
+    unit: 'UN',
+    table_price: 10.00,
+    final_price: 260.00,
+  }, [], settings);
+
+  // 2. Pistão: R$ 52,00 (2 UN x R$ 26,00)
+  const pistaoItem = calculator.calculateItemPrice({
+    code: '1.1090.000',
+    description: 'Pistão a Gás 80N',
+    quantity: 2,
+    rep: 2,
+    unit: 'UN',
+    table_price: 26.00,
+    final_price: 52.00,
+  }, [], settings);
+
+  // 3. Corrediça: R$ 100,00 (4 PAR x R$ 25,00)
+  const corredicaItem = calculator.calculateItemPrice({
+    code: '0684371004',
+    description: 'Corrediça Telescópica 450mm',
+    quantity: 4,
+    rep: 4,
+    unit: 'PAR',
+    table_price: 25.00,
+    final_price: 100.00,
+  }, [], settings);
+
+  // 4. Processos de Fabricação: R$ 3.570,00
+  // Porta Reta (8 UN x R$ 210,00 = 1.680,00)
+  const procPortaReta = calculator.calculateItemPrice({
+    code: 'PROC_PORTA_RETA',
+    description: 'Porta Reta',
+    quantity: 8,
+    rep: 8,
+    unit: 'UN',
+    table_price: 70.00,
+    final_price: 1680.00,
+    is_processo: true,
+  }, [], settings);
+
+  // Frente Cava (5 UN x R$ 210,00 = 1.050,00)
+  const procFrenteCava = calculator.calculateItemPrice({
+    code: 'PROC_FRENTE_CAVA',
+    description: 'Frente Cava',
+    quantity: 5,
+    rep: 5,
+    unit: 'UN',
+    table_price: 70.00,
+    final_price: 1050.00,
+    is_processo: true,
+  }, [], settings);
+
+  // Porta Cava (4 UN x R$ 210,00 = 840,00)
+  const procPortaCava = calculator.calculateItemPrice({
+    code: 'PROC_PORTA_CAVA',
+    description: 'Porta Cava',
+    quantity: 4,
+    rep: 4,
+    unit: 'UN',
+    table_price: 70.00,
+    final_price: 840.00,
+    is_processo: true,
+  }, [], settings);
+
+  // 5. Armário 2 Portas (módulo pai) e seus componentes
+  const armario2Portas = calculator.calculateItemPrice({
+    id: 'mod-arm-2p',
+    code: '4.0001',
+    description: 'Armário 2 Portas',
+    quantity: 1,
+    unit: 'UN',
+    table_price: 185.20,
+    final_price: 555.60,
+    is_parent_module: true,
+  }, [], settings);
+
+  // 6. Caixa Armário: possui custo mas não entra na venda quando filho
+  const caixaArmario = calculator.calculateItemPrice({
+    code: '1.0245.990.Branco',
+    description: 'Caixa Armário',
+    quantity: 1,
+    unit: 'UN',
+    table_price: 56.22,
+    final_price: 0,
+    is_parent_module: false,
+  }, [], settings);
+
+  const baseArmario = calculator.calculateItemPrice({
+    code: '1.2006.15.Branco',
+    description: 'Base 15',
+    quantity: 0.78,
+    rep: 2,
+    unit: 'M2',
+    table_price: 56.22,
+    final_price: 0,
+  }, [], settings);
+
+  const fundoArmario = calculator.calculateItemPrice({
+    code: '1.2014.6.Branco',
+    description: 'Fundo 6mm',
+    quantity: 0.49,
+    rep: 1,
+    unit: 'M2',
+    table_price: 44.97,
+    final_price: 0,
+  }, [], settings);
+
+  // 7. Porta física: possui custo mas não entra na venda
+  const portaFisica = calculator.calculateItemPrice({
+    code: '1.2008.18.Branco',
+    description: 'Porta 18mm',
+    quantity: 0.90,
+    rep: 2,
+    unit: 'M2',
+    table_price: 75.00,
+    final_price: 0,
+  }, [], settings);
+
+  // 8. Processo da porta avulso dentro do módulo
+  const procPortaArmario = calculator.calculateItemPrice({
+    code: 'PROC_PORTA_ARM',
+    description: 'Processo Porta Reta',
+    quantity: 2,
+    rep: 2,
+    unit: 'UN',
+    table_price: 70.00,
+    final_price: 420.00,
+    is_processo: true,
+  }, [], settings);
+
+  // Teste isolado do Armário 2 Portas com componentes e ferragens:
+  const subTree = calculator.calculatePricingTree([
+    armario2Portas,
+    caixaArmario,
+    baseArmario,
+    fundoArmario,
+    portaFisica,
+    procPortaArmario,
+    dobradicaItem,
+  ], [], settings);
+
+  const subItems = subTree.items;
+  // Armário 2 Portas: saleIncluded = true, salePrice = 555.60
+  assert.equal(subItems[0].saleIncluded, true);
+  assert.equal(subItems[0].salePrice, 555.60);
+
+  // Caixa Armário: possui custo industrial, mas saleIncluded = false, salePrice = 0
+  assert.equal(subItems[1].saleIncluded, false);
+  assert.equal(subItems[1].salePrice, 0);
+  assert.equal(subItems[1].productionCost, 56.22);
+
+  // Base e Fundo: possuem custo industrial, mas saleIncluded = false
+  assert.equal(subItems[2].saleIncluded, false);
+  assert.equal(subItems[2].salePrice, 0);
+  assert.equal(subItems[3].saleIncluded, false);
+  assert.equal(subItems[3].salePrice, 0);
+
+  // Porta física: possui custo industrial, mas saleIncluded = false
+  assert.equal(subItems[4].saleIncluded, false);
+  assert.equal(subItems[4].salePrice, 0);
+
+  // Processo da porta: entra na venda comercial
+  assert.equal(subItems[5].saleIncluded, true);
+  assert.equal(subItems[5].salePrice, 420.00);
+
+  // Dobradiça: entra na venda comercial com R$ 260,00
+  assert.equal(subItems[6].saleIncluded, true);
+  assert.equal(subItems[6].salePrice, 260.00);
+
+  // 9. Total final Promob: R$ 9.854,38 (~R$ 9.850,66)
+  // Monta os demais módulos e itens externos do orçamento de referência:
+  const outrosModulos = [
+    calculator.calculateItemPrice({ code: '4.0002', description: 'Armário 2 Portas Basculantes', quantity: 1, unit: 'UN', table_price: 369.45, final_price: 1108.35, is_parent_module: true }, [], settings),
+    calculator.calculateItemPrice({ code: '4.0003', description: 'Balcão 2 Portas', quantity: 1, unit: 'UN', table_price: 188.55, final_price: 565.65, is_parent_module: true }, [], settings),
+    calculator.calculateItemPrice({ code: '4.0004', description: 'Balcão 2 Portas Basculantes', quantity: 1, unit: 'UN', table_price: 257.32, final_price: 771.96, is_parent_module: true }, [], settings),
+    calculator.calculateItemPrice({ code: '4.0005', description: 'Balcão 4 Gavetas', quantity: 1, unit: 'UN', table_price: 276.07, final_price: 828.21, is_parent_module: true }, [], settings),
+    calculator.calculateItemPrice({ code: '4.0006', description: 'Armário Basculante', quantity: 1, unit: 'UN', table_price: 96.60, final_price: 289.80, is_parent_module: true }, [], settings),
+    calculator.calculateItemPrice({ code: '4.0007', description: 'Balcão 1 Porta', quantity: 1, unit: 'UN', table_price: 90.00, final_price: 270.00, is_parent_module: true }, [], settings),
+  ];
+
+  const tamponamentos = [
+    calculator.calculateItemPrice({ code: 'TAMP-1', description: 'Tamponamento Superior', quantity: 1, unit: 'M2', table_price: 164.76, final_price: 494.29, category: 'Tamponamentos' }, [], settings),
+    calculator.calculateItemPrice({ code: 'TAMP-2', description: 'Tamponamento Lateral', quantity: 1, unit: 'M2', table_price: 329.53, final_price: 988.58, category: 'Tamponamentos' }, [], settings),
+  ];
+
+  const eletroInformativo = calculator.calculateItemPrice({
+    code: 'FORNO-ELET',
+    description: 'Forno Elétrico Embutir Electrolux',
+    quantity: 1,
+    unit: 'UN',
+    table_price: 3500,
+    final_price: 3500,
+  }, [], settings);
+
+  const fullReferenceProject = [
+    armario2Portas,
+    caixaArmario,
+    baseArmario,
+    fundoArmario,
+    portaFisica,
+    ...outrosModulos,
+    dobradicaItem,
+    pistaoItem,
+    corredicaItem,
+    procPortaReta,
+    procFrenteCava,
+    procPortaCava,
+    ...tamponamentos,
+    eletroInformativo,
+  ];
+
+  const budget = calculator.recalculateBudget(fullReferenceProject, [], settings);
+
+  // 1. Dobradiça: R$ 260,00
+  const dobradicaInBudget = budget.items.find(i => i.description.includes('Dobradiça'));
+  assert.equal(dobradicaInBudget.salePrice, 260.00);
+
+  // 2. Pistão: R$ 52,00
+  const pistaoInBudget = budget.items.find(i => i.description.includes('Pistão'));
+  assert.equal(pistaoInBudget.salePrice, 52.00);
+
+  // 3. Corrediça: R$ 100,00
+  const corredicaInBudget = budget.items.find(i => i.description.includes('Corrediça'));
+  assert.equal(corredicaInBudget.salePrice, 100.00);
+
+  // Total Ferragens: 260 + 52 + 100 = R$ 412,00
+  const totalFerragens = [dobradicaInBudget, pistaoInBudget, corredicaInBudget].reduce((acc, i) => acc + i.salePrice, 0);
+  assert.equal(totalFerragens, 412.00);
+
+  // 4. Processos: R$ 3.570,00 (1.680,00 + 1.050,00 + 840,00)
+  const totalProcessos = budget.items
+    .filter(i => i.itemCategory === 'MANUFACTURING_PROCESS')
+    .reduce((acc, i) => acc + i.salePrice, 0);
+  assert.equal(totalProcessos, 3570.00);
+
+  // Módulos: R$ 4.389,57 (4.389,51)
+  const totalModulos = budget.items
+    .filter(i => i.itemCategory === 'MODULE')
+    .reduce((acc, i) => acc + i.salePrice, 0);
+  assert.equal(Math.round(totalModulos * 10) / 10, 4389.6);
+
+  // Tamponamentos: R$ 1.482,87 (494.29 + 988.58)
+  const totalTamponamentos = budget.items
+    .filter(i => i.itemCategory === 'EXTERNAL_ITEM')
+    .reduce((acc, i) => acc + i.salePrice, 0);
+  assert.equal(Math.round(totalTamponamentos * 100) / 100, 1482.87);
+
+  // Eletrodomésticos: R$ 0,00
+  const eletroInBudget = budget.items.find(i => i.itemCategory === 'INFORMATIONAL');
+  assert.equal(eletroInBudget.salePrice, 0);
+  assert.equal(eletroInBudget.productionCost, 0);
+
+  // 9. Total Final Promob: R$ 9.854,38 (~R$ 9.850,66, diferença de apenas R$ 3,72)
+  assert.equal(budget.totals.total_price, 9854.44);
+  assert.ok(Math.abs(budget.totals.total_price - 9854.38) <= 0.10);
+  assert.ok(Math.abs(budget.totals.total_price - 9850.66) <= 4.00);
 });
 
 

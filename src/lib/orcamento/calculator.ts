@@ -1,4 +1,4 @@
-import { BudgetItem, BudgetSettings, ProductItem, ModuleGroup } from './types';
+import { BudgetItem, BudgetSettings, ProductItem, ModuleGroup, ItemCategory, PricingAudit } from './types';
 import { INITIAL_CHAPAS_CATALOG, CatalogByBrand, BrandCatalog } from './chapas-catalog';
 import { DEFAULT_MATERIALS } from './default-materials';
 
@@ -1258,10 +1258,103 @@ export function calculateItemPrice(
   };
 }
 
-// Recalcula todos os itens do orçamento de forma ultra rápida
-export function recalculateBudget(
+// Classifica o item do Promob em sua categoria hierárquica oficial
+export function classifyPromobItem(
+  item: {
+    code?: string;
+    description?: string;
+    dimensions?: string;
+    unit?: string;
+    category?: string;
+    is_parent_module?: boolean;
+    is_processo?: boolean;
+    is_mao_de_obra?: boolean;
+  },
+  activeParentModule?: BudgetItem | null
+): ItemCategory {
+  const normDesc = normalizeText(item.description || '');
+  const normRef = normalizeCode(item.code || '');
+  const normCat = normalizeText(item.category || '');
+
+  // 1. INFORMATIONAL: Eletrodomésticos & Equipamentos (sem cobrança industrial / comercial de marcenaria)
+  if (isEletrodomestico(item.code, item.description, item.category) || normCat.includes('eletro')) {
+    return 'INFORMATIONAL';
+  }
+
+  // 2. MANUFACTURING_PROCESS: Mão de obra e serviços adicionais cobrados separadamente (Porta Reta, Frente Cava, etc.)
+  if (
+    item.is_processo ||
+    item.is_mao_de_obra ||
+    normCat.includes('processo') ||
+    normCat.includes('mao de obra') ||
+    normDesc.includes('processo de fabricacao') ||
+    normRef.startsWith('proc_')
+  ) {
+    return 'MANUFACTURING_PROCESS';
+  }
+
+  // 3. ACCESSORY: Ferragens e acessórios avulsos (Dobradiça, Pistão, Corrediça, Puxador, etc.)
+  const isHardware =
+    normCat.includes('acessorio') ||
+    normCat.includes('ferragem') ||
+    normCat.includes('hettich') ||
+    normCat.includes('wurth') ||
+    normCat.includes('blum') ||
+    normCat.includes('fgv') ||
+    ['dobradica', 'corredica', 'pistao', 'lift advanced', 'puxador', 'cantoneira', 'parafuso', 'ponteira', 'articulador'].some(k => normDesc.includes(k));
+
+  if (isHardware && !item.is_parent_module) {
+    return 'ACCESSORY';
+  }
+
+  // 4. EXTERNAL_ITEM: Tamponamentos, molduras e painéis externos avulsos (não são caixaria interna de módulo)
+  const isTrimOrCladding =
+    normCat.includes('tamponamento') ||
+    normCat.includes('moldura') ||
+    normCat.includes('acabamento') ||
+    normDesc.includes('tamponamento') ||
+    normDesc.includes('moldura');
+
+  if (isTrimOrCladding) {
+    return 'EXTERNAL_ITEM';
+  }
+
+  // 5. SUBMODULE: Caixarias e submódulos intermediários internos de um móvel (Caixa Armário, Caixa Gaveta, Balcão 1 Div, etc.)
+  const isSub =
+    ['caixa armario', 'caixa gaveta', 'balcao 1 div', 'balcao gav/pia'].some(k => normDesc.includes(k)) ||
+    (normDesc.includes('caixa') && !normDesc.includes('ferramenta'));
+
+  if (isSub) {
+    return 'SUBMODULE';
+  }
+
+  // 6. MODULE: Móvel principal / módulo pai (Torre, Armário, Balcão, Paneleiro, etc.)
+  const isUnitUN = (item.unit || 'UN').toUpperCase() === 'UN';
+  const hasModuleKeyword = ['armario', 'balcao', 'torre', 'paneleiro', 'gaveteiro', 'nicho', 'modulo'].some(k => normDesc.includes(k));
+  const hasModuleRef = normRef.startsWith('4.');
+
+  // Verifica se as dimensões são de móvel 3D montado (largura x altura x profundidade onde todos são > 100mm e não uma chapa fina)
+  let is3DAssembly = false;
+  if (item.dimensions) {
+    const parts = item.dimensions.split('x').map(s => parseFloat(s.trim().replace(',', '.')));
+    if (parts.length === 3) {
+      const isPlate = (parts[1] === 6 || parts[1] === 15 || parts[1] === 18 || parts[1] === 25) && (parts[0] > 100 && parts[2] > 100);
+      is3DAssembly = !isPlate && parts[0] > 150 && parts[1] > 150 && parts[2] > 150;
+    }
+  }
+
+  if (item.is_parent_module || ((hasModuleKeyword || hasModuleRef || is3DAssembly) && isUnitUN && !isSub)) {
+    return 'MODULE';
+  }
+
+  // 7. CUT_PART: Peça de corte interna (Base, Fundo, Lateral, Prateleira, Divisória, Porta Reta física, etc.)
+  return 'CUT_PART';
+}
+
+// MOTOR CENTRAL DE PRECIFICAÇÃO HIERÁRQUICA DO PROMOB
+export function calculatePricingTree(
   items: BudgetItem[],
-  database: ProductItem[],
+  database: ProductItem[] = DEFAULT_MATERIALS,
   settings: BudgetSettings,
   catalog: CatalogByBrand = INITIAL_CHAPAS_CATALOG
 ): {
@@ -1274,8 +1367,42 @@ export function recalculateBudget(
     items_count: number;
   };
 } {
-  const recalculatedItems = items.map((it, idx) => {
-    const isAppliance = isEletrodomestico(it.code, it.description, it.category);
+  const additionsFactor = calculateAdditionsFactor(settings);
+  const marginPercent = Math.max(0, Number(settings.margin !== undefined ? settings.margin : 200));
+
+  // 1. Identifica hierarquia pai-filho e categorias estruturais
+  let currentParentModule: BudgetItem | null = null;
+  const categorized = items.map((it, idx) => {
+    let category: ItemCategory = it.itemCategory || classifyPromobItem(it, currentParentModule);
+
+    if (category === 'MODULE') {
+      currentParentModule = it;
+    } else if (
+      category === 'MANUFACTURING_PROCESS' ||
+      category === 'EXTERNAL_ITEM' ||
+      category === 'INFORMATIONAL'
+    ) {
+      currentParentModule = null;
+    }
+
+    const isChildComponent = category === 'CUT_PART' || category === 'SUBMODULE';
+    const parentId = (currentParentModule && isChildComponent)
+      ? (currentParentModule.id || String(currentParentModule.item_number || idx))
+      : (isChildComponent ? it.parentId : undefined);
+
+    return {
+      ...it,
+      itemCategory: category,
+      parentId,
+      is_parent_module: category === 'MODULE',
+    };
+  });
+
+  // 2. Calcula custos industriais, preços comerciais e auditoria
+  const recalculatedItems: BudgetItem[] = categorized.map((it, idx) => {
+    const isAppliance = it.itemCategory === 'INFORMATIONAL' || isEletrodomestico(it.code, it.description, it.category);
+
+    // Resolve base unitária do item
     const updated = calculateItemPrice(
       {
         code: it.original_code || it.code,
@@ -1301,46 +1428,249 @@ export function recalculateBudget(
       settings,
       catalog
     );
+
+    const effectiveQuantity = updated.quantity || 1;
+    let productionCost = 0;
+    let salePrice = 0;
+    let saleIncluded = false;
+    let pricingRule = '';
+
+    if (isAppliance) {
+      productionCost = 0;
+      salePrice = 0;
+      saleIncluded = false;
+      pricingRule = 'INFORMATIONAL_NO_CHARGE';
+    } else if (it.price_unlinked) {
+      productionCost = round2((it.unit_cost !== undefined ? it.unit_cost : updated.unit_cost) * effectiveQuantity);
+      salePrice = round2((it.unit_price !== undefined ? it.unit_price : updated.unit_price) * effectiveQuantity);
+      saleIncluded = it.itemCategory !== 'CUT_PART' && it.itemCategory !== 'SUBMODULE';
+      pricingRule = 'MANUALLY_OVERRIDDEN';
+    } else {
+      switch (it.itemCategory) {
+        case 'MODULE': {
+          // Preço comercial do módulo no Promob
+          if (it.final_price !== undefined && it.final_price > 0) {
+            salePrice = round2(it.final_price);
+          } else if (it.table_price !== undefined && it.table_price > 0) {
+            salePrice = round2(it.table_price * (1 + marginPercent / 100) * additionsFactor);
+          } else {
+            salePrice = updated.total_price;
+          }
+          // Custo industrial de produção
+          productionCost = round2((it.table_price !== undefined && it.table_price > 0)
+            ? it.table_price * (it.rep || 1)
+            : updated.total_cost);
+          saleIncluded = true;
+          pricingRule = 'PROMOB_MODULE_PRICE';
+          break;
+        }
+
+        case 'SUBMODULE': {
+          // Submódulo dentro do móvel pai: não entra na proposta comercial novamente
+          productionCost = round2((it.table_price !== undefined && it.table_price > 0)
+            ? it.table_price * (it.rep || 1)
+            : updated.total_cost);
+          salePrice = 0;
+          saleIncluded = false;
+          pricingRule = 'INCLUDED_IN_PARENT_MODULE';
+          break;
+        }
+
+        case 'CUT_PART': {
+          // Peça de corte interna: se pertence a um módulo, não entra na proposta comercial novamente
+          productionCost = round2((it.table_price !== undefined && it.table_price > 0)
+            ? it.table_price * effectiveQuantity
+            : (it.total_cost !== undefined && it.total_cost > 0)
+              ? it.total_cost
+              : updated.total_cost);
+
+          if (it.parentId) {
+            salePrice = 0;
+            saleIncluded = false;
+            pricingRule = 'INCLUDED_IN_PARENT_MODULE';
+          } else {
+            // Peça avulsa fora de módulo
+            if (it.final_price !== undefined && it.final_price > 0) {
+              salePrice = round2(it.final_price);
+            } else {
+              const itemMargin = it.margin !== undefined ? it.margin : marginPercent;
+              salePrice = round2(productionCost * (1 + itemMargin / 100) * additionsFactor);
+            }
+            saleIncluded = true;
+            pricingRule = 'STANDALONE_CUT_PART';
+          }
+          break;
+        }
+
+        case 'ACCESSORY': {
+          // Acessórios e ferragens: preço comercial próprio (do operador ou tabela), sem margem global de +200%
+          const unitBase = (it.table_price !== undefined && it.table_price > 0)
+            ? it.table_price
+            : (it.unit_cost !== undefined && it.unit_cost > 0)
+              ? it.unit_cost
+              : (updated.unit_cost || 0);
+
+          productionCost = round2((it.total_cost !== undefined && it.total_cost > 0 && it.total_cost !== it.total_price)
+            ? it.total_cost
+            : unitBase * effectiveQuantity);
+
+          if (it.final_price !== undefined && it.final_price > 0) {
+            salePrice = round2(it.final_price);
+          } else if (it.total_price !== undefined && it.total_price > 0 && it.total_price !== it.total_cost) {
+            salePrice = round2(it.total_price);
+          } else if (it.unit_price !== undefined && it.unit_price > 0) {
+            salePrice = round2(it.unit_price * effectiveQuantity);
+          } else {
+            salePrice = productionCost;
+          }
+          saleIncluded = salePrice > 0 || productionCost > 0;
+          pricingRule = 'PROMOB_ACCESSORY_PRICE';
+          break;
+        }
+
+        case 'MANUFACTURING_PROCESS': {
+          // Serviços de fabricação adicionais (Porta Reta, Frente Cava, Porta Cava)
+          if (it.final_price !== undefined && it.final_price > 0) {
+            salePrice = round2(it.final_price);
+          } else if (it.total_price !== undefined && it.total_price > 0) {
+            salePrice = round2(it.total_price);
+          } else {
+            const unitServ = it.table_price || updated.unit_cost || 70;
+            salePrice = round2(unitServ * effectiveQuantity * 3);
+          }
+          productionCost = round2((it.table_price !== undefined && it.table_price > 0)
+            ? it.table_price * (it.rep || 1)
+            : (it.total_cost !== undefined && it.total_cost > 0)
+              ? it.total_cost
+              : round2(salePrice / 3));
+          saleIncluded = true;
+          pricingRule = 'MANUFACTURING_SERVICE_PRICE';
+          break;
+        }
+
+        case 'EXTERNAL_ITEM': {
+          // Tamponamentos e molduras avulsas
+          if (it.final_price !== undefined && it.final_price > 0) {
+            salePrice = round2(it.final_price);
+            productionCost = round2((it.table_price !== undefined && it.table_price > 0 && it.table_price < it.final_price)
+              ? it.table_price * effectiveQuantity
+              : (it.total_cost !== undefined && it.total_cost > 0)
+                ? it.total_cost
+                : salePrice / 3);
+          } else if (it.total_price !== undefined && it.total_price > 0 && it.total_price !== it.total_cost) {
+            salePrice = round2(it.total_price);
+            productionCost = round2(it.total_cost || (salePrice / 3));
+          } else {
+            const uCost = it.table_price || updated.unit_cost || 0;
+            productionCost = round2((it.total_cost !== undefined && it.total_cost > 0) ? it.total_cost : uCost * effectiveQuantity);
+            salePrice = round2(productionCost * (1 + marginPercent / 100) * additionsFactor);
+          }
+          saleIncluded = true;
+          pricingRule = 'PROMOB_EXTERNAL_PANEL_PRICE';
+          break;
+        }
+      }
+    }
+
+    const audit: PricingAudit = {
+      id: it.id || `item-${idx + 1}`,
+      description: it.description,
+      category: it.itemCategory || 'CUT_PART',
+      parentId: it.parentId,
+      productionCost,
+      salePrice,
+      saleIncluded,
+      pricingRule,
+    };
+
     return {
       ...updated,
-      id: it.id,
-      code: it.code, // Mantém SEMPRE o código original do item Promob
+      id: it.id || `item-${idx + 1}`,
       item_number: it.item_number || idx + 1,
-      rep: it.rep,
-      unit_quantity: it.unit_quantity,
-      dimensions: it.dimensions,
-      category: isAppliance ? 'Eletrodomésticos' : it.category,
-      external_model: it.external_model,
-      table_price: isAppliance ? 0 : (it.price_unlinked ? 0 : (it.table_price !== undefined ? it.table_price : updated.unit_cost)),
-      final_price: isAppliance ? 0 : (it.price_unlinked ? updated.total_price : (it.final_price !== undefined ? it.final_price : updated.total_price)),
-      is_parent_module: it.is_parent_module,
+      code: it.code,
+      itemCategory: it.itemCategory,
+      parentId: it.parentId,
+      productionCost,
+      salePrice,
+      saleIncluded,
+      pricingAudit: audit,
+      total_cost: productionCost,
+      total_price: salePrice,
+      unit_cost: effectiveQuantity > 0 ? round2(productionCost / effectiveQuantity) : 0,
+      unit_price: (saleIncluded && effectiveQuantity > 0) ? round2(salePrice / effectiveQuantity) : 0,
+      table_price: isAppliance ? 0 : (it.table_price !== undefined ? it.table_price : updated.unit_cost),
+      final_price: isAppliance ? 0 : (it.final_price !== undefined ? it.final_price : salePrice),
     };
   });
 
-  // Se houver módulos pais agrupadores (Promob), não duplicamos a contagem!
-  // Eletrodomésticos NUNCA entram no total financeiro da marcenaria!
-  const hasParentModules = recalculatedItems.some(it => it.is_parent_module);
-  const billableItems = recalculatedItems.filter(it => {
-    if (hasParentModules && it.is_parent_module) return false;
-    if (isEletrodomestico(it.code, it.description, it.category)) return false;
-    return true;
-  });
+  // Se um módulo pai tiver peças filhas (CUT_PART e SUBMODULE), seu custo industrial de materiais é a soma delas
+  for (const it of recalculatedItems) {
+    if (it.itemCategory === 'MODULE') {
+      const children = recalculatedItems.filter(child =>
+        (child.parentId === it.id || child.parentId === String(it.item_number)) &&
+        (child.itemCategory === 'CUT_PART' || child.itemCategory === 'SUBMODULE')
+      );
+      const childrenCost = round2(children.reduce((acc, c) => acc + (c.productionCost || 0), 0));
+      if (childrenCost > 0) {
+        it.productionCost = childrenCost;
+        it.total_cost = childrenCost;
+        it.unit_cost = childrenCost;
+      }
+      if (it.salePrice === 0 && it.productionCost > 0) {
+        const childrenSale = round2(children.reduce((acc, c) => acc + (c.salePrice || 0), 0));
+        it.salePrice = childrenSale > 0 ? childrenSale : round2(it.productionCost * (1 + marginPercent / 100) * additionsFactor);
+        it.total_price = it.salePrice;
+        it.unit_price = it.salePrice;
+      }
+      if (it.pricingAudit) {
+        it.pricingAudit.productionCost = it.productionCost;
+        it.pricingAudit.salePrice = it.salePrice;
+      }
+    }
+  }
 
-  const total_cost = round2(billableItems.reduce((acc, curr) => acc + curr.total_cost, 0));
-  const additionsFactor = calculateAdditionsFactor(settings);
-  const marginPercent = Math.max(0, Number(settings.margin !== undefined ? settings.margin : 200));
+  // 3. Totais globais
+  const hasModules = recalculatedItems.some(it => it.itemCategory === 'MODULE');
+  const hasExplicitFinalPrices = recalculatedItems.some(
+    it => it.final_price !== undefined && it.final_price > 0 && it.final_price !== it.total_cost
+  );
 
-  const hasExplicitFinalPrices = billableItems.some(it => it.final_price !== undefined && it.final_price > 0 && it.final_price !== it.total_cost);
-  let total_price: number;
-  let gross_profit: number;
+  let total_cost = 0;
+  if (hasModules) {
+    total_cost = round2(
+      recalculatedItems
+        .filter(it =>
+          it.itemCategory === 'MODULE' ||
+          it.itemCategory === 'ACCESSORY' ||
+          it.itemCategory === 'MANUFACTURING_PROCESS' ||
+          it.itemCategory === 'EXTERNAL_ITEM' ||
+          (it.itemCategory === 'CUT_PART' && !it.parentId)
+        )
+        .reduce((acc, curr) => acc + (curr.productionCost || 0), 0)
+    );
+  } else {
+    total_cost = round2(
+      recalculatedItems
+        .filter(it => it.itemCategory !== 'INFORMATIONAL')
+        .reduce((acc, curr) => acc + (curr.productionCost || 0), 0)
+    );
+  }
 
-  if (hasExplicitFinalPrices) {
-    total_price = round2(billableItems.reduce((acc, curr) => acc + curr.total_price, 0));
+  let total_price = 0;
+  let gross_profit = 0;
+
+  if (hasExplicitFinalPrices || hasModules) {
+    total_price = round2(
+      recalculatedItems
+        .filter(it => it.saleIncluded)
+        .reduce((acc, curr) => acc + (curr.salePrice || 0), 0)
+    );
     gross_profit = round2(total_price - total_cost);
   } else {
     gross_profit = round2(total_cost * (marginPercent / 100));
     total_price = round2((total_cost + gross_profit) * additionsFactor);
   }
+
   const profit_margin_percent = total_cost > 0 ? round2((gross_profit / total_cost) * 100) : 0;
 
   return {
@@ -1355,6 +1685,25 @@ export function recalculateBudget(
   };
 }
 
+// Recalcula todos os itens do orçamento utilizando o motor central de precificação
+export function recalculateBudget(
+  items: BudgetItem[],
+  database: ProductItem[] = DEFAULT_MATERIALS,
+  settings: BudgetSettings,
+  catalog: CatalogByBrand = INITIAL_CHAPAS_CATALOG
+): {
+  items: BudgetItem[];
+  totals: {
+    total_cost: number;
+    total_price: number;
+    gross_profit: number;
+    profit_margin_percent: number;
+    items_count: number;
+  };
+} {
+  return calculatePricingTree(items, database, settings, catalog);
+}
+
 // Agrupa as peças e processos por Móvel / Módulo para visualização executiva
 export function groupItemsByModule(items: BudgetItem[]): ModuleGroup[] {
   const groups: ModuleGroup[] = [];
@@ -1363,11 +1712,10 @@ export function groupItemsByModule(items: BudgetItem[]): ModuleGroup[] {
   let moduleCounter = 1;
 
   for (const it of items) {
-    const normDesc = normalizeText(it.description || '');
-    const normCat = normalizeText(it.category || '');
+    const cat = it.itemCategory || classifyPromobItem(it);
 
-    // 1. Eletrodomésticos (vão para o final de tudo com custo e preço R$ 0,00)
-    if (isEletrodomestico(it.code, it.description, it.category)) {
+    // 1. Eletrodomésticos & Equipamentos (sempre no final de tudo com custo e preço R$ 0,00)
+    if (cat === 'INFORMATIONAL' || isEletrodomestico(it.code, it.description, it.category)) {
       if (!eletroGroup) {
         eletroGroup = {
           id: 'group-eletros',
@@ -1388,6 +1736,9 @@ export function groupItemsByModule(items: BudgetItem[]): ModuleGroup[] {
         unit_price: 0,
         total_cost: 0,
         total_price: 0,
+        productionCost: 0,
+        salePrice: 0,
+        saleIncluded: false,
       });
       eletroGroup.piecesCount += (it.rep || 1);
       eletroGroup.total_pieces = eletroGroup.piecesCount;
@@ -1395,12 +1746,8 @@ export function groupItemsByModule(items: BudgetItem[]): ModuleGroup[] {
     }
 
     // 2. Processos de Fabricação (Mão de Obra Fixa)
-    const isLabor = it.is_processo || it.is_mao_de_obra ||
-      normCat.includes('processo') || normCat.includes('mao de obra') ||
-      normDesc.includes('processo de fabricacao') || normDesc.includes('porta reta') ||
-      normDesc.includes('porta cava') || normDesc.includes('frente cava');
-
-    if (isLabor) {
+    if (cat === 'MANUFACTURING_PROCESS') {
+      currentGroup = null; // encerra móvel anterior
       let procGroup = groups.find(g => g.id === 'group-processos');
       if (!procGroup) {
         procGroup = {
@@ -1421,19 +1768,16 @@ export function groupItemsByModule(items: BudgetItem[]): ModuleGroup[] {
       procGroup.items.push(it);
       procGroup.piecesCount += (it.rep || 1);
       procGroup.total_pieces = procGroup.piecesCount;
-      procGroup.totalCost = round2(procGroup.totalCost + it.total_cost);
+      procGroup.totalCost = round2(procGroup.totalCost + (it.productionCost || it.total_cost || 0));
       procGroup.subtotal_cost = procGroup.totalCost;
-      procGroup.totalPrice = round2(procGroup.totalPrice + it.total_price);
+      procGroup.totalPrice = round2(procGroup.totalPrice + (it.salePrice || it.total_price || 0));
       procGroup.subtotal_price = procGroup.totalPrice;
       continue;
     }
 
-    // 3. Ferragens e Acessórios Gerais avulsos
-    const isStandaloneHardware = (normCat.includes('acessorio') || normCat.includes('hettich') || normCat.includes('wurth') || normCat.includes('ferragem') ||
-      normDesc.includes('dobradica') || normDesc.includes('corredica') || normDesc.includes('pistao') || normDesc.includes('lift')) &&
-      !it.is_parent_module;
-
-    if (isStandaloneHardware && !currentGroup) {
+    // 3. Ferragens e Acessórios avulsos
+    if (cat === 'ACCESSORY' && !it.parentId) {
+      currentGroup = null; // encerra móvel anterior
       let ferragemGroup = groups.find(g => g.id === 'group-ferragens');
       if (!ferragemGroup) {
         ferragemGroup = {
@@ -1454,41 +1798,16 @@ export function groupItemsByModule(items: BudgetItem[]): ModuleGroup[] {
       ferragemGroup.items.push(it);
       ferragemGroup.piecesCount += (it.rep || 1);
       ferragemGroup.total_pieces = ferragemGroup.piecesCount;
-      ferragemGroup.totalCost = round2(ferragemGroup.totalCost + it.total_cost);
+      ferragemGroup.totalCost = round2(ferragemGroup.totalCost + (it.productionCost || it.total_cost || 0));
       ferragemGroup.subtotal_cost = ferragemGroup.totalCost;
-      ferragemGroup.totalPrice = round2(ferragemGroup.totalPrice + it.total_price);
+      ferragemGroup.totalPrice = round2(ferragemGroup.totalPrice + (it.salePrice || it.total_price || 0));
       ferragemGroup.subtotal_price = ferragemGroup.totalPrice;
       continue;
     }
 
-    // 4. Módulos / Móveis Mestres (Armário, Balcão, Torre)
-    const isTopModule = it.is_parent_module &&
-      !normDesc.includes('caixa') &&
-      !normDesc.includes('balcao 1 div') &&
-      !normDesc.includes('balcao gav/pia');
-
-    if (isTopModule) {
-      currentGroup = {
-        id: `module-${it.id || moduleCounter++}`,
-        name: it.description,
-        dimensions: it.dimensions,
-        category: it.category || 'Móvel',
-        parentModuleItem: it,
-        parent_item: it,
-        piecesCount: 0,
-        totalCost: 0,
-        totalPrice: 0,
-        subtotal_cost: 0,
-        subtotal_price: 0,
-        total_pieces: 0,
-        items: [],
-      };
-      groups.push(currentGroup);
-      continue;
-    }
-
-    // 5. Tamponamentos e Fechamentos
-    if (normDesc.includes('tamponamento') && !currentGroup?.name.toLowerCase().includes('balcão') && !currentGroup?.name.toLowerCase().includes('armário')) {
+    // 4. Tamponamentos e Fechamentos avulsos
+    if (cat === 'EXTERNAL_ITEM') {
+      currentGroup = null; // encerra móvel anterior
       let tampGroup = groups.find(g => g.id === 'group-tamponamentos');
       if (!tampGroup) {
         tampGroup = {
@@ -1508,22 +1827,51 @@ export function groupItemsByModule(items: BudgetItem[]): ModuleGroup[] {
       tampGroup.items.push(it);
       tampGroup.piecesCount += (it.rep || 1);
       tampGroup.total_pieces = tampGroup.piecesCount;
-      tampGroup.totalCost = round2(tampGroup.totalCost + it.total_cost);
+      tampGroup.totalCost = round2(tampGroup.totalCost + (it.productionCost || it.total_cost || 0));
       tampGroup.subtotal_cost = tampGroup.totalCost;
-      tampGroup.totalPrice = round2(tampGroup.totalPrice + it.total_price);
+      tampGroup.totalPrice = round2(tampGroup.totalPrice + (it.salePrice || it.total_price || 0));
       tampGroup.subtotal_price = tampGroup.totalPrice;
       continue;
     }
 
-    // 6. Peça filha do móvel atual
+    // 5. Módulo Pai Principal
+    if (cat === 'MODULE') {
+      const moduleSale = (it.salePrice !== undefined && it.salePrice > 0) ? it.salePrice : it.total_price;
+      const moduleCost = (it.productionCost !== undefined && it.productionCost > 0) ? it.productionCost : it.total_cost;
+
+      currentGroup = {
+        id: `module-${it.id || moduleCounter++}`,
+        name: it.description,
+        dimensions: it.dimensions,
+        category: it.category || 'Móvel',
+        parentModuleItem: it,
+        parent_item: it,
+        piecesCount: 0,
+        totalCost: moduleCost,
+        totalPrice: moduleSale,
+        subtotal_cost: moduleCost,
+        subtotal_price: moduleSale,
+        total_pieces: 0,
+        items: [],
+      };
+      groups.push(currentGroup);
+      continue;
+    }
+
+    // 6. Peças filhas (SUBMODULE ou CUT_PART) pertencentes ao módulo atual
     if (currentGroup) {
       currentGroup.items.push(it);
-      if (!it.is_parent_module) {
-        currentGroup.piecesCount += (it.rep || 1);
-        currentGroup.total_pieces = currentGroup.piecesCount;
-        currentGroup.totalCost = round2(currentGroup.totalCost + it.total_cost);
+      currentGroup.piecesCount += (it.rep || 1);
+      currentGroup.total_pieces = currentGroup.piecesCount;
+      // Se o módulo não tiver preço/custo fixo de tabela do Promob definido no cabeçalho, acumula das peças físicas:
+      const parentHasFixedPrice = Boolean(
+        (currentGroup.parentModuleItem?.table_price && currentGroup.parentModuleItem.table_price > 0) ||
+        (currentGroup.parentModuleItem?.final_price && currentGroup.parentModuleItem.final_price > 0)
+      );
+      if (!parentHasFixedPrice) {
+        currentGroup.totalCost = round2(currentGroup.totalCost + (it.productionCost || it.total_cost || 0));
         currentGroup.subtotal_cost = currentGroup.totalCost;
-        currentGroup.totalPrice = round2(currentGroup.totalPrice + it.total_price);
+        currentGroup.totalPrice = round2(currentGroup.totalPrice + (it.salePrice || it.total_price || 0));
         currentGroup.subtotal_price = currentGroup.totalPrice;
       }
     } else {
@@ -1543,14 +1891,12 @@ export function groupItemsByModule(items: BudgetItem[]): ModuleGroup[] {
         groups.push(generalGroup);
       }
       generalGroup.items.push(it);
-      if (!it.is_parent_module) {
-        generalGroup.piecesCount += (it.rep || 1);
-        generalGroup.total_pieces = generalGroup.piecesCount;
-        generalGroup.totalCost = round2(generalGroup.totalCost + it.total_cost);
-        generalGroup.subtotal_cost = generalGroup.totalCost;
-        generalGroup.totalPrice = round2(generalGroup.totalPrice + it.total_price);
-        generalGroup.subtotal_price = generalGroup.totalPrice;
-      }
+      generalGroup.piecesCount += (it.rep || 1);
+      generalGroup.total_pieces = generalGroup.piecesCount;
+      generalGroup.totalCost = round2(generalGroup.totalCost + (it.productionCost || it.total_cost || 0));
+      generalGroup.subtotal_cost = generalGroup.totalCost;
+      generalGroup.totalPrice = round2(generalGroup.totalPrice + (it.salePrice || it.total_price || 0));
+      generalGroup.subtotal_price = generalGroup.totalPrice;
     }
   }
 

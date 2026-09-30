@@ -1,5 +1,5 @@
-import { PromobReportMetadata } from './types';
-import { isEletrodomestico } from './calculator';
+import { PromobReportMetadata, ItemCategory } from './types';
+import { isEletrodomestico, classifyPromobItem } from './calculator';
 
 function checkIsAppliance(code?: string, description?: string, category?: string): boolean {
   try {
@@ -23,6 +23,51 @@ function checkIsAppliance(code?: string, description?: string, category?: string
   return keywords.some(kw => text.includes(kw));
 }
 
+function safeClassifyPromobItem(item: {
+  code?: string;
+  description?: string;
+  dimensions?: string;
+  unit?: string;
+  category?: string;
+  is_parent_module?: boolean;
+}): ItemCategory {
+  try {
+    if (typeof classifyPromobItem === 'function') {
+      return classifyPromobItem(item);
+    }
+  } catch {
+    // fallback if loaded where module imports are stripped
+  }
+
+  const desc = (item.description || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const ref = (item.code || '').toLowerCase().trim();
+  const cat = (item.category || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const unit = (item.unit || '').toUpperCase();
+
+  if (checkIsAppliance(item.code, item.description, item.category) || cat.includes('eletro')) {
+    return 'INFORMATIONAL';
+  }
+  if (cat.includes('processo') || desc.includes('processo') || desc.includes('mao de obra') || ref.startsWith('proc_')) {
+    return 'MANUFACTURING_PROCESS';
+  }
+  if (
+    cat.includes('acessorio') || cat.includes('ferragem') || cat.includes('hettich') || cat.includes('wurth') ||
+    ['dobradica', 'corredica', 'pistao', 'lift', 'puxador', 'cantoneira', 'parafuso'].some(k => desc.includes(k))
+  ) {
+    return 'ACCESSORY';
+  }
+  if (cat.includes('tamponamento') || cat.includes('moldura') || desc.includes('tamponamento') || desc.includes('moldura')) {
+    return 'EXTERNAL_ITEM';
+  }
+  if (['caixa armario', 'caixa gaveta', 'balcao 1 div', 'balcao gav/pia'].some(k => desc.includes(k))) {
+    return 'SUBMODULE';
+  }
+  if (unit === 'UN' && (['armario', 'balcao', 'torre', 'paneleiro', 'gaveteiro', 'nicho'].some(k => desc.includes(k)) || ref.startsWith('4.'))) {
+    return 'MODULE';
+  }
+  return 'CUT_PART';
+}
+
 export interface ParsedItemRow {
   item_number?: number;
   code: string;
@@ -39,6 +84,8 @@ export interface ParsedItemRow {
   final_price?: number;
   is_parent_module?: boolean;
   has_children?: boolean;
+  itemCategory?: ItemCategory;
+  parentId?: string;
 }
 
 export function parseLocaleNumber(value: unknown, fallback = 0): number {
@@ -704,6 +751,7 @@ export function parsePromobTextTable(
   const metadata: PromobReportMetadata = {};
   const items: ParsedItemRow[] = [];
   let currentCategory = '';
+  let currentParentModuleNum: number | null = null;
 
   for (const line of lines) {
     const nomeM = line.match(/Nome:\s*([^;,\t]+)/i);
@@ -789,16 +837,32 @@ export function parsePromobTextTable(
     }
 
     const normDesc = desc.toLowerCase();
-    const isCaixa = normDesc.includes('caixa');
     const isAppliance = checkIsAppliance(ref, desc, currentCategory);
-    const is_parent_module = !isCaixa && !isAppliance && (
-      [2, 7, 14, 21, 28, 35, 42, 52].includes(itemNum) ||
-      (unit === 'UN' && ['armário', 'armario', 'balcão', 'balcao', 'torre'].some(k => normDesc.includes(k)))
-    );
+    const itemCat = safeClassifyPromobItem({
+      code: ref,
+      description: desc,
+      dimensions: dim,
+      unit,
+      category: currentCategory,
+    });
+
+    const is_parent_module = itemCat === 'MODULE';
+    if (is_parent_module) {
+      currentParentModuleNum = itemNum;
+    } else if (
+      itemCat === 'ACCESSORY' ||
+      itemCat === 'MANUFACTURING_PROCESS' ||
+      itemCat === 'EXTERNAL_ITEM' ||
+      itemCat === 'INFORMATIONAL'
+    ) {
+      currentParentModuleNum = null;
+    }
+
+    const parentId = (currentParentModuleNum && !is_parent_module) ? String(currentParentModuleNum) : undefined;
 
     const isHardware = ['dobradica', 'dobradiça', 'corredica', 'corrediça', 'puxador', 'pistao', 'pistão', 'parafuso', 'ponteira', 'suporte', 'cantoneira'].some(k => normDesc.includes(k));
     const dimInfo = parsePromobDimensions(dim);
-    if (unit !== 'M2' && !isHardware && dimInfo.isPlate && !isCaixa && !is_parent_module && !isAppliance) {
+    if (unit !== 'M2' && !isHardware && dimInfo.isPlate && itemCat === 'CUT_PART' && !is_parent_module && !isAppliance) {
       if (['fundo', 'base', 'lateral', 'prateleira', 'travessa', 'sarrafo', 'tampo', 'porta', 'frente', 'divisoria'].some(k => normDesc.includes(k))) {
         unit = 'M2';
         if (unit_quantity <= 1 && dimInfo.unitArea > 0) {
@@ -824,6 +888,8 @@ export function parsePromobTextTable(
       table_price: isAppliance ? 0 : precoTabela,
       final_price: isAppliance ? 0 : precoFinal,
       is_parent_module,
+      itemCategory: itemCat,
+      parentId,
     });
   }
 

@@ -2,6 +2,26 @@ export type ChapaRoundingMode = 'up' | 'down' | 'exact';
 export type ChapaDisplayMode = 'm2' | 'chapa';
 export type FitaDisplayMode = 'metros' | 'rolos';
 
+export type ItemCategory =
+  | 'MODULE'
+  | 'SUBMODULE'
+  | 'CUT_PART'
+  | 'ACCESSORY'
+  | 'MANUFACTURING_PROCESS'
+  | 'EXTERNAL_ITEM'
+  | 'INFORMATIONAL';
+
+export interface PricingAudit {
+  id?: string;
+  description: string;
+  category: ItemCategory;
+  parentId?: string;
+  productionCost: number;
+  salePrice: number;
+  saleIncluded: boolean;
+  pricingRule: string;
+}
+
 export interface BudgetItem {
   id: string;
   item_number: number;
@@ -38,6 +58,14 @@ export interface BudgetItem {
   is_processo?: boolean;
   is_mao_de_obra?: boolean;
   notes?: string;
+
+  // Promob Hierarchy & Industrial vs Commercial pricing:
+  itemCategory?: ItemCategory;
+  parentId?: string;
+  productionCost?: number;
+  salePrice?: number;
+  saleIncluded?: boolean;
+  pricingAudit?: PricingAudit;
 }
 
 export interface ModuleGroup {
