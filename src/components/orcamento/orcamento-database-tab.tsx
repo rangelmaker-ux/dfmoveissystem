@@ -74,16 +74,14 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
 
   const jsonInputRef = useRef<HTMLInputElement>(null);
 
-  const brandNames = Object.keys(catalog);
-  const activeBrandData = catalog[selectedBrand];
+  // Filtra marcas excluindo "Acessórios", pois pertencem ao Catálogo Geral de Materiais
+  const brandNames = Object.keys(catalog).filter(b => b !== 'Acessórios');
+  const activeBrandName = brandNames.includes(selectedBrand) ? selectedBrand : (brandNames[0] || 'Duratex');
+  const activeBrandData = catalog[activeBrandName] || catalog['Duratex'] || Object.values(catalog)[0];
 
   // Filter lines for active brand
   const filteredLines = activeBrandData && activeBrandData.type === 'brand'
     ? activeBrandData.lines.filter(l => l.name.toLowerCase().includes(brandSearch.toLowerCase()))
-    : [];
-
-  const filteredAcessorios = activeBrandData && activeBrandData.type === 'acessorios'
-    ? activeBrandData.items.filter(a => a.name.toLowerCase().includes(brandSearch.toLowerCase()))
     : [];
 
   const filteredMaoDeObra = activeBrandData && activeBrandData.type === 'maodeobra'
@@ -92,6 +90,100 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
         (m.description && m.description.toLowerCase().includes(brandSearch.toLowerCase()))
       )
     : [];
+
+  // Handlers para o Catálogo Geral de Materiais (Adicionar / Editar / Excluir)
+  const handleOpenAddProduct = () => {
+    setEditingProdId(null);
+    setProdCode('');
+    setProdSubcodes('');
+    setProdDescription('');
+    setProdCategory('FERRAGEM');
+    setProdUnit('UN');
+    setProdUnitPrice('');
+    setProdFitaMetros('20');
+    setProdModalOpen(true);
+  };
+
+  const handleOpenEditProduct = (p: ProductItem) => {
+    setEditingProdId(p.id);
+    setProdCode(p.code);
+    setProdSubcodes((p.subcodes || []).join(', '));
+    setProdDescription(p.description);
+    setProdCategory(p.category);
+    setProdUnit(p.unit);
+    setProdUnitPrice(p.unit_price.toString());
+    setProdFitaMetros(p.fita_metros ? p.fita_metros.toString() : '20');
+    setProdModalOpen(true);
+  };
+
+  const handleSaveProduct = () => {
+    if (!prodCode.trim()) {
+      toast.error('Informe o código do material.');
+      return;
+    }
+    if (!prodDescription.trim()) {
+      toast.error('Informe a descrição do material.');
+      return;
+    }
+    const priceNum = parseLocaleNumber(prodUnitPrice, -1);
+    if (priceNum < 0) {
+      toast.error('Informe um valor de preço válido.');
+      return;
+    }
+
+    const subArr = prodSubcodes
+      .split(',')
+      .map(s => s.trim().toUpperCase())
+      .filter(Boolean);
+
+    if (editingProdId) {
+      setDatabase(prev => prev.map(p => {
+        if (p.id === editingProdId) {
+          return {
+            ...p,
+            code: prodCode.trim().toUpperCase(),
+            subcodes: subArr.length > 0 ? subArr : undefined,
+            description: prodDescription.trim(),
+            category: prodCategory as any,
+            unit: prodUnit.trim().toUpperCase(),
+            unit_price: priceNum,
+            fita_metros: prodCategory === 'FITA' ? Number(prodFitaMetros) || 20 : undefined,
+          };
+        }
+        return p;
+      }));
+      toast.success(`Material "${prodCode}" atualizado com sucesso!`);
+    } else {
+      const newProd: ProductItem = {
+        id: `mat-${Date.now()}`,
+        code: prodCode.trim().toUpperCase(),
+        subcodes: subArr.length > 0 ? subArr : undefined,
+        description: prodDescription.trim(),
+        category: prodCategory as any,
+        unit: prodUnit.trim().toUpperCase() || 'UN',
+        unit_price: priceNum,
+        fita_metros: prodCategory === 'FITA' ? Number(prodFitaMetros) || 20 : undefined,
+      };
+      setDatabase(prev => [newProd, ...prev]);
+      toast.success(`Material "${newProd.code}" cadastrado com sucesso!`);
+    }
+
+    setProdModalOpen(false);
+  };
+
+  const handleDeleteProduct = (id: string, code: string) => {
+    if (confirm(`Deseja realmente excluir o material "${code}" do catálogo geral?`)) {
+      setDatabase(prev => prev.filter(p => p.id !== id));
+      toast.success(`Material "${code}" removido.`);
+    }
+  };
+
+  const handleResetDatabase = () => {
+    if (confirm('Deseja restaurar todos os materiais do Catálogo Geral para os valores padrão da DF Móveis?')) {
+      setDatabase(DEFAULT_MATERIALS);
+      toast.success('Catálogo Geral restaurado com sucesso!');
+    }
+  };
 
   // Calculate sale price with user margin and global additions
   const additionsFactor = calculateAdditionsFactor(settings);
@@ -359,11 +451,13 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
     }
   };
 
-  // Reset to original 2026 catalog
+  // Reset to original catalog
   const handleResetCatalog = () => {
-    if (confirm('Deseja restaurar todos os preços de chapas para a tabela padrão de 2026?')) {
-      setCatalog(INITIAL_CHAPAS_CATALOG);
-      toast.success('Catálogo de chapas 2026 restaurado com sucesso!');
+    if (confirm('Deseja restaurar todos os preços de chapas para a tabela padrão?')) {
+      const cleanCatalog = { ...INITIAL_CHAPAS_CATALOG };
+      delete cleanCatalog['Acessórios'];
+      setCatalog(cleanCatalog);
+      toast.success('Catálogo de chapas restaurado com sucesso!');
     }
   };
 
@@ -382,7 +476,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
             }
           >
             <Layers className="mr-2 h-4 w-4 text-[#cbb27a]" />
-            Chapas por Marca & Linha (Catálogo 2025)
+            Chapas por Marca & Linha
           </Button>
 
           <Button
@@ -400,21 +494,29 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
         </div>
 
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleResetCatalog} className="text-xs">
-            <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-            Restaurar Planilha 2025
-          </Button>
+          {subTab === 'chapas' ? (
+            <Button variant="outline" size="sm" onClick={handleResetCatalog} className="text-xs">
+              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+              Restaurar Tabela de Chapas
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" onClick={handleResetDatabase} className="text-xs">
+              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+              Restaurar Catálogo Geral
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* VIEW 1: CHAPAS POR MARCA (Catálogo 2025 da Planilha) */}
+      {/* VIEW 1: CHAPAS POR MARCA */}
       {subTab === 'chapas' && (
         <div className="space-y-4">
           {/* Brand Selector Bar */}
           <div className="flex items-center gap-2 overflow-x-auto pb-2">
             {brandNames.map(brand => {
-              const isSelected = selectedBrand === brand;
+              const isSelected = activeBrandName === brand;
               const bData = catalog[brand];
+              if (!bData) return null;
               const count =
                 bData.type === 'brand'
                   ? (bData as BrandCatalog).lines.length
@@ -717,82 +819,56 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                 </table>
               </div>
             </div>
-          ) : (
-            /* ACESSÓRIOS TABLE */
-            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-slate-700">
-                  <thead className="bg-[#17191d] text-[11px] uppercase tracking-wider text-white">
-                    <tr>
-                      <th className="py-3.5 pl-4 pr-3 font-semibold">Acessório / Descrição</th>
-                      <th className="px-3 py-3.5 font-semibold">Tamanho / Especificação</th>
-                      <th className="px-3 py-3.5 text-right font-semibold">Preço de Custo</th>
-                      <th className="px-3 py-3.5 text-right font-semibold">Preço Sugerido com Margem ({settings.margin}%)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredAcessorios.map(a => {
-                      const sale = getSalePrice(a.price);
-                      return (
-                        <tr key={a.id} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="py-3 pl-4 pr-3 font-bold text-slate-900">
-                            {a.name}
-                          </td>
-                          <td className="px-3 py-3 text-slate-600 font-medium">
-                            {a.size || '—'}
-                          </td>
-                          <td className="px-3 py-3 text-right font-bold text-slate-900">
-                            {a.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                          </td>
-                          <td className="px-3 py-3 text-right font-bold text-emerald-700">
-                            {sale ? sale.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+          ) : null}
         </div>
       )}
 
       {/* VIEW 2: CATÁLOGO GERAL DE MATERIAIS */}
       {subTab === 'produtos' && (
         <div className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-stone-200/90 bg-white/95 p-3 shadow-2xs">
             <div className="flex flex-1 items-center gap-2">
               <div className="relative flex-1 max-w-sm">
-                <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-stone-400" />
                 <Input
                   placeholder="Buscar produto, código ou subcódigo..."
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
-                  className="pl-9 text-xs"
+                  className="pl-9 text-xs bg-white border-stone-200 rounded-lg focus:border-[#c92031] focus:ring-1 focus:ring-[#c92031]/30"
                 />
               </div>
 
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger className="w-36 text-xs">
+                <SelectTrigger className="w-44 text-xs bg-white border-stone-200 rounded-lg">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="ALL">Todas Categorias</SelectItem>
+                  <SelectItem value="FERRAGEM">Ferragens & Acessórios</SelectItem>
                   <SelectItem value="MDF">MDF / MDP</SelectItem>
                   <SelectItem value="FITA">Fitas de Borda</SelectItem>
-                  <SelectItem value="FERRAGEM">Ferragens</SelectItem>
+                  <SelectItem value="MAO_DE_OBRA">Mão de Obra Fixa</SelectItem>
                   <SelectItem value="OUTROS">Outros</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={handleOpenAddProduct}
+                className="bg-[#17191d] text-xs text-white hover:bg-stone-800 rounded-lg shadow-2xs h-9 px-3.5 font-medium"
+              >
+                <Plus className="mr-1.5 h-3.5 w-3.5 text-[#cbb27a]" />
+                Novo Material / Acessório
+              </Button>
+            </div>
           </div>
 
           {/* Products Table */}
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="overflow-hidden rounded-xl border border-stone-200/90 bg-white shadow-2xs">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs text-slate-700">
-                <thead className="bg-[#17191d] text-[11px] uppercase tracking-wider text-white">
+                <thead className="bg-[#17191d] text-[10px] uppercase tracking-wider text-white font-semibold">
                   <tr>
                     <th className="py-3 pl-4 pr-2 font-semibold">Código</th>
                     <th className="px-3 py-3 font-semibold">Subcódigos / Apelidos</th>
@@ -801,6 +877,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                     <th className="px-3 py-3 text-center font-semibold">Unidade</th>
                     <th className="px-3 py-3 text-right font-semibold">Preço Custo Base</th>
                     <th className="px-3 py-3 text-right font-semibold">Preço por Chapa (5,09m²)</th>
+                    <th className="py-3 pl-2 pr-4 text-center font-semibold">Ação</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -853,10 +930,14 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                                   ? 'border-blue-200 bg-blue-50 text-blue-700'
                                   : p.category === 'FITA'
                                   ? 'border-purple-200 bg-purple-50 text-purple-700'
+                                  : p.category === 'FERRAGEM'
+                                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                  : p.category === 'MAO_DE_OBRA'
+                                  ? 'border-amber-200 bg-amber-50 text-amber-700'
                                   : 'border-slate-200 bg-slate-50 text-slate-700'
                               }
                             >
-                              {p.category || 'GERAL'}
+                              {p.category === 'FERRAGEM' ? 'FERRAGEM' : (p.category || 'GERAL')}
                             </Badge>
                           </td>
 
@@ -872,6 +953,28 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                             {chapaPrice !== null
                               ? chapaPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
                               : '—'}
+                          </td>
+
+                          <td className="py-3 pl-2 pr-4 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleOpenEditProduct(p)}
+                                className="h-7 text-xs hover:bg-[#17191d] hover:text-white"
+                              >
+                                <Edit2 className="mr-1 h-3 w-3" />
+                                Editar
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDeleteProduct(p.id, p.code)}
+                                className="h-7 w-7 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1136,6 +1239,104 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
             </Button>
             <Button onClick={handleAddNewMo} className="bg-[#c92031] text-white hover:bg-[#aa1726]">
               Cadastrar Mão de Obra
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL: Adicionar / Editar Material no Catálogo Geral */}
+      <Dialog open={prodModalOpen} onOpenChange={setProdModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold text-slate-900">
+              {editingProdId ? 'Editar Preço do Material' : 'Cadastrar Novo Material / Acessório'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2 text-xs">
+            <div>
+              <Label className="text-xs font-semibold text-slate-700">Código</Label>
+              <Input
+                value={prodCode}
+                onChange={e => setProdCode(e.target.value)}
+                placeholder="Ex: CORREDICA-TELESC-45 ou DOBRADICA-AMORT-35"
+                className="mt-1 font-mono uppercase"
+              />
+            </div>
+
+            <div>
+              <Label className="text-xs font-semibold text-slate-700">Subcódigos / Apelidos (separados por vírgula)</Label>
+              <Input
+                value={prodSubcodes}
+                onChange={e => setProdSubcodes(e.target.value)}
+                placeholder="Ex: CORR_45, TELESC_450"
+                className="mt-1 font-mono"
+              />
+            </div>
+
+            <div>
+              <Label className="text-xs font-semibold text-slate-700">Descrição do Material</Label>
+              <Input
+                value={prodDescription}
+                onChange={e => setProdDescription(e.target.value)}
+                placeholder="Ex: Corrediça Telescópica Larga 450mm"
+                className="mt-1"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs font-semibold text-slate-700">Categoria</Label>
+                <Select value={prodCategory} onValueChange={setProdCategory}>
+                  <SelectTrigger className="mt-1 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="FERRAGEM">Ferragem / Acessório</SelectItem>
+                    <SelectItem value="MDF">MDF / MDP</SelectItem>
+                    <SelectItem value="FITA">Fita de Borda</SelectItem>
+                    <SelectItem value="MAO_DE_OBRA">Mão de Obra Fixa</SelectItem>
+                    <SelectItem value="OUTROS">Outros</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label className="text-xs font-semibold text-slate-700">Unidade</Label>
+                <Select value={prodUnit} onValueChange={setProdUnit}>
+                  <SelectTrigger className="mt-1 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="UN">UN (Unidade)</SelectItem>
+                    <SelectItem value="PAR">PAR (Par)</SelectItem>
+                    <SelectItem value="M2">M2 (Metro quadrado)</SelectItem>
+                    <SelectItem value="M">M (Metro linear)</SelectItem>
+                    <SelectItem value="CENTO">CENTO (100 un)</SelectItem>
+                    <SelectItem value="KG">KG (Quilograma)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-xs font-semibold text-slate-700">Preço Custo Base (R$)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={prodUnitPrice}
+                onChange={e => setProdUnitPrice(e.target.value)}
+                placeholder="0,00"
+                className="mt-1 font-mono font-bold"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" size="sm" onClick={() => setProdModalOpen(false)}>
+              Cancelar
+            </Button>
+            <Button size="sm" onClick={handleSaveProduct} className="bg-[#17191d] text-white">
+              Salvar Alterações
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -68,8 +68,25 @@ function OrcamentoPage() {
     try {
       const savedDb = localStorage.getItem('df_orcamento_database');
       if (savedDb) {
-        setDatabase(JSON.parse(savedDb));
+        try {
+          const parsed = JSON.parse(savedDb);
+          if (Array.isArray(parsed)) {
+            const existingCodes = new Set(parsed.map((p: any) => p.code));
+            const merged = [...parsed];
+            for (const def of DEFAULT_MATERIALS) {
+              if (!existingCodes.has(def.code)) {
+                merged.push(def);
+              }
+            }
+            setDatabase(merged);
+          } else {
+            setDatabase(DEFAULT_MATERIALS);
+          }
+        } catch {
+          setDatabase(DEFAULT_MATERIALS);
+        }
       } else {
+        setDatabase(DEFAULT_MATERIALS);
         localStorage.setItem('df_orcamento_database', JSON.stringify(DEFAULT_MATERIALS));
       }
 
@@ -89,7 +106,18 @@ function OrcamentoPage() {
       }
 
       const savedCatalog = localStorage.getItem('df_orcamento_chapas_catalog');
-      if (savedCatalog) setCatalog(JSON.parse(savedCatalog));
+      if (savedCatalog) {
+        try {
+          const parsedCat = JSON.parse(savedCatalog);
+          if (parsedCat['Acessórios']) {
+            delete parsedCat['Acessórios'];
+            localStorage.setItem('df_orcamento_chapas_catalog', JSON.stringify(parsedCat));
+          }
+          setCatalog(parsedCat);
+        } catch (e) {
+          console.error(e);
+        }
+      }
     } catch (e) {
       console.error('Erro ao ler dados do localStorage:', e);
     }
@@ -329,7 +357,7 @@ function OrcamentoPage() {
               className="h-9 px-3.5 text-xs font-medium text-stone-600 transition-all data-[state=active]:bg-white data-[state=active]:font-semibold data-[state=active]:text-slate-900 data-[state=active]:shadow-xs rounded-lg"
             >
               <Database className="mr-2 h-3.5 w-3.5 text-slate-600" />
-              Tabela de Preços & Chapas (2026)
+              Tabela de Preços & Chapas
             </TabsTrigger>
 
             <TabsTrigger

@@ -327,10 +327,31 @@ export function smartMatchAccessory(
   }
 
   const normText = normalizeText(`${code} ${description} ${dimensions || ''}`);
-  const acessoriosCat = catalog['Acessórios'];
+  const acessoriosCat = (catalog as any)?.['Acessórios'];
   const acessoriosList = acessoriosCat && acessoriosCat.type === 'acessorios' ? acessoriosCat.items : [];
 
-  const findAcessorio = (predicate: (name: string) => boolean) => {
+  const findAcessorio = (predicate: (name: string) => boolean): { id: string; name: string; price: number; unit?: string } | undefined => {
+    // 1. Prioridade no Catálogo Geral de Materiais (database): busca primeiro na descrição
+    const dbDescMatch = database.find(p => {
+      const isAcc = p.category === 'FERRAGEM' || p.category === 'ACESSORIO' || p.category === 'FITA' || p.category === 'OUTROS';
+      if (!isAcc) return false;
+      return predicate(normalizeText(p.description));
+    });
+    if (dbDescMatch && dbDescMatch.unit_price > 0) {
+      return { id: dbDescMatch.code, name: dbDescMatch.description, price: dbDescMatch.unit_price, unit: dbDescMatch.unit || 'UN' };
+    }
+
+    const dbSubMatch = database.find(p => {
+      const isAcc = p.category === 'FERRAGEM' || p.category === 'ACESSORIO' || p.category === 'FITA' || p.category === 'OUTROS';
+      if (!isAcc) return false;
+      const fullText = normalizeText(`${p.code} ${(p.subcodes || []).join(' ')}`);
+      return predicate(fullText);
+    });
+    if (dbSubMatch && dbSubMatch.unit_price > 0) {
+      return { id: dbSubMatch.code, name: dbSubMatch.description, price: dbSubMatch.unit_price, unit: dbSubMatch.unit || 'UN' };
+    }
+
+    // 2. Fallback caso ainda exista no catálogo legado
     return acessoriosList.find(a => predicate(normalizeText(a.name)));
   };
 

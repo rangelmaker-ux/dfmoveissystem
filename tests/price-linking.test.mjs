@@ -64,10 +64,10 @@ test('smartMatchAccessory reconhece dobradiças, corrediças, puxadores e pistõ
   assert.equal(puxadorGola.matched, true);
   assert.equal(puxadorGola.price, 130.00);
 
-  // Pistão a gás
+  // Pistão a gás (preço real verificado do catálogo: R$ 14,50)
   const pistao = smartMatchAccessory('PIST-01', 'Pistão a gás para porta basculante', '', INITIAL_CHAPAS_CATALOG, DEFAULT_MATERIALS);
   assert.equal(pistao.matched, true);
-  assert.equal(pistao.price, 13.50);
+  assert.equal(pistao.price, 14.50);
 });
 
 test('smartMatchPromobChapa reconhece MDF Branco da caixaria Promob com preço exato de tabela', () => {

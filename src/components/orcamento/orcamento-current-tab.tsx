@@ -134,13 +134,28 @@ export function OrcamentoCurrentTab({
   const [selectedMaoDeObraId, setSelectedMaoDeObraId] = useState('');
 
   // Available brands and categories in catalog
-  const brandsList = Object.keys(catalog);
-
-  // Accessories list from catalog
-  const acessoriosList = useMemo(() => {
-    const a = catalog['Acessórios'];
-    return a && a.type === 'acessorios' ? a.items : [];
+  const brandsList = useMemo(() => {
+    const list = Object.keys(catalog).filter(b => b !== 'Acessórios' && b !== 'Mão de Obra Fixa');
+    return ['Acessórios', 'Mão de Obra Fixa', ...list];
   }, [catalog]);
+
+  // Accessories list from Catálogo Geral de Materiais (database)
+  const acessoriosList = useMemo(() => {
+    const dbAcc = database
+      .filter(p => p.category === 'FERRAGEM' || p.category === 'ACESSORIO' || p.category === 'FITA' || p.category === 'OUTROS')
+      .map(p => ({
+        id: p.code,
+        name: p.description,
+        size: '',
+        price: p.unit_price,
+        unit: p.unit || 'UN',
+      }));
+
+    if (dbAcc.length > 0) return dbAcc;
+
+    const a = (catalog as any)['Acessórios'];
+    return a && a.type === 'acessorios' ? a.items : [];
+  }, [database, catalog]);
 
   const selectedAcessorio = useMemo(() => {
     return acessoriosList.find(a => a.id === selectedAcessorioId) || acessoriosList[0];
@@ -696,7 +711,7 @@ export function OrcamentoCurrentTab({
         raw.includes('tabua') ||
         raw.includes('parafuso');
 
-      if (isAccessory && catalog['Acessórios']) {
+      if (isAccessory) {
         setSelectedBrand('Acessórios');
         const match = smartMatchAccessory(item.code, item.description, item.dimensions, catalog, database);
         if (match.matched && match.code) {
@@ -2160,22 +2175,24 @@ export function OrcamentoCurrentTab({
                         </SelectTrigger>
                         <SelectContent className="max-h-60">
                           {brandsList.map(b => (
-                            <SelectItem key={b} value={b}>{b}</SelectItem>
+                            <SelectItem key={b} value={b}>
+                              {b === 'Acessórios' ? 'Acessórios & Ferragens (Catálogo Geral)' : b}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
 
                     <div className="min-w-0">
-                      <Label className="text-xs font-semibold text-stone-700">2. Tipo</Label>
+                      <Label className="text-xs font-semibold text-stone-700">2. Origem</Label>
                       <div className="mt-1 flex h-9 items-center rounded-lg border border-stone-200 bg-stone-100/80 px-3 text-xs font-medium text-stone-600">
-                        Ferragem / Acessório
+                        Catálogo Geral de Materiais
                       </div>
                     </div>
                   </div>
 
                   <div className="min-w-0">
-                    <Label className="text-xs font-semibold text-stone-700">3. Acessório / Ferragem da Tabela</Label>
+                    <Label className="text-xs font-semibold text-stone-700">3. Acessório / Ferragem do Catálogo Geral</Label>
                     <Select value={selectedAcessorioId} onValueChange={setSelectedAcessorioId}>
                       <SelectTrigger className="mt-1 text-xs font-semibold w-full bg-white border-stone-200 rounded-lg">
                         <SelectValue placeholder="Selecione o acessório..." />
@@ -2183,7 +2200,7 @@ export function OrcamentoCurrentTab({
                       <SelectContent className="max-h-60">
                         {acessoriosList.map(a => (
                           <SelectItem key={a.id} value={a.id}>
-                            {a.name} {a.size ? `(${a.size})` : ''} — {a.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            {a.name} — {a.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                           </SelectItem>
                         ))}
                       </SelectContent>
