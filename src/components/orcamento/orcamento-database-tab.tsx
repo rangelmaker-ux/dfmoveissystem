@@ -783,11 +783,11 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                             <td className="px-3 py-3 text-right">
                               {p6 ? (
                                 <div>
-                                  <span className="font-semibold text-slate-900">
-                                    {p6.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                  </span>
-                                  <span className="block text-[10px] text-slate-400">
+                                  <span className="font-bold text-slate-900 text-sm">
                                     {(chapaSalePrice(p6, width * height)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²
+                                  </span>
+                                  <span className="block text-[10px] text-slate-400 mt-0.5">
+                                    Chapa: {p6.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                                   </span>
                                 </div>
                               ) : (
@@ -799,16 +799,16 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                             <td className="px-3 py-3 text-right bg-amber-50/30">
                               {p15 ? (
                                 <div>
-                                  <span className="font-bold text-slate-900">
-                                    {p15.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                  <span className="font-bold text-slate-900 text-sm">
+                                    {(chapaSalePrice(p15, width * height)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²
                                   </span>
                                   {sale15 && (
-                                    <span className="block text-[10px] font-semibold text-emerald-700">
+                                    <span className="block text-[10px] font-semibold text-emerald-700 mt-0.5">
                                       Venda: {sale15.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                                     </span>
                                   )}
-                                  <span className="block text-[10px] text-slate-400">
-                                    {(chapaSalePrice(p15, width * height)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²
+                                  <span className="block text-[10px] text-slate-400 mt-0.5">
+                                    Chapa: {p15.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                                   </span>
                                 </div>
                               ) : (
@@ -820,16 +820,16 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                             <td className="px-3 py-3 text-right">
                               {p18 ? (
                                 <div>
-                                  <span className="font-bold text-slate-900">
-                                    {p18.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                  <span className="font-bold text-slate-900 text-sm">
+                                    {(chapaSalePrice(p18, width * height)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²
                                   </span>
                                   {sale18 && (
-                                    <span className="block text-[10px] font-semibold text-emerald-700">
+                                    <span className="block text-[10px] font-semibold text-emerald-700 mt-0.5">
                                       Venda: {sale18.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                                     </span>
                                   )}
-                                  <span className="block text-[10px] text-slate-400">
-                                    {(chapaSalePrice(p18, width * height)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²
+                                  <span className="block text-[10px] text-slate-400 mt-0.5">
+                                    Chapa: {p18.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                                   </span>
                                 </div>
                               ) : (
@@ -840,9 +840,14 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                             {/* 25mm */}
                             <td className="px-3 py-3 text-right">
                               {p25 ? (
-                                <span className="font-medium text-slate-800">
-                                  {p25.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                </span>
+                                <div>
+                                  <span className="font-bold text-slate-900 text-sm">
+                                    {(chapaSalePrice(p25, width * height)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²
+                                  </span>
+                                  <span className="block text-[10px] text-slate-400 mt-0.5">
+                                    Chapa: {p25.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                  </span>
+                                </div>
                               ) : (
                                 <span className="text-slate-300">—</span>
                               )}
