@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { BudgetItem, BudgetSettings, ProductItem, ModuleGroup } from '@/lib/orcamento/types';
-import { parsePromobXML, parseTXT, parseCSV, parseJSON, parsePromobPDF, parsePromobTextTable } from '@/lib/orcamento/parsers';
+import { parsePromobXML, parseTXT, parseCSV, parseJSON, parsePromobPDF, parsePromobTextTable, formatDimensionsCm } from '@/lib/orcamento/parsers';
 import { 
   calculateItemPrice, recalculateBudget, CHAPA_AREA_M2, round2, isChapa,
   smartMatchPromobChapa, matchProduct, chapaSalePrice, resolveItemPrice, smartMatchAccessory,
@@ -1048,22 +1048,25 @@ export function OrcamentoCurrentTab({
         const baseDesc = it.description.replace(/\s*\[[^\]]+\]\s*$/, '').trim();
         const newDesc = `${baseDesc} [${selectedBrand} - ${lineObj.name} ${selectedThickness}]`;
 
+        const isCaixaUnit = (it.unit || '').toUpperCase() === 'UN' && it.description.toLowerCase().includes('caixa');
+        const effectiveUnitCost = (isCaixaUnit && it.table_price && it.table_price > 0) ? it.table_price : m2Cost;
+
         const calculated = calculateItemPrice(
           {
             code: it.code,
             description: newDesc,
             quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
             unit: it.original_unit || it.unit,
-            unit_cost: m2Cost,
+            unit_cost: effectiveUnitCost,
             margin: it.margin,
-            table_price: m2Cost,
+            table_price: effectiveUnitCost,
             rep: it.rep,
             unit_quantity: it.unit_quantity,
             dimensions: it.dimensions,
             category: it.category,
             external_model: it.external_model,
             is_parent_module: false,
-            is_chapa: true,
+            is_chapa: !isCaixaUnit,
           },
           database,
           settings,
@@ -1083,8 +1086,8 @@ export function OrcamentoCurrentTab({
           is_parent_module: false,
           price_unlinked: false,
           found: true,
-          table_price: m2Cost,
-          unit_cost: m2Cost,
+          table_price: effectiveUnitCost,
+          unit_cost: effectiveUnitCost,
         };
       }
       return it;
@@ -1295,8 +1298,11 @@ export function OrcamentoCurrentTab({
 
             <div className="flex flex-wrap items-center gap-2 text-[10px] text-stone-500">
               {item.dimensions && (
-                <span className="font-mono text-stone-700 bg-stone-100 border border-stone-200/60 px-1.5 py-0.5 rounded-sm">
-                  {item.dimensions}
+                <span 
+                  className="font-mono text-stone-700 bg-stone-100 border border-stone-200/60 px-1.5 py-0.5 rounded-sm"
+                  title={`Dimensões em milímetros: ${item.dimensions} mm (${formatDimensionsCm(item.dimensions)})`}
+                >
+                  {item.dimensions} mm <span className="text-[9px] text-stone-600 font-normal">({formatDimensionsCm(item.dimensions)})</span>
                 </span>
               )}
               {!isAppliance && item.found && !item.price_unlinked && (
@@ -1979,8 +1985,11 @@ export function OrcamentoCurrentTab({
                             </span>
                           )}
                           {group.dimensions && (
-                            <span className="font-mono text-[10px] font-semibold text-stone-700 bg-stone-100 border border-stone-200/70 px-2 py-0.5 rounded">
-                              {group.dimensions}
+                            <span 
+                              className="font-mono text-[10px] font-semibold text-stone-700 bg-stone-100 border border-stone-200/70 px-2 py-0.5 rounded"
+                              title={`Dimensões em milímetros: ${group.dimensions} mm (${formatDimensionsCm(group.dimensions)})`}
+                            >
+                              {group.dimensions} mm <span className="text-[9px] font-normal text-stone-600">({formatDimensionsCm(group.dimensions)})</span>
                             </span>
                           )}
                           <span className="text-xs text-stone-500 font-normal">
@@ -2128,7 +2137,9 @@ export function OrcamentoCurrentTab({
                 <p className="font-mono font-bold text-slate-900 break-all">{linkingItem.code}</p>
                 <p className="font-medium text-stone-700 break-words">{linkingItem.description}</p>
                 {linkingItem.dimensions && (
-                  <p className="text-[10px] text-stone-600 font-mono">Dimensões: {linkingItem.dimensions}</p>
+                  <p className="text-[10px] text-stone-600 font-mono">
+                    Dimensões: {linkingItem.dimensions} mm <span className="text-stone-600 font-normal">({formatDimensionsCm(linkingItem.dimensions)})</span>
+                  </p>
                 )}
                 {similarItemsCount > 1 && (
                   <div className="flex items-center gap-1.5 pt-1.5 text-[11px] text-blue-700 font-medium border-t border-stone-200 mt-2">

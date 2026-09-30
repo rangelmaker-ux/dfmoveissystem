@@ -236,4 +236,39 @@ test('parsePromobXML extrai módulos pais, peças aninhadas e ferragens sem pula
   assert.equal(res.items[5].rep, 4);
 });
 
+test('dimensões do Promob são estritamente consideradas em milímetros (mm) e convertidas com precisão', () => {
+  // Teste de formatDimensionsCm (700 x 700 x 580 mm -> 70 x 70 x 58 cm)
+  assert.equal(parsers.formatDimensionsCm('700 x 700 x 580'), '70 x 70 x 58 cm');
+  assert.equal(parsers.formatDimensionsCm('670 x 15 x 580'), '67 x 1,5 x 58 cm');
+  assert.equal(parsers.formatDimensionsCm('700 x 6 x 700'), '70 x 0,6 x 70 cm');
+  assert.equal(parsers.formatDimensionsCm('990 x 505 x 600'), '99 x 50,5 x 60 cm');
+
+  // Teste de parsePromobDimensions
+  // 1. Peça de corte com espessura 15mm: 670mm x 15mm x 580mm
+  const base15 = parsers.parsePromobDimensions('670 x 15 x 580');
+  assert.equal(base15.isPlate, true);
+  assert.equal(base15.thickness, 15);
+  assert.equal(base15.length_mm, 670);
+  assert.equal(base15.width_mm, 580);
+  // Área da face: 670 * 580 / 1.000.000 = 0.3886 m²
+  assert.equal(base15.unitArea, 0.3886);
+
+  // 2. Fundo 6mm: 700mm x 6mm x 700mm
+  const fundo6 = parsers.parsePromobDimensions('700 x 6 x 700');
+  assert.equal(fundo6.isPlate, true);
+  assert.equal(fundo6.thickness, 6);
+  assert.equal(fundo6.unitArea, 0.49);
+
+  // 3. Módulo / Caixa 3D (ex: 700 x 700 x 580 mm): todas dimensões > 30mm
+  const torre3D = parsers.parsePromobDimensions('700 x 700 x 580');
+  assert.equal(torre3D.is3dModule, true);
+  assert.equal(torre3D.isPlate, false);
+  assert.equal(torre3D.unitArea, 0);
+
+  // 4. Ferragem pequena (ex: 31 x 42 x 2 mm): faces menores que 60mm
+  const dobradica = parsers.parsePromobDimensions('31 x 42 x 2');
+  assert.equal(dobradica.isPlate, false);
+});
+
+
 

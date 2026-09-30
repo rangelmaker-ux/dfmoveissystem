@@ -138,7 +138,8 @@ export function calculateAdditionsFactor(settings: BudgetSettings): number {
 export function smartMatchPromobChapa(
   code: string,
   description: string,
-  catalog: CatalogByBrand = INITIAL_CHAPAS_CATALOG
+  catalog: CatalogByBrand = INITIAL_CHAPAS_CATALOG,
+  dimensions?: string
 ): {
   matched: boolean;
   brand: string | null;
@@ -151,7 +152,7 @@ export function smartMatchPromobChapa(
     return { matched: false, brand: null, line: null, thickness: '15mm', m2Cost: 0, boardPrice: 0 };
   }
 
-  const rawText = `${code} ${description}`.trim();
+  const rawText = `${code} ${description} ${dimensions || ''}`.trim();
   const normText = normalizeText(rawText);
 
   // 1. Detecta Marca
@@ -205,6 +206,16 @@ export function smartMatchPromobChapa(
     description.endsWith(' 15')
   ) {
     thickness = '15mm';
+  } else if (dimensions) {
+    // Dimensões do Promob em milímetros: ex: '670 x 15 x 580' ou '700 x 6 x 700'
+    const dNums = (dimensions.match(/[\d.,]+/g) || []).map(n => parseFloat(n.replace(',', '.')));
+    if (dNums.length === 3) {
+      const minD = Math.min(...dNums);
+      if (minD === 6) thickness = '6mm';
+      else if (minD === 18) thickness = '18mm';
+      else if (minD === 25) thickness = '25mm';
+      else if (minD === 15) thickness = '15mm';
+    }
   }
 
   // Se não foi encontrada marca explícita, mas é peça de chapa MDF/MDP (comum na caixaria Promob):
@@ -761,18 +772,25 @@ export function isSimilarPromobItem(
   if (!isTargetChapa || !isCandChapa) return false;
 
   // Extração rigorosa de espessura (6mm, 15mm, 18mm, 25mm)
-  const extractThick = (code: string, desc: string, explicitThick?: string): string => {
+  const extractThick = (code: string, desc: string, explicitThick?: string, dim?: string): string => {
     if (explicitThick) return explicitThick.replace('mm', '');
-    const combined = `${code} ${desc}`.toLowerCase();
+    const combined = `${code} ${desc} ${dim || ''}`.toLowerCase();
     const m = combined.match(/\b(6|15|18|25)mm\b|\.(6|15|18|25)\./i);
     if (m) return m[1] || m[2];
+    if (dim) {
+      const nums = (dim.match(/[\d.,]+/g) || []).map(n => parseFloat(n.replace(',', '.')));
+      if (nums.length === 3) {
+        const minVal = Math.min(...nums);
+        if ([6, 15, 18, 25].includes(minVal)) return String(minVal);
+      }
+    }
     if (combined.includes('fundo')) return '6';
     if (combined.includes('porta') || combined.includes('frente')) return '18';
     return '15';
   };
 
-  const tThick = extractThick(target.code, target.description, (target as any).targetThickness);
-  const cThick = extractThick(candidate.code, candidate.description);
+  const tThick = extractThick(target.code, target.description, (target as any).targetThickness, target.dimensions);
+  const cThick = extractThick(candidate.code, candidate.description, undefined, candidate.dimensions);
 
   // Espessuras DEVEM bater rigorosamente! 15mm NUNCA pode ser vinculado a 6mm (fundo) ou 18mm (porta)!
   if (tThick !== cThick) {
@@ -905,7 +923,7 @@ export function resolveItemPrice(
 
   if (isChapaItem) {
     // 1. Tenta encontrar no catálogo de Chapas por marca e acabamento
-    const smart = smartMatchPromobChapa(item.code, item.description, catalog);
+    const smart = smartMatchPromobChapa(item.code, item.description, catalog, item.dimensions);
     if (smart.matched && smart.m2Cost > 0) {
       return {
         matched: true,

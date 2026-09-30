@@ -75,13 +75,62 @@ function splitDelimitedLine(line: string, delimiter: string): string[] {
   return fields;
 }
 
+/**
+ * Calcula área em m² a partir de dimensões em milímetros (mm).
+ * Todas as medidas do Promob são expressas em MILÍMETROS.
+ * Exemplo: 700mm x 580mm = 0,406 m²
+ */
 function areaFromDimensions(width: number, height: number, count: number): number {
   if (width <= 0 || height <= 0 || count <= 0) return count;
   const divisor = width > 20 || height > 20 ? 1_000_000 : 1;
-  return (width * height * count) / divisor;
+  return Math.round(((width * height * count) / divisor + Number.EPSILON) * 10000) / 10000;
 }
 
-function parseDimensionsString(rawDim?: string, w?: string, h?: string, d?: string, t?: string): { dimensions: string; unitArea: number; isPlate: boolean } {
+/**
+ * Formata dimensões em milímetros para exibição amigável em centímetros (cm).
+ * Exemplo: '700 x 700 x 580' mm -> '70 x 70 x 58 cm'
+ * Exemplo: '670 x 15 x 580' mm -> '67 x 1,5 x 58 cm'
+ */
+export function formatDimensionsCm(dimensionsStr?: string): string {
+  if (!dimensionsStr) return '';
+  const clean = String(dimensionsStr).trim();
+  const replaced = clean.replace(/\b(\d+(?:[.,]\d+)?)\b/g, (match) => {
+    const num = parseFloat(match.replace(',', '.'));
+    if (isNaN(num)) return match;
+    const inCm = num / 10;
+    return Number.isInteger(inCm) ? inCm.toString() : inCm.toFixed(1).replace('.', ',');
+  });
+  return `${replaced} cm`;
+}
+
+/**
+ * Analisador rigoroso de dimensões do Promob:
+ * No Promob, TODAS as dimensões numéricas são expressas em MILÍMETROS (mm).
+ *
+ * 1. Para peças planas de corte MDF/MDP (ex: 670 x 15 x 580 ou 700 x 6 x 700):
+ *    - A menor dimensão (<= 30mm) é a espessura da chapa (ex: 6mm, 15mm, 18mm, 25mm).
+ *    - As outras duas dimensões são as faces de corte em milímetros.
+ *    - Área da face (m²) = (face1_mm * face2_mm) / 1.000.000
+ *
+ * 2. Para módulos e caixarias 3D (ex: 700 x 700 x 580 ou 990 x 505 x 600):
+ *    - Todas as 3 dimensões são > 30mm (Largura x Altura x Profundidade do móvel).
+ *    - Trata-se de um móvel tridimensional (unidade 'UN'), e NÃO de uma chapa plana avulsa!
+ */
+export function parsePromobDimensions(
+  rawDim?: string,
+  w?: string | number,
+  h?: string | number,
+  d?: string | number,
+  t?: string | number
+): {
+  dimensions: string;
+  unitArea: number;
+  isPlate: boolean;
+  thickness: number | null;
+  length_mm: number | null;
+  width_mm: number | null;
+  is3dModule: boolean;
+} {
   let dimStr = String(rawDim || '').trim();
   if (!dimStr) {
     const parts = [w, h || t, d || t].filter(Boolean);
@@ -89,21 +138,84 @@ function parseDimensionsString(rawDim?: string, w?: string, h?: string, d?: stri
       dimStr = parts.join(' x ');
     }
   }
-  if (!dimStr) return { dimensions: '', unitArea: 0, isPlate: false };
+  if (!dimStr) {
+    return {
+      dimensions: '',
+      unitArea: 0,
+      isPlate: false,
+      thickness: null,
+      length_mm: null,
+      width_mm: null,
+      is3dModule: false,
+    };
+  }
 
   const nums = (dimStr.match(/[\d.,]+/g) || [])
     .map(n => parseLocaleNumber(n))
     .filter(n => n > 0);
 
-  if (nums.length >= 2) {
+  if (nums.length === 3) {
+    const sorted = [...nums].sort((a, b) => a - b);
+    const minDim = sorted[0];
+    const midDim = sorted[1];
+    const maxDim = sorted[2];
+
+    // Se a menor dimensão for espessura típica de chapa (<= 30mm, ex: 6, 9, 15, 18, 25mm)
+    // e as outras duas forem medidas de face de chapa (>= 60mm):
+    if (minDim <= 30 && midDim >= 60 && maxDim >= 60) {
+      const unitArea = Math.round(((midDim * maxDim) / 1_000_000 + Number.EPSILON) * 10000) / 10000;
+      return {
+        dimensions: dimStr,
+        unitArea,
+        isPlate: true,
+        thickness: minDim,
+        length_mm: maxDim,
+        width_mm: midDim,
+        is3dModule: false,
+      };
+    }
+
+    // Se todas as 3 dimensões forem grandes (> 30mm), é um módulo tridimensional (ex: 700 x 700 x 580)
+    return {
+      dimensions: dimStr,
+      unitArea: 0,
+      isPlate: false,
+      thickness: null,
+      length_mm: maxDim,
+      width_mm: midDim,
+      is3dModule: true,
+    };
+  }
+
+  if (nums.length === 2) {
     const [d1, d2] = [...nums].sort((a, b) => b - a);
-    if (d1 > 20 || d2 > 20) {
+    if (d1 >= 60 && d2 >= 60) {
       const unitArea = Math.round(((d1 * d2) / 1_000_000 + Number.EPSILON) * 10000) / 10000;
-      return { dimensions: dimStr, unitArea, isPlate: true };
+      return {
+        dimensions: dimStr,
+        unitArea,
+        isPlate: true,
+        thickness: null,
+        length_mm: d1,
+        width_mm: d2,
+        is3dModule: false,
+      };
     }
   }
 
-  return { dimensions: dimStr, unitArea: 0, isPlate: false };
+  return {
+    dimensions: dimStr,
+    unitArea: 0,
+    isPlate: false,
+    thickness: null,
+    length_mm: null,
+    width_mm: null,
+    is3dModule: false,
+  };
+}
+
+function parseDimensionsString(rawDim?: string, w?: string, h?: string, d?: string, t?: string): { dimensions: string; unitArea: number; isPlate: boolean } {
+  return parsePromobDimensions(rawDim, w, h, d, t);
 }
 
 function parseXmlAttributes(attrString: string): Record<string, string> {
@@ -219,36 +331,41 @@ export function parsePromobXML(
       ? Math.max(1, Math.round(parseLocaleNumber(rawRep, 1)))
       : 1;
 
-    const dimInfo = parseDimensionsString(rawDim, w, h, d, t);
+    const dimInfo = parsePromobDimensions(rawDim, w, h, d, t);
     let unit = rawUnit.toUpperCase();
 
-    const isPlateMaterial =
+    const isHardware = ['dobradica', 'dobradiça', 'corredica', 'corrediça', 'puxador', 'pistao', 'pistão', 'parafuso', 'ponteira', 'suporte', 'cantoneira'].some(k => normDesc.includes(k));
+    const isCutPiecePlate = !isHardware && !isCaixa && !is_parent_module && !isAppliance && (
       unit === 'M2' ||
-      dimInfo.isPlate ||
-      ['mdf', 'mdp', 'chapa', 'painel', 'fundo', 'porta', 'base', 'lateral', 'prateleira', 'travessa', 'sarrafo', 'tampo', 'frente', 'divisoria'].some(k =>
-        (description + ' ' + code).toLowerCase().includes(k)
-      );
+      (dimInfo.isPlate && ['fundo', 'base', 'lateral', 'prateleira', 'travessa', 'sarrafo', 'tampo', 'porta', 'frente', 'divisoria'].some(k => normDesc.includes(k)))
+    );
 
     const qtyMatch = rawQty.match(/^([\d.,]+)\s*([A-Za-z0-9]+)?/);
     const parsedQtyNum = qtyMatch ? parseLocaleNumber(qtyMatch[1], 0) : parseLocaleNumber(rawQty, 0);
     if (!unit && qtyMatch?.[2]) unit = qtyMatch[2].toUpperCase();
 
     let unit_quantity = 1;
-    if (isPlateMaterial && dimInfo.unitArea > 0) {
+
+    if (isCutPiecePlate) {
       unit = 'M2';
+      // Se o Promob já calculou a área em m² no XML (ex: 0.39 M2):
       if (parsedQtyNum > 0 && parsedQtyNum < 15 && Math.abs(parsedQtyNum - dimInfo.unitArea) < 0.05) {
         unit_quantity = parsedQtyNum;
-      } else {
+      } else if (dimInfo.unitArea > 0) {
+        // Calcula a partir das dimensões em milímetros: (comp_mm * larg_mm) / 1.000.000
         unit_quantity = dimInfo.unitArea;
+      } else if (parsedQtyNum > 0) {
+        unit_quantity = parsedQtyNum;
       }
-    } else if (unit === 'M2' && parsedQtyNum > 0 && parsedQtyNum < 15) {
+    } else if (unit === 'M2' && !isCaixa && !is_parent_module && !isAppliance) {
+      unit_quantity = (parsedQtyNum > 0 && parsedQtyNum < 15) ? parsedQtyNum : (dimInfo.unitArea || 1);
+    } else if (parsedQtyNum > 0 && parsedQtyNum < 1 && !isCaixa && !is_parent_module && !isAppliance) {
       unit_quantity = parsedQtyNum;
-    } else if (parsedQtyNum > 0 && parsedQtyNum < 1) {
-      unit_quantity = parsedQtyNum;
-      if (!unit || unit === 'UN') unit = 'M2';
+      unit = 'M2';
     } else {
-      unit_quantity = 1;
-      if (!unit) unit = 'UN';
+      // Itens por Unidade (Módulos 3D, Caixas, Ferragens, Acessórios, Eletros, Processos):
+      unit = unit || 'UN';
+      unit_quantity = parsedQtyNum > 0 ? parsedQtyNum : 1;
     }
 
     const totalQuantity = Math.round((rep * unit_quantity + Number.EPSILON) * 10000) / 10000;
@@ -545,6 +662,17 @@ export async function parsePromobPDF(
       (unit === 'UN' && ['armário', 'armario', 'balcão', 'balcao', 'torre'].some(k => normDesc.includes(k)))
     );
 
+    const isHardware = ['dobradica', 'dobradiça', 'corredica', 'corrediça', 'puxador', 'pistao', 'pistão', 'parafuso', 'ponteira', 'suporte', 'cantoneira'].some(k => normDesc.includes(k));
+    const dimInfo = parsePromobDimensions(dimensions);
+    if (unit !== 'M2' && !isHardware && dimInfo.isPlate && !isCaixa && !is_parent_module && !isAppliance) {
+      if (['fundo', 'base', 'lateral', 'prateleira', 'travessa', 'sarrafo', 'tampo', 'porta', 'frente', 'divisoria'].some(k => normDesc.includes(k))) {
+        unit = 'M2';
+        if (unit_quantity <= 1 && dimInfo.unitArea > 0) {
+          unit_quantity = dimInfo.unitArea;
+        }
+      }
+    }
+
     const totalQuantity = Math.round((rep * unit_quantity + Number.EPSILON) * 10000) / 10000;
 
     items.push({
@@ -660,7 +788,6 @@ export function parsePromobTextTable(
       if (m[2]) unit = m[2].toUpperCase();
     }
 
-    const totalQuantity = Math.round((rep * unit_quantity + Number.EPSILON) * 10000) / 10000;
     const normDesc = desc.toLowerCase();
     const isCaixa = normDesc.includes('caixa');
     const isAppliance = checkIsAppliance(ref, desc, currentCategory);
@@ -668,6 +795,19 @@ export function parsePromobTextTable(
       [2, 7, 14, 21, 28, 35, 42, 52].includes(itemNum) ||
       (unit === 'UN' && ['armário', 'armario', 'balcão', 'balcao', 'torre'].some(k => normDesc.includes(k)))
     );
+
+    const isHardware = ['dobradica', 'dobradiça', 'corredica', 'corrediça', 'puxador', 'pistao', 'pistão', 'parafuso', 'ponteira', 'suporte', 'cantoneira'].some(k => normDesc.includes(k));
+    const dimInfo = parsePromobDimensions(dim);
+    if (unit !== 'M2' && !isHardware && dimInfo.isPlate && !isCaixa && !is_parent_module && !isAppliance) {
+      if (['fundo', 'base', 'lateral', 'prateleira', 'travessa', 'sarrafo', 'tampo', 'porta', 'frente', 'divisoria'].some(k => normDesc.includes(k))) {
+        unit = 'M2';
+        if (unit_quantity <= 1 && dimInfo.unitArea > 0) {
+          unit_quantity = dimInfo.unitArea;
+        }
+      }
+    }
+
+    const totalQuantity = Math.round((rep * unit_quantity + Number.EPSILON) * 10000) / 10000;
 
     items.push({
       item_number: itemNum,
