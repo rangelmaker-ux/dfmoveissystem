@@ -83,8 +83,13 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
 
   const jsonInputRef = useRef<HTMLInputElement>(null);
 
+  const safeCatalog = (catalog && typeof catalog === 'object' && Object.keys(catalog).length > 0)
+    ? catalog
+    : INITIAL_CHAPAS_CATALOG;
+  const safeDatabase = Array.isArray(database) ? database : [];
+
   // Ordenação oficial das 8 marcas e exclusão de alias/acessórios
-  const brandNames = Object.keys(catalog)
+  const brandNames = Object.keys(safeCatalog)
     .filter(b => b !== 'Acessórios' && b !== 'Bernek')
     .sort((a, b) => {
       const idxA = BRAND_ORDER.indexOf(a);
@@ -96,27 +101,30 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
     });
 
   const activeBrandName = brandNames.includes(selectedBrand) ? selectedBrand : (brandNames[0] || 'Arauco');
-  const activeBrandData = catalog[activeBrandName] || catalog['Arauco'] || Object.values(catalog)[0];
+  const activeBrandData = safeCatalog[activeBrandName] || safeCatalog['Arauco'] || Object.values(safeCatalog)[0];
 
-  const activeBrandTotalColors = activeBrandData && activeBrandData.type === 'brand'
-    ? activeBrandData.lines.reduce((acc, l) => acc + (l.colors?.length || 0), 0)
+  const activeBrandTotalColors = (activeBrandData && activeBrandData.type === 'brand' && Array.isArray(activeBrandData.lines))
+    ? activeBrandData.lines.reduce((acc, l) => acc + (Array.isArray(l.colors) ? l.colors.length : 0), 0)
     : 0;
 
   // Filter lines for active brand (pesquisa por nome da Linha E por nome da Cor/Padrão)
   const brandQuery = brandSearch.trim().toLowerCase();
-  const filteredLines = activeBrandData && activeBrandData.type === 'brand'
+  const filteredLines = (activeBrandData && activeBrandData.type === 'brand' && Array.isArray(activeBrandData.lines))
     ? activeBrandData.lines.filter(l => {
+        if (!l) return false;
         if (!brandQuery) return true;
-        if (l.name.toLowerCase().includes(brandQuery)) return true;
-        if (Array.isArray(l.colors) && l.colors.some(c => c.toLowerCase().includes(brandQuery))) return true;
+        if (l.name && l.name.toLowerCase().includes(brandQuery)) return true;
+        if (Array.isArray(l.colors) && l.colors.some(c => typeof c === 'string' && c.toLowerCase().includes(brandQuery))) return true;
         return false;
       })
     : [];
 
-  const filteredMaoDeObra = activeBrandData && activeBrandData.type === 'maodeobra'
+  const filteredMaoDeObra = (activeBrandData && activeBrandData.type === 'maodeobra' && Array.isArray(activeBrandData.items))
     ? activeBrandData.items.filter(m =>
-        m.name.toLowerCase().includes(brandSearch.toLowerCase()) ||
-        (m.description && m.description.toLowerCase().includes(brandSearch.toLowerCase()))
+        m && (
+          (m.name && m.name.toLowerCase().includes(brandSearch.toLowerCase())) ||
+          (m.description && m.description.toLowerCase().includes(brandSearch.toLowerCase()))
+        )
       )
     : [];
 
@@ -226,10 +234,10 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
   const handleOpenEditLine = (line: ChapaLineItem) => {
     setEditingLine(line);
     setEditLineColors((line.colors || []).join(', '));
-    setEditPrice6mm(line.prices['6mm'] ? line.prices['6mm']!.toString() : '');
-    setEditPrice15mm(line.prices['15mm'] ? line.prices['15mm']!.toString() : '');
-    setEditPrice18mm(line.prices['18mm'] ? line.prices['18mm']!.toString() : '');
-    setEditPrice25mm(line.prices['25mm'] ? line.prices['25mm']!.toString() : '');
+    setEditPrice6mm(line.prices?.['6mm'] ? line.prices['6mm']!.toString() : '');
+    setEditPrice15mm(line.prices?.['15mm'] ? line.prices['15mm']!.toString() : '');
+    setEditPrice18mm(line.prices?.['18mm'] ? line.prices['18mm']!.toString() : '');
+    setEditPrice25mm(line.prices?.['25mm'] ? line.prices['25mm']!.toString() : '');
     setEditLineModalOpen(true);
   };
 
@@ -532,7 +540,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
             }
           >
             <Package className="mr-2 h-4 w-4 text-emerald-500" />
-            Catálogo Geral de Materiais ({database.length})
+            Catálogo Geral de Materiais ({safeDatabase.length})
           </Button>
         </div>
 
@@ -558,14 +566,14 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
           <div className="flex items-center gap-2 overflow-x-auto pb-2">
             {brandNames.map(brand => {
               const isSelected = activeBrandName === brand;
-              const bData = catalog[brand];
+              const bData = safeCatalog[brand];
               if (!bData) return null;
               const count =
                 bData.type === 'brand'
-                  ? (bData as BrandCatalog).lines.length
+                  ? (Array.isArray((bData as BrandCatalog).lines) ? (bData as BrandCatalog).lines.length : 0)
                   : bData.type === 'acessorios'
-                  ? (bData as AcessoriosCatalog).items.length
-                  : (bData as MaoDeObraCatalog).items.length;
+                  ? (Array.isArray((bData as AcessoriosCatalog).items) ? (bData as AcessoriosCatalog).items.length : 0)
+                  : (Array.isArray((bData as MaoDeObraCatalog).items) ? (bData as MaoDeObraCatalog).items.length : 0);
 
               return (
                 <button
@@ -614,7 +622,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                 <span className="text-[10px] text-stone-400">(Preço de Venda sugerido automático)</span>
               </div>
 
-              {activeBrandData.type === 'brand' && (
+              {activeBrandData && activeBrandData.type === 'brand' && (
                 <Button
                   onClick={() => {
                     setNewLineName('');
@@ -631,7 +639,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                 </Button>
               )}
 
-              {activeBrandData.type === 'maodeobra' && (
+              {activeBrandData && activeBrandData.type === 'maodeobra' && (
                 <Button
                   onClick={() => {
                     setEditMoName('');
@@ -650,7 +658,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
           </div>
 
           {/* Table of Brand Lines */}
-          {activeBrandData.type === 'brand' ? (
+          {activeBrandData && activeBrandData.type === 'brand' ? (
             <div className="overflow-hidden rounded-xl border border-stone-200/90 bg-white shadow-2xs">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs text-slate-700">
@@ -680,21 +688,25 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                       </tr>
                     ) : (
                       filteredLines.map(line => {
-                        const p6 = line.prices['6mm'];
-                        const p15 = line.prices['15mm'];
-                        const p18 = line.prices['18mm'];
-                        const p25 = line.prices['25mm'];
+                        const p6 = line?.prices ? line.prices['6mm'] : null;
+                        const p15 = line?.prices ? line.prices['15mm'] : null;
+                        const p18 = line?.prices ? line.prices['18mm'] : null;
+                        const p25 = line?.prices ? line.prices['25mm'] : null;
+
+                        const width = line?.width || 2.75;
+                        const height = line?.height || 1.85;
+                        const area = line?.area || round2(width * height);
 
                         const sale15 = getSalePrice(p15);
                         const sale18 = getSalePrice(p18);
 
-                        const colors = line.colors || [];
+                        const colors = Array.isArray(line?.colors) ? line.colors : [];
                         const query = brandSearch.trim().toLowerCase();
                         // Se o operador está buscando uma cor específica, prioriza exibi-la nas tags
                         const sortedColors = query
                           ? [...colors].sort((a, b) => {
-                              const matchA = a.toLowerCase().includes(query) ? -1 : 1;
-                              const matchB = b.toLowerCase().includes(query) ? -1 : 1;
+                              const matchA = typeof a === 'string' && a.toLowerCase().includes(query) ? -1 : 1;
+                              const matchB = typeof b === 'string' && b.toLowerCase().includes(query) ? -1 : 1;
                               return matchA - matchB;
                             })
                           : colors;
@@ -764,7 +776,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                             </td>
 
                             <td className="px-3 py-3 text-center text-slate-500 font-mono text-[11px] align-top">
-                              {line.width}m × {line.height}m ({line.area}m²)
+                              {width}m × {height}m ({area}m²)
                             </td>
 
                             {/* 6mm */}
@@ -775,7 +787,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                                     {p6.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                                   </span>
                                   <span className="block text-[10px] text-slate-400">
-                                    {(chapaSalePrice(p6, line.width * line.height)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²
+                                    {(chapaSalePrice(p6, width * height)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²
                                   </span>
                                 </div>
                               ) : (
@@ -796,7 +808,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                                     </span>
                                   )}
                                   <span className="block text-[10px] text-slate-400">
-                                    {(chapaSalePrice(p15, line.width * line.height)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²
+                                    {(chapaSalePrice(p15, width * height)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²
                                   </span>
                                 </div>
                               ) : (
@@ -817,7 +829,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                                     </span>
                                   )}
                                   <span className="block text-[10px] text-slate-400">
-                                    {(chapaSalePrice(p18, line.width * line.height)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²
+                                    {(chapaSalePrice(p18, width * height)).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²
                                   </span>
                                 </div>
                               ) : (
@@ -856,7 +868,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                 </table>
               </div>
             </div>
-          ) : activeBrandData.type === 'maodeobra' ? (
+          ) : activeBrandData && activeBrandData.type === 'maodeobra' ? (
             /* MÃO DE OBRA FIXA & PROCESSOS DE FABRICAÇÃO */
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
               <div className="overflow-x-auto">
@@ -880,7 +892,8 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                       </tr>
                     ) : (
                       filteredMaoDeObra.map(mo => {
-                        const sale = getSalePrice(mo.price);
+                        const price = typeof mo?.price === 'number' ? mo.price : 0;
+                        const sale = getSalePrice(price);
                         return (
                           <tr key={mo.id} className="hover:bg-slate-50/80 transition-colors">
                             <td className="py-3 pl-4 pr-3 font-bold text-slate-900">
@@ -898,7 +911,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                               </span>
                             </td>
                             <td className="px-3 py-3 text-right font-black text-slate-900">
-                              {mo.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              {price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                             </td>
                             <td className="px-3 py-3 text-right font-bold text-emerald-700">
                               {sale ? sale.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }) : '—'}
@@ -994,19 +1007,21 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {database
+                  {safeDatabase
                     .filter(p => {
+                      if (!p) return false;
                       const term = searchTerm.toLowerCase();
-                      const match =
-                        p.code.toLowerCase().includes(term) ||
-                        p.description.toLowerCase().includes(term) ||
-                        (p.subcodes && p.subcodes.some(s => s.toLowerCase().includes(term)));
+                      const code = (p.code || '').toLowerCase();
+                      const desc = (p.description || '').toLowerCase();
+                      const subMatch = Array.isArray(p.subcodes) && p.subcodes.some(s => typeof s === 'string' && s.toLowerCase().includes(term));
+                      const match = code.includes(term) || desc.includes(term) || subMatch;
                       const catMatch = categoryFilter === 'ALL' || p.category === categoryFilter;
                       return match && catMatch;
                     })
                     .map(p => {
+                      const unitPrice = typeof p.unit_price === 'number' ? p.unit_price : 0;
                       const isMDF = p.category === 'MDF' || p.unit === 'M2';
-                      const chapaPrice = isMDF ? round2(p.unit_price * CHAPA_AREA_M2) : null;
+                      const chapaPrice = isMDF ? round2(unitPrice * CHAPA_AREA_M2) : null;
 
                       return (
                         <tr key={p.id} className="hover:bg-slate-50/80 transition-colors">
@@ -1059,12 +1074,12 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                           </td>
 
                           <td className="px-3 py-3 text-right font-bold text-slate-900">
-                            {p.unit_price === 0 && (p.category === 'FERRAGEM' || p.category === 'ACESSORIO') ? (
+                            {unitPrice === 0 && (p.category === 'FERRAGEM' || p.category === 'ACESSORIO') ? (
                               <span className="text-amber-700 font-normal text-[11px] italic bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
                                 A definir pelo operador
                               </span>
                             ) : (
-                              p.unit_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                              unitPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
                             )}
                           </td>
 

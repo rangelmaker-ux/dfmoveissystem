@@ -174,12 +174,18 @@ export function smartMatchPromobChapa(
     }
   }
 
+  // Se não detectou marca explícita, mas é caixaria ou branco padrão: Arauco é o padrão de marcenaria no Promob e DF Móveis
+  const isGenericWhiteOrCaixa = !detectedBrand && (normText.includes('branco') || normText.includes('branca') || normText.includes('caixa'));
+  if (isGenericWhiteOrCaixa) {
+    detectedBrand = 'Arauco';
+  }
+
   // 2. Detecta Espessura (6, 15, 18, 25)
   let thickness: '6mm' | '15mm' | '18mm' | '25mm' = '15mm';
   if (
-    /\.6\./.test(code) ||
-    /\b6mm\b/i.test(code) ||
-    /\b6mm\b/i.test(description) ||
+    /\.0?6\./.test(code) ||
+    /\b6\s*mm\b/i.test(code) ||
+    /\b6\s*mm\b/i.test(description) ||
     description.endsWith(' 6') ||
     code.includes('.6.arauco') ||
     code.includes('.6.duratex')
@@ -187,22 +193,22 @@ export function smartMatchPromobChapa(
     thickness = '6mm';
   } else if (
     /\.18\./.test(code) ||
-    /\b18mm\b/i.test(code) ||
-    /\b18mm\b/i.test(description) ||
+    /\b18\s*mm\b/i.test(code) ||
+    /\b18\s*mm\b/i.test(description) ||
     description.endsWith(' 18')
   ) {
     thickness = '18mm';
   } else if (
     /\.25\./.test(code) ||
-    /\b25mm\b/i.test(code) ||
-    /\b25mm\b/i.test(description) ||
+    /\b25\s*mm\b/i.test(code) ||
+    /\b25\s*mm\b/i.test(description) ||
     description.endsWith(' 25')
   ) {
     thickness = '25mm';
   } else if (
     /\.15\./.test(code) ||
-    /\b15mm\b/i.test(code) ||
-    /\b15mm\b/i.test(description) ||
+    /\b15\s*mm\b/i.test(code) ||
+    /\b15\s*mm\b/i.test(description) ||
     description.endsWith(' 15')
   ) {
     thickness = '15mm';
@@ -218,110 +224,143 @@ export function smartMatchPromobChapa(
     }
   }
 
-  // Se não foi encontrada marca explícita, mas é peça de chapa MDF/MDP (comum na caixaria Promob):
-  const isChapaItem = isChapa(code, description) || normText.includes('mdf') || normText.includes('mdp') || normText.includes('bp') || normText.includes('caixa');
-  if (!detectedBrand && isChapaItem && catalog) {
-    if (normText.includes('freijo')) {
-      if (catalog['Arauco']) detectedBrand = 'Arauco';
-    } else if (normText.includes('grafite')) {
-      if (catalog['Duratex']) detectedBrand = 'Duratex';
-    } else {
-      // Padrão de marcenaria para caixaria: MDF Branco (Arauco ou Duratex)
-      if (catalog['Arauco']) detectedBrand = 'Arauco';
-      else if (catalog['Duratex']) detectedBrand = 'Duratex';
-      else {
-        const firstBrand = Object.keys(catalog).find(k => catalog[k].type === 'brand');
-        if (firstBrand) detectedBrand = firstBrand;
-      }
-    }
-  }
-
-  if (!detectedBrand || !catalog[detectedBrand] || catalog[detectedBrand].type !== 'brand') {
-    return { matched: false, brand: null, line: null, thickness, m2Cost: 0, boardPrice: 0 };
-  }
-
-  const brandData = catalog[detectedBrand] as BrandCatalog;
-  const lines = brandData.lines;
-
-  // Extrai palavras-chave do acabamento/cor (ex: "Beige Matt" -> ["beige", "matt"])
-  const tokens = normalizeText(code)
+  // Tokens para pesquisa sem ruídos
+  const tokens = normalizeText(`${code} ${description}`)
     .replace(/[0-9._-]/g, ' ')
     .split(/\s+/)
-    .filter(t => t.length >= 3 && !['mdf', 'revest', 'arauco', 'duratex', 'guararapes'].includes(t));
+    .filter(t => t.length >= 3 && !['mdf', 'mdp', 'revest', 'arauco', 'duratex', 'guararapes', 'greenplac', 'berneck', 'bernek', 'eucatex', 'formica', 'sudati', 'chapa', 'promob', 'porta', 'lateral', 'fundo', 'gaveta', 'base'].includes(t));
 
+  const scoreBrand = (bName: string) => {
+    const bCat = catalog && catalog[bName];
+    if (!bCat || bCat.type !== 'brand' || !Array.isArray(bCat.lines)) {
+      return { bestLine: null as ChapaLineItem | null, bestScore: 0 };
+    }
+
+    let topScore = 0;
+    let topLine: ChapaLineItem | null = null;
+
+    for (const line of bCat.lines) {
+      const normLine = normalizeText(line.name);
+      let score = 0;
+
+      // 1. Cores e padrões oficiais
+      if (Array.isArray(line.colors) && line.colors.length > 0) {
+        for (const color of line.colors) {
+          const normColor = normalizeText(color);
+          if (normText.includes(normColor)) {
+            if (score < 40) score = 40;
+            break;
+          }
+          // Se o texto traz 'branco'/'branca' e a cor do catálogo é 'branco supremo', 'branco diamante', etc.
+          if ((normText.includes('branco') || normText.includes('branca')) && (normColor === 'branco' || normColor.startsWith('branco ') || normColor.includes('branco'))) {
+            if (score < 40) score = 40;
+            break;
+          }
+          const colorWords = normColor.split(/\s+/).filter(w => w.length >= 3);
+          const matchedWords = colorWords.filter(w => normText.includes(w));
+          if (colorWords.length > 0 && matchedWords.length === colorWords.length) {
+            if (score < 30) score = 30;
+            break;
+          } else if (matchedWords.length > 0) {
+            const s = matchedWords.length * 6;
+            if (s > score) score = s;
+          }
+        }
+      }
+
+      // 2. Tokens de nome de linha
+      for (const t of tokens) {
+        if (normLine.includes(t)) {
+          score += 2;
+        } else if (t.includes('mat') && normLine.includes('matt')) {
+          score += 3;
+        } else if (t.includes('vert') && normLine.includes('vert')) {
+          score += 3;
+        } else if (t.includes('chess') && normLine.includes('chess')) {
+          score += 3;
+        } else if (t.includes('ultra') && normLine.includes('ultra')) {
+          score += 3;
+        }
+      }
+
+      if (score > topScore) {
+        topScore = score;
+        topLine = line;
+      }
+    }
+
+    return { bestLine: topLine, bestScore: topScore };
+  };
+
+  let winningBrand: string | null = detectedBrand;
+  let bestLine: ChapaLineItem | null = null;
   let bestScore = 0;
-  let bestLine = null;
 
-  for (const line of lines) {
-    const normLine = normalizeText(line.name);
-    let score = 0;
+  if (detectedBrand) {
+    const res = scoreBrand(detectedBrand);
+    bestLine = res.bestLine;
+    bestScore = res.bestScore;
+  }
 
-    // 1. Busca por cores e padrões cadastrados na linha (Promob envia cor no final)
-    if (Array.isArray(line.colors) && line.colors.length > 0) {
-      for (const color of line.colors) {
-        const normColor = normalizeText(color);
-        // Correspondência exata da cor completa dentro do código ou descrição Promob
-        if (normText.includes(normColor)) {
-          score += 30;
-          break;
-        }
-        // Correspondência de tokens significativos da cor
-        const colorWords = normColor.split(/\s+/).filter(w => w.length >= 3);
-        const matchedWords = colorWords.filter(w => normText.includes(w));
-        if (colorWords.length > 0 && matchedWords.length === colorWords.length) {
-          score += 20;
-          break;
-        } else if (matchedWords.length > 0) {
-          score += matchedWords.length * 4;
-        }
+  // Se não detectou marca explícita OU a marca detectada não encontrou linha com score >= 20:
+  // Varre as marcas do catálogo na ordem oficial para encontrar o padrão/cor correspondente (ex: Carmel -> Greenplac)
+  const BRAND_SCAN_ORDER = ['Arauco', 'Duratex', 'Guararapes', 'Greenplac', 'Berneck', 'Eucatex', 'Fórmica', 'Sudati'];
+  if ((!detectedBrand || bestScore < 20) && catalog) {
+    const brandsToScan = [
+      ...BRAND_SCAN_ORDER.filter(b => catalog[b] && catalog[b]?.type === 'brand'),
+      ...Object.keys(catalog).filter(b => !BRAND_SCAN_ORDER.includes(b) && b !== 'Acessórios' && b !== 'Bernek' && catalog[b]?.type === 'brand')
+    ];
+    for (const b of brandsToScan) {
+      const res = scoreBrand(b);
+      if (res.bestScore > bestScore && res.bestScore >= 20) {
+        bestScore = res.bestScore;
+        bestLine = res.bestLine;
+        winningBrand = b;
       }
-    }
-
-    // 2. Busca por nome da linha
-    for (const t of tokens) {
-      if (normLine.includes(t)) {
-        score += 2;
-      } else if (t.includes('mat') && normLine.includes('matt')) {
-        score += 3;
-      } else if (t.includes('vert') && normLine.includes('vert')) {
-        score += 3;
-      } else if (t.includes('chess') && normLine.includes('chess')) {
-        score += 3;
-      } else if (t.includes('ultra') && normLine.includes('ultra')) {
-        score += 3;
-      }
-    }
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestLine = line;
     }
   }
 
   // Se o item contém "branco" ou "caixa" e não encontrou score alto, busca linha com "branco"
   if (!bestLine && (normText.includes('branco') || normText.includes('branca') || normText.includes('caixa'))) {
-    bestLine = lines.find(l => {
-      const hasWhiteColor = Array.isArray(l.colors) && l.colors.some(c => normalizeText(c).includes('branco'));
-      const nl = normalizeText(l.name);
-      return (hasWhiteColor || nl.includes('branco')) && !nl.includes('ultra');
-    }) || lines.find(l => {
-      const hasWhiteColor = Array.isArray(l.colors) && l.colors.some(c => normalizeText(c).includes('branco'));
-      return hasWhiteColor || normalizeText(l.name).includes('branco');
-    });
+    const findWhiteInBrand = (bName: string) => {
+      const bCat = catalog && catalog[bName];
+      if (!bCat || bCat.type !== 'brand' || !Array.isArray(bCat.lines)) return null;
+      return bCat.lines.find(l => {
+        const hasWhiteColor = Array.isArray(l.colors) && l.colors.some(c => normalizeText(c).includes('branco'));
+        const nl = normalizeText(l.name);
+        return (hasWhiteColor || nl.includes('branco')) && !nl.includes('ultra');
+      }) || bCat.lines.find(l => {
+        const hasWhiteColor = Array.isArray(l.colors) && l.colors.some(c => normalizeText(c).includes('branco'));
+        return hasWhiteColor || normalizeText(l.name).includes('branco');
+      });
+    };
+
+    const targetB = winningBrand || detectedBrand || 'Arauco';
+    bestLine = findWhiteInBrand(targetB) || findWhiteInBrand('Arauco') || findWhiteInBrand('Duratex');
+    if (bestLine) {
+      winningBrand = targetB;
+    }
   }
 
   // Se não encontrou por tokens específicos mas é da marca, usa a linha padrão/intermediária
-  if (!bestLine && lines.length > 0) {
-    bestLine = lines[0];
+  if (!bestLine && winningBrand && catalog && catalog[winningBrand]?.type === 'brand') {
+    const brandData = catalog[winningBrand] as BrandCatalog;
+    if (Array.isArray(brandData.lines) && brandData.lines.length > 0) {
+      bestLine = brandData.lines[0];
+    }
   }
 
-  if (bestLine) {
-    const boardPrice = bestLine.prices[thickness] || 0;
+  if (bestLine && winningBrand) {
+    const boardPrice = (bestLine.prices && typeof bestLine.prices[thickness] === 'number')
+      ? bestLine.prices[thickness]
+      : 0;
     if (boardPrice && boardPrice > 0) {
-      const m2Cost = chapaSalePrice(boardPrice, bestLine.width * bestLine.height);
+      const width = bestLine.width || 2.75;
+      const height = bestLine.height || 1.85;
+      const m2Cost = chapaSalePrice(boardPrice, width * height);
       return {
         matched: true,
-        brand: detectedBrand,
+        brand: winningBrand,
         line: bestLine.name,
         thickness,
         m2Cost,
@@ -330,7 +369,8 @@ export function smartMatchPromobChapa(
     }
   }
 
-  return { matched: false, brand: detectedBrand, line: null, thickness, m2Cost: 0, boardPrice: 0 };
+  return { matched: false, brand: winningBrand, line: null, thickness, m2Cost: 0, boardPrice: 0 };
+
 }
 
 // SMART MATCHER DE ACESSÓRIOS E FERRAGENS (Dobradiças, Corrediças, Puxadores, Pistões, etc.)
@@ -855,6 +895,9 @@ export function isSimilarPromobItem(
   // Se o target for Caixaria (Caixa Armário, Caixa Balcão, Caixa Gaveta)
   const isTargetCaixa = tDesc.includes('caixa');
   const isCandCaixa = cDesc.includes('caixa');
+  if (isTargetCaixa && isCandCaixa && tThick === cThick) {
+    return true;
+  }
   if (isTargetCaixa !== isCandCaixa) {
     // Não mistura caixarias com peças avulsas de corte, a menos que tenham o mesmo código/assinatura
     const tParts = tCode.split('.');

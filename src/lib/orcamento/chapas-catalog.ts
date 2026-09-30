@@ -3121,3 +3121,141 @@ export const INITIAL_CHAPAS_CATALOG: CatalogByBrand = {
     ]
   }
 };
+
+/**
+ * Sanitiza e mescla o catálogo salvo (do localStorage ou Supabase) com o catálogo oficial INITIAL_CHAPAS_CATALOG.
+ * Garante que todas as 8 marcas oficiais e 'Mão de Obra Fixa' existam com suas linhas, cores e propriedades seguras,
+ * preservando quaisquer preços customizados que o operador já tenha salvo.
+ */
+export function sanitizeAndMergeCatalog(savedCat: unknown): CatalogByBrand {
+  if (!savedCat || typeof savedCat !== 'object') {
+    return JSON.parse(JSON.stringify(INITIAL_CHAPAS_CATALOG));
+  }
+
+  const raw = savedCat as Record<string, any>;
+  const result: CatalogByBrand = JSON.parse(JSON.stringify(INITIAL_CHAPAS_CATALOG));
+
+  // Remove Acessórios e aliases legados
+  delete (raw as any)['Acessórios'];
+  delete (raw as any)['Bernek'];
+
+  for (const brand of Object.keys(INITIAL_CHAPAS_CATALOG)) {
+    if (brand === 'Acessórios' || brand === 'Bernek') continue;
+
+    const initialBrand = INITIAL_CHAPAS_CATALOG[brand];
+    const savedBrand = raw[brand];
+
+    if (!savedBrand) {
+      continue;
+    }
+
+    if (initialBrand.type === 'brand') {
+      const initialLines = initialBrand.lines;
+      const savedLines = Array.isArray(savedBrand.lines) ? savedBrand.lines : [];
+
+      const mergedLines: ChapaLineItem[] = initialLines.map(initLine => {
+        const matchSaved = savedLines.find((sl: any) =>
+          sl && (sl.id === initLine.id || (typeof sl.name === 'string' && sl.name.toLowerCase() === initLine.name.toLowerCase()))
+        );
+
+        const prices = {
+          '6mm': (matchSaved?.prices && typeof matchSaved.prices['6mm'] === 'number')
+            ? matchSaved.prices['6mm']
+            : initLine.prices['6mm'],
+          '15mm': (matchSaved?.prices && typeof matchSaved.prices['15mm'] === 'number')
+            ? matchSaved.prices['15mm']
+            : initLine.prices['15mm'],
+          '18mm': (matchSaved?.prices && typeof matchSaved.prices['18mm'] === 'number')
+            ? matchSaved.prices['18mm']
+            : initLine.prices['18mm'],
+          '25mm': (matchSaved?.prices && typeof matchSaved.prices['25mm'] === 'number')
+            ? matchSaved.prices['25mm']
+            : initLine.prices['25mm'],
+        };
+
+        const savedColors = Array.isArray(matchSaved?.colors)
+          ? matchSaved.colors.filter((c: any) => typeof c === 'string' && c.trim())
+          : [];
+        const colorSet = new Set<string>([...initLine.colors, ...savedColors]);
+
+        return {
+          ...initLine,
+          colors: Array.from(colorSet),
+          prices,
+          width: typeof matchSaved?.width === 'number' ? matchSaved.width : initLine.width,
+          height: typeof matchSaved?.height === 'number' ? matchSaved.height : initLine.height,
+          area: typeof matchSaved?.area === 'number' ? matchSaved.area : initLine.area,
+        };
+      });
+
+      // Preserva linhas adicionais customizadas pelo usuário
+      for (const sl of savedLines) {
+        if (
+          sl &&
+          sl.id &&
+          typeof sl.name === 'string' &&
+          !mergedLines.some(ml => ml.id === sl.id || ml.name.toLowerCase() === sl.name.toLowerCase())
+        ) {
+          mergedLines.push({
+            id: sl.id,
+            name: sl.name,
+            colors: Array.isArray(sl.colors) ? sl.colors.filter((c: any) => typeof c === 'string') : [],
+            width: typeof sl.width === 'number' ? sl.width : 2.75,
+            height: typeof sl.height === 'number' ? sl.height : 1.85,
+            area: typeof sl.area === 'number' ? sl.area : 5.09,
+            prices: {
+              '6mm': sl.prices && typeof sl.prices['6mm'] === 'number' ? sl.prices['6mm'] : null,
+              '15mm': sl.prices && typeof sl.prices['15mm'] === 'number' ? sl.prices['15mm'] : null,
+              '18mm': sl.prices && typeof sl.prices['18mm'] === 'number' ? sl.prices['18mm'] : null,
+              '25mm': sl.prices && typeof sl.prices['25mm'] === 'number' ? sl.prices['25mm'] : null,
+            },
+          });
+        }
+      }
+
+      result[brand] = {
+        brandName: brand,
+        type: 'brand',
+        lines: mergedLines,
+      };
+    } else if (initialBrand.type === 'maodeobra') {
+      const initialItems = initialBrand.items;
+      const savedItems = Array.isArray(savedBrand.items) ? savedBrand.items : [];
+
+      const mergedItems: MaoDeObraItem[] = initialItems.map(initItem => {
+        const matchSaved = savedItems.find((si: any) =>
+          si && (si.id === initItem.id || (typeof si.name === 'string' && si.name.toLowerCase() === initItem.name.toLowerCase()))
+        );
+        return {
+          ...initItem,
+          price: (matchSaved && typeof matchSaved.price === 'number') ? matchSaved.price : initItem.price,
+          unit: (matchSaved && typeof matchSaved.unit === 'string') ? matchSaved.unit : initItem.unit,
+          description: (matchSaved && typeof matchSaved.description === 'string') ? matchSaved.description : initItem.description,
+        };
+      });
+
+      for (const si of savedItems) {
+        if (si && si.id && typeof si.name === 'string' && !mergedItems.some(mi => mi.id === si.id)) {
+          mergedItems.push({
+            id: si.id,
+            name: si.name,
+            unit: typeof si.unit === 'string' ? si.unit : 'UN',
+            price: typeof si.price === 'number' ? si.price : 0,
+            description: typeof si.description === 'string' ? si.description : undefined,
+          });
+        }
+      }
+
+      result[brand] = {
+        brandName: 'Mão de Obra Fixa',
+        type: 'maodeobra',
+        items: mergedItems,
+      };
+    }
+  }
+
+  delete result['Acessórios'];
+  delete (result as any)['Bernek'];
+
+  return result;
+}

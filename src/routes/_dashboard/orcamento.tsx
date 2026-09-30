@@ -1,20 +1,89 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { createFileRoute } from '@tanstack/react-router';
-import { useState, useEffect } from 'react';
-import { Calculator, FileSpreadsheet, Database, Settings } from 'lucide-react';
+import { useState, useEffect, Component, ReactNode, ErrorInfo } from 'react';
+import { Calculator, FileSpreadsheet, Database, Settings, AlertTriangle, RotateCcw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { BudgetItem, BudgetSettings, ProductItem, SavedBudget } from '@/lib/orcamento/types';
 import { DEFAULT_MATERIALS } from '@/lib/orcamento/default-materials';
 import { recalculateBudget, round2 } from '@/lib/orcamento/calculator';
-import { INITIAL_CHAPAS_CATALOG, CatalogByBrand } from '@/lib/orcamento/chapas-catalog';
+import { INITIAL_CHAPAS_CATALOG, CatalogByBrand, sanitizeAndMergeCatalog } from '@/lib/orcamento/chapas-catalog';
 import { loadOrcamentoWorkspace, saveOrcamentoWorkspace } from '@/lib/orcamento/workspace-storage';
 import { useAuthStore } from '@/hooks/use-auth';
 import { OrcamentoCurrentTab } from '@/components/orcamento/orcamento-current-tab';
 import { OrcamentoDatabaseTab } from '@/components/orcamento/orcamento-database-tab';
 import { OrcamentoSettingsTab } from '@/components/orcamento/orcamento-settings-tab';
 import { OrcamentoSavedTab } from '@/components/orcamento/orcamento-saved-tab';
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+  tabName: string;
+  onResetCatalog?: () => void;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error?: Error;
+}
+
+class TabErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error(`Erro na aba ${this.props.tabName}:`, error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="rounded-xl border border-red-200 bg-red-50/70 p-6 text-center space-y-3">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100 text-red-600">
+            <AlertTriangle className="h-6 w-6" />
+          </div>
+          <h3 className="text-base font-bold text-slate-900">
+            Instabilidade detectada na aba {this.props.tabName}
+          </h3>
+          <p className="text-xs text-stone-600 max-w-md mx-auto">
+            Houve um conflito nos dados locais ou formato das tabelas. Você pode restaurar a tabela oficial do Promob Plus com segurança sem perder seus orçamentos.
+          </p>
+          <div className="flex justify-center gap-3 pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => this.setState({ hasError: false })}
+              className="text-xs bg-white"
+            >
+              Tentar Novamente
+            </Button>
+            {this.props.onResetCatalog && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  this.props.onResetCatalog?.();
+                  this.setState({ hasError: false });
+                }}
+                className="bg-[#c92031] text-white hover:bg-[#aa1726] text-xs font-semibold"
+              >
+                <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                Restaurar Tabela de Chapas Padrão
+              </Button>
+            )}
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export const Route = createFileRoute('/_dashboard/orcamento')({
   component: OrcamentoPage,
@@ -115,39 +184,13 @@ function OrcamentoPage() {
       if (savedCatalog) {
         try {
           const parsedCat = JSON.parse(savedCatalog);
-          if (parsedCat['Acessórios']) {
-            delete parsedCat['Acessórios'];
-          }
-          // Verifica se o catálogo salvo possui a nova estrutura de cores nas linhas
-          const hasColors = Object.values(parsedCat).some(
-            (b: any) => b && b.type === 'brand' && Array.isArray(b.lines) && b.lines.some((l: any) => Array.isArray(l.colors) && l.colors.length > 0)
-          );
-          if (!hasColors) {
-            // Migra para o catálogo oficial Promob Plus preservando preços customizados
-            const mergedCat: CatalogByBrand = { ...INITIAL_CHAPAS_CATALOG };
-            for (const [bName, bData] of Object.entries(parsedCat)) {
-              if (bData && (bData as any).type === 'brand' && mergedCat[bName] && (mergedCat[bName] as any).type === 'brand') {
-                const oldLines = (bData as any).lines || [];
-                const newLines = (mergedCat[bName] as any).lines || [];
-                for (const nl of newLines) {
-                  const matchOld = oldLines.find((ol: any) => ol.name.toLowerCase() === nl.name.toLowerCase());
-                  if (matchOld && matchOld.prices) {
-                    if (matchOld.prices['6mm']) nl.prices['6mm'] = matchOld.prices['6mm'];
-                    if (matchOld.prices['15mm']) nl.prices['15mm'] = matchOld.prices['15mm'];
-                    if (matchOld.prices['18mm']) nl.prices['18mm'] = matchOld.prices['18mm'];
-                    if (matchOld.prices['25mm']) nl.prices['25mm'] = matchOld.prices['25mm'];
-                  }
-                }
-              }
-            }
-            localStorage.setItem('df_orcamento_chapas_catalog', JSON.stringify(mergedCat));
-            setCatalog(mergedCat);
-          } else {
-            setCatalog(parsedCat);
-          }
+          const sanitized = sanitizeAndMergeCatalog(parsedCat);
+          setCatalog(sanitized);
+          localStorage.setItem('df_orcamento_chapas_catalog', JSON.stringify(sanitized));
         } catch (e) {
           console.error(e);
           setCatalog(INITIAL_CHAPAS_CATALOG);
+          localStorage.setItem('df_orcamento_chapas_catalog', JSON.stringify(INITIAL_CHAPAS_CATALOG));
         }
       } else {
         setCatalog(INITIAL_CHAPAS_CATALOG);
@@ -173,7 +216,8 @@ function OrcamentoPage() {
             setDatabase(record.materials);
           }
           if (record.catalog && Object.keys(record.catalog).length > 0) {
-            setCatalog(record.catalog);
+            const sanitized = sanitizeAndMergeCatalog(record.catalog);
+            setCatalog(sanitized);
           }
         }
       })
@@ -203,10 +247,8 @@ function OrcamentoPage() {
         }
         if (remote.database?.length) setDatabase(remote.database);
         if (remote.catalog && Object.keys(remote.catalog).length) {
-          const hasColors = Object.values(remote.catalog).some(
-            (b: any) => b && b.type === 'brand' && Array.isArray(b.lines) && b.lines.some((l: any) => Array.isArray(l.colors) && l.colors.length > 0)
-          );
-          if (hasColors) setCatalog(remote.catalog);
+          const sanitized = sanitizeAndMergeCatalog(remote.catalog);
+          setCatalog(sanitized);
         }
         setLoadedBudgetId(remote.currentBudgetId || null);
       })
@@ -271,7 +313,7 @@ function OrcamentoPage() {
   }, [workspaceLoaded, userId, items, savedBudgets, settings, database, catalog, loadedBudgetId]);
 
   // Totals calculation
-  const { totals } = recalculateBudget(items, database, settings);
+  const { totals } = recalculateBudget(items, database, settings, catalog);
 
   // Save Settings: Persist and immediately propagate new margin to all budget items
   const handleSaveSettings = (newSettings: BudgetSettings) => {
@@ -288,7 +330,7 @@ function OrcamentoPage() {
         ...it,
         margin: newSettings.margin,
       }));
-      const res = recalculateBudget(updatedItems, database, newSettings);
+      const res = recalculateBudget(updatedItems, database, newSettings, catalog);
       setItems(res.items);
     }
   };
@@ -361,7 +403,7 @@ function OrcamentoPage() {
     }));
 
     const mergeSettings = selectedBudgets[0]?.settings || settings;
-    const recalculated = recalculateBudget(consolidatedItems, database, mergeSettings);
+    const recalculated = recalculateBudget(consolidatedItems, database, mergeSettings, catalog);
     setItems(recalculated.items);
     setSettings(mergeSettings);
     setLoadedBudgetId(null);
@@ -441,45 +483,60 @@ function OrcamentoPage() {
         </div>
 
         <TabsContent value="current">
-          <OrcamentoCurrentTab
-            items={items}
-            setItems={setItems}
-            database={database}
-            catalog={catalog}
-            settings={settings}
-            setSettings={setSettings}
-            totals={totals}
-            clientsList={clientsList}
-            onSaveBudget={handleSaveBudget}
-            onStartNewBudget={() => setLoadedBudgetId(null)}
-          />
+          <TabErrorBoundary tabName="Orçamento em Edição">
+            <OrcamentoCurrentTab
+              items={items}
+              setItems={setItems}
+              database={database}
+              catalog={catalog}
+              settings={settings}
+              setSettings={setSettings}
+              totals={totals}
+              clientsList={clientsList}
+              onSaveBudget={handleSaveBudget}
+              onStartNewBudget={() => setLoadedBudgetId(null)}
+            />
+          </TabErrorBoundary>
         </TabsContent>
 
         <TabsContent value="saved">
-          <OrcamentoSavedTab
-            savedBudgets={savedBudgets}
-            setSavedBudgets={setSavedBudgets}
-            onLoadBudget={handleLoadBudget}
-            onMergeBudgets={handleMergeBudgets}
-          />
+          <TabErrorBoundary tabName="Projetos Salvos & Agrupados">
+            <OrcamentoSavedTab
+              savedBudgets={savedBudgets}
+              setSavedBudgets={setSavedBudgets}
+              onLoadBudget={handleLoadBudget}
+              onMergeBudgets={handleMergeBudgets}
+            />
+          </TabErrorBoundary>
         </TabsContent>
 
         <TabsContent value="database">
-          <OrcamentoDatabaseTab 
-            database={database} 
-            setDatabase={setDatabase} 
-            catalog={catalog}
-            setCatalog={setCatalog}
-            settings={settings} 
-          />
+          <TabErrorBoundary
+            tabName="Tabela de Preços & Chapas"
+            onResetCatalog={() => {
+              setCatalog(INITIAL_CHAPAS_CATALOG);
+              localStorage.setItem('df_orcamento_chapas_catalog', JSON.stringify(INITIAL_CHAPAS_CATALOG));
+              toast.success('Tabela de chapas e acabamentos restaurada para a versão oficial!');
+            }}
+          >
+            <OrcamentoDatabaseTab 
+              database={database} 
+              setDatabase={setDatabase} 
+              catalog={catalog}
+              setCatalog={setCatalog}
+              settings={settings} 
+            />
+          </TabErrorBoundary>
         </TabsContent>
 
         <TabsContent value="settings">
-          <OrcamentoSettingsTab
-            settings={settings}
-            setSettings={setSettings}
-            onSaveSettings={handleSaveSettings}
-          />
+          <TabErrorBoundary tabName="Margens & Parâmetros">
+            <OrcamentoSettingsTab
+              settings={settings}
+              setSettings={setSettings}
+              onSaveSettings={handleSaveSettings}
+            />
+          </TabErrorBoundary>
         </TabsContent>
       </Tabs>
     </div>
