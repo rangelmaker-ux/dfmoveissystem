@@ -26,6 +26,7 @@ const {
   isSimilarPromobItem,
   smartMatchMaoDeObra,
   groupItemsByModule,
+  isEletrodomestico,
 } = modules;
 
 const settings = {
@@ -351,5 +352,117 @@ test('Caixa Armário e Caixa Gaveta mantêm seus preços de tabela Promob e vinc
   assert.equal(resolvedGav.matched, true);
   assert.equal(resolvedGav.unit_cost, 20.90);
 });
+
+test('Eletrodomésticos são identificados, têm custo zero e ficam agrupados no final sem afetar total', () => {
+  const forno = { id: 'e1', code: 'FORNO-ELET', description: 'Forno Elétrico Embutir 84L Electrolux', quantity: 1, rep: 1, unit: 'UN', unit_cost: 3500, table_price: 3500, final_price: 3500 };
+  const cooktop = { id: 'e2', code: 'COOK-5BOCAS', description: 'Fogão Cooktop 5 Bocas a Gás Brastemp', quantity: 1, rep: 1, unit: 'UN', unit_cost: 1200, table_price: 1200, final_price: 1200 };
+  const geladeira = { id: 'e3', code: 'GELAD-FROST', description: 'Geladeira Frost Free Inverse Consul', quantity: 1, rep: 1, unit: 'UN' };
+  const base = { id: 'm1', code: 'BASE-15', description: 'Base 15mm Branco', quantity: 1, rep: 1, unit: 'M2', unit_cost: 80, unit_price: 160, total_cost: 80, total_price: 160 };
+
+  assert.equal(isEletrodomestico(forno.code, forno.description), true);
+  assert.equal(isEletrodomestico(cooktop.code, cooktop.description), true);
+  assert.equal(isEletrodomestico(geladeira.code, geladeira.description), true);
+  assert.equal(isEletrodomestico(base.code, base.description), false);
+
+  // calculateItemPrice must zero out prices for appliances
+  const calcForno = calculateItemPrice(forno, DEFAULT_MATERIALS, settings, INITIAL_CHAPAS_CATALOG);
+  assert.equal(calcForno.unit_cost, 0);
+  assert.equal(calcForno.unit_price, 0);
+  assert.equal(calcForno.total_cost, 0);
+  assert.equal(calcForno.total_price, 0);
+  assert.equal(calcForno.category, 'Eletrodomésticos');
+
+  // recalculateBudget must not add appliance prices to total_cost or total_price
+  const budget = recalculateBudget([base, forno, cooktop], DEFAULT_MATERIALS, settings, INITIAL_CHAPAS_CATALOG);
+  assert.equal(budget.totals.total_cost, 80);
+  assert.equal(budget.totals.total_price, 120);
+
+  // groupItemsByModule must group all appliances at the bottom in group-eletros with 0 subtotals
+  const groups = groupItemsByModule([calcForno, base, calculateItemPrice(cooktop, DEFAULT_MATERIALS, settings, INITIAL_CHAPAS_CATALOG)]);
+  const lastGroup = groups[groups.length - 1];
+  assert.equal(lastGroup.id, 'group-eletros');
+  assert.equal(lastGroup.items.length, 2);
+  assert.equal(lastGroup.subtotal_cost, 0);
+  assert.equal(lastGroup.subtotal_price, 0);
+});
+
+test('isSimilarPromobItem filtra estritamente por espessura e não mistura caixas, fundos e portas', () => {
+  const caixa15Branco = {
+    code: '1.0245.990.Branco',
+    description: 'Caixa Armário',
+    targetThickness: '15mm',
+    unit: 'UN',
+  };
+
+  const outraCaixa15 = {
+    code: '1.0246.990.Branco',
+    description: 'Caixa Balcão',
+    targetThickness: '15mm',
+    unit: 'UN',
+    unit_cost: 0,
+  };
+
+  const fundo6Branco = {
+    code: '1.2014.6.Branco.Aglom',
+    description: 'Fundo 6mm Branco',
+    unit: 'M2',
+    unit_cost: 0,
+  };
+
+  const porta18Branco = {
+    code: '1.3005.18.Branco.MDF',
+    description: 'Porta 18mm Branco',
+    unit: 'M2',
+    unit_cost: 0,
+  };
+
+  const caixaJaPrecificada = {
+    code: '1.0247.990.Branco',
+    description: 'Caixa Armário 2',
+    targetThickness: '15mm',
+    unit: 'UN',
+    unit_cost: 150,
+  };
+
+  // Caixa 15mm combina com Caixa Balcão 15mm sem preço
+  assert.equal(isSimilarPromobItem(caixa15Branco, outraCaixa15, false, true), true);
+
+  // Caixa 15mm NÃO combina com Fundo 6mm mesmo ambos tendo 'Branco'
+  assert.equal(isSimilarPromobItem(caixa15Branco, fundo6Branco, false, true), false);
+
+  // Caixa 15mm NÃO combina com Porta 18mm mesmo ambos tendo 'Branco'
+  assert.equal(isSimilarPromobItem(caixa15Branco, porta18Branco, false, true), false);
+
+  // Com onlyUnpriced = true, caixa que já possui preço não é contada
+  assert.equal(isSimilarPromobItem(caixa15Branco, caixaJaPrecificada, false, true), false);
+});
+
+test('calculateItemPrice preserva código Promob original, dimensões, rep e is_parent_module', () => {
+  const item = {
+    id: 'item-promob-1',
+    item_number: 7,
+    code: '1.0245.990.Branco',
+    description: 'Caixa Armário 2 Portas',
+    quantity: 1,
+    unit: 'UN',
+    rep: 2,
+    unit_quantity: 1,
+    dimensions: '800 x 600 x 350',
+    unit_cost: 122.12,
+    table_price: 122.12,
+    final_price: 366.36,
+    is_parent_module: false,
+  };
+
+  const calculated = calculateItemPrice(item, DEFAULT_MATERIALS, settings, INITIAL_CHAPAS_CATALOG);
+  assert.equal(calculated.code, '1.0245.990.Branco');
+  assert.equal(calculated.item_number, 7);
+  assert.equal(calculated.dimensions, '800 x 600 x 350');
+  assert.equal(calculated.rep, 2);
+  assert.equal(calculated.is_parent_module, false);
+  assert.equal(calculated.unit_cost, 122.12);
+  assert.equal(calculated.total_cost, 244.24);
+});
+
 
 

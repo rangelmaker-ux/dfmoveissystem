@@ -47,8 +47,44 @@ const KNOWN_BRANDS = [
   'Fórmica',
 ];
 
+// Detecta se o item é eletrodoméstico ou equipamento (não entra no custo da marcenaria)
+export function isEletrodomestico(code?: string, description?: string, category?: string): boolean {
+  const text = normalizeText(`${code || ''} ${description || ''} ${category || ''}`);
+  if (!text) return false;
+  const applianceKeywords = [
+    'forno',
+    'fogao',
+    'fogão',
+    'cooktop',
+    'coifa',
+    'depurador',
+    'geladeira',
+    'refrigerador',
+    'freezer',
+    'microondas',
+    'micro-ondas',
+    'lava loucas',
+    'lava louças',
+    'lava-loucas',
+    'lava-louças',
+    'lava e seca',
+    'maquina de lavar',
+    'máquina de lavar',
+    'adega',
+    'cervejeira',
+    'electrolux',
+    'brastemp',
+    'consul',
+    'eletrodomestico',
+    'eletrodoméstico',
+    'eletros',
+  ];
+  return applianceKeywords.some(kw => text.includes(kw));
+}
+
 // Detecta se o item é chapa de MDF ou MDP
 export function isChapa(code: string, description: string): boolean {
+  if (isEletrodomestico(code, description)) return false;
   const normCode = normalizeCode(code);
   const normDesc = normalizeText(description);
   return (
@@ -64,12 +100,14 @@ export function isChapa(code: string, description: string): boolean {
     normDesc.includes('gaveta') ||
     normDesc.includes('tampo') ||
     normDesc.includes('painel') ||
-    normDesc.includes('porta')
+    normDesc.includes('porta') ||
+    normDesc.includes('caixa')
   );
 }
 
 // Detecta se o item é Fita de Borda
 export function isFitaBorda(code: string, description: string): boolean {
+  if (isEletrodomestico(code, description)) return false;
   const text = normalizeText(`${code} ${description}`);
   return text.includes('fita') && (text.includes('borda') || text.includes('pvc'));
 }
@@ -97,7 +135,6 @@ export function calculateAdditionsFactor(settings: BudgetSettings): number {
 }
 
 // SMART MATCHER DE PROMOB: Analisa códigos complexos como 1.0139E.15.Arauco.Beige Matt.MDF BP 2L Revest
-// SMART MATCHER DE PROMOB: Analisa códigos complexos como 1.0139E.15.Arauco.Beige Matt.MDF BP 2L Revest
 export function smartMatchPromobChapa(
   code: string,
   description: string,
@@ -110,6 +147,10 @@ export function smartMatchPromobChapa(
   m2Cost: number;
   boardPrice: number;
 } {
+  if (isEletrodomestico(code, description)) {
+    return { matched: false, brand: null, line: null, thickness: '15mm', m2Cost: 0, boardPrice: 0 };
+  }
+
   const rawText = `${code} ${description}`.trim();
   const normText = normalizeText(rawText);
 
@@ -270,6 +311,10 @@ export function smartMatchAccessory(
   source: 'catalog_acessorio' | 'database';
   code?: string;
 } {
+  if (isEletrodomestico(code, description)) {
+    return { matched: false, name: '', price: 0, unit: 'UN', source: 'catalog_acessorio' };
+  }
+
   const normText = normalizeText(`${code} ${description} ${dimensions || ''}`);
   const acessoriosCat = catalog['Acessórios'];
   const acessoriosList = acessoriosCat && acessoriosCat.type === 'acessorios' ? acessoriosCat.items : [];
@@ -508,6 +553,10 @@ export function smartMatchMaoDeObra(
   catalog: CatalogByBrand = INITIAL_CHAPAS_CATALOG,
   database: ProductItem[] = DEFAULT_MATERIALS
 ): { matched: boolean; name: string; price: number; unit: string; code: string; source: 'catalog_maodeobra' | 'database' } {
+  if (isEletrodomestico(code, description)) {
+    return { matched: false, name: '', price: 0, unit: 'UN', code: '', source: 'catalog_maodeobra' };
+  }
+
   const normText = normalizeText(`${code} ${description}`);
 
   // 1. Catálogo Mão de Obra Fixa
@@ -645,21 +694,33 @@ export function matchProduct(
 
 // Identifica se outro item do orçamento é semelhante (mesmo material de chapa ou mesma ferragem)
 export function isSimilarPromobItem(
-  target: { code: string; description: string; dimensions?: string; unit?: string; is_parent_module?: boolean; is_chapa?: boolean },
-  candidate: { id?: string; code: string; description: string; dimensions?: string; unit?: string; is_parent_module?: boolean; is_chapa?: boolean },
-  isAccessoryTarget = false
+  target: { code: string; description: string; dimensions?: string; unit?: string; is_parent_module?: boolean; is_chapa?: boolean; category?: string; targetThickness?: string; unit_cost?: number; table_price?: number; found?: boolean; price_unlinked?: boolean },
+  candidate: { id?: string; code: string; description: string; dimensions?: string; unit?: string; is_parent_module?: boolean; is_chapa?: boolean; category?: string; unit_cost?: number; table_price?: number; found?: boolean; price_unlinked?: boolean },
+  isAccessoryTarget = false,
+  onlyUnpriced = false
 ): boolean {
   if (candidate.is_parent_module) return false;
+
+  // Eletrodomésticos NUNCA são similares a chapas, acessórios ou processos
+  if (isEletrodomestico(candidate.code, candidate.description, candidate.category) ||
+      isEletrodomestico(target.code, target.description, target.category)) {
+    return false;
+  }
+
+  // Se solicitado apenas não precificados, pula quem já tem preço definido
+  if (onlyUnpriced) {
+    const hasPrice = (candidate.unit_cost !== undefined && candidate.unit_cost > 0) ||
+      (candidate.table_price !== undefined && candidate.table_price > 0 && !candidate.price_unlinked);
+    if (hasPrice) return false;
+  }
 
   const tCode = normalizeCode(target.code);
   const cCode = normalizeCode(candidate.code);
   const tDesc = normalizeText(target.description);
   const cDesc = normalizeText(candidate.description);
 
-  // 1. Mesmo código exato
-  if (tCode && cCode && tCode === cCode) return true;
-
   if (isAccessoryTarget) {
+    if (tCode && cCode && tCode === cCode) return true;
     const families = [
       'dobradica', 'dobradiça',
       'corredica', 'corrediça', 'telescopica', 'telescópica',
@@ -694,20 +755,44 @@ export function isSimilarPromobItem(
     return tCode === cCode || tDesc === cDesc;
   }
 
-  // Chapas MDF/MDP
-  const isTargetChapa = target.is_chapa || isChapa(target.code, target.description) || (target.unit || '').toUpperCase() === 'M2';
-  const isCandChapa = candidate.is_chapa || isChapa(candidate.code, candidate.description) || (candidate.unit || '').toUpperCase() === 'M2';
+  // Chapas MDF/MDP e Caixaria
+  const isTargetChapa = target.is_chapa || isChapa(target.code, target.description) || (target.unit || '').toUpperCase() === 'M2' || tDesc.includes('caixa');
+  const isCandChapa = candidate.is_chapa || isChapa(candidate.code, candidate.description) || (candidate.unit || '').toUpperCase() === 'M2' || cDesc.includes('caixa');
   if (!isTargetChapa || !isCandChapa) return false;
 
-  const extractThick = (str: string) => {
-    const m = str.match(/\b(6|15|18|25)mm\b|\.(6|15|18|25)\./i);
-    return m ? (m[1] || m[2]) : null;
+  // Extração rigorosa de espessura (6mm, 15mm, 18mm, 25mm)
+  const extractThick = (code: string, desc: string, explicitThick?: string): string => {
+    if (explicitThick) return explicitThick.replace('mm', '');
+    const combined = `${code} ${desc}`.toLowerCase();
+    const m = combined.match(/\b(6|15|18|25)mm\b|\.(6|15|18|25)\./i);
+    if (m) return m[1] || m[2];
+    if (combined.includes('fundo')) return '6';
+    if (combined.includes('porta') || combined.includes('frente')) return '18';
+    return '15';
   };
-  const cThick = extractThick(candidate.code) || extractThick(candidate.description);
-  const tThick = extractThick(target.code) || extractThick(target.description);
-  if (cThick && tThick && cThick !== tThick) {
+
+  const tThick = extractThick(target.code, target.description, (target as any).targetThickness);
+  const cThick = extractThick(candidate.code, candidate.description);
+
+  // Espessuras DEVEM bater rigorosamente! 15mm NUNCA pode ser vinculado a 6mm (fundo) ou 18mm (porta)!
+  if (tThick !== cThick) {
     return false;
   }
+
+  // Se o target for Caixaria (Caixa Armário, Caixa Balcão, Caixa Gaveta)
+  const isTargetCaixa = tDesc.includes('caixa');
+  const isCandCaixa = cDesc.includes('caixa');
+  if (isTargetCaixa !== isCandCaixa) {
+    // Não mistura caixarias com peças avulsas de corte, a menos que tenham o mesmo código/assinatura
+    const tParts = tCode.split('.');
+    const cParts = cCode.split('.');
+    if (!(tParts.length >= 4 && cParts.length >= 4 && tParts.slice(2).join('.') === cParts.slice(2).join('.'))) {
+      return false;
+    }
+  }
+
+  // 1. Mesmo código exato
+  if (tCode && cCode && tCode === cCode) return true;
 
   const extractSignature = (code: string) => {
     const parts = code.split('.');
@@ -754,15 +839,30 @@ export function resolveItemPrice(
     description: string;
     dimensions?: string;
     unit?: string;
+    category?: string;
     is_parent_module?: boolean;
     is_chapa?: boolean;
     is_fita?: boolean;
     fita_metros?: number;
+    table_price?: number;
   },
   catalog: CatalogByBrand = INITIAL_CHAPAS_CATALOG,
   database: ProductItem[] = DEFAULT_MATERIALS
 ): PriceMatchResult {
-  // 0. Se o item já veio com preço de tabela do Promob (ou custo válido), vincula e preserva com prioridade
+  // 0. Eletrodomésticos NUNCA possuem custo nem cobrança para o cliente/marcenaria
+  if (isEletrodomestico(item.code, item.description, item.category)) {
+    return {
+      matched: true,
+      source: 'database',
+      unit_cost: 0,
+      code: item.code,
+      description: item.description,
+      unit: item.unit || 'UN',
+      matched_name: 'Eletrodoméstico (Informativo - Sem Cobrança)',
+    };
+  }
+
+  // 1. Se o item já veio com preço de tabela do Promob (ou custo válido), vincula e preserva com prioridade
   if (item.table_price !== undefined && item.table_price > 0) {
     return {
       matched: true,
@@ -904,6 +1004,8 @@ export function resolveItemPrice(
 // Calcula preços e totais de um item individual
 export function calculateItemPrice(
   item: {
+    id?: string;
+    item_number?: number;
     code: string;
     description: string;
     quantity: number;
@@ -927,35 +1029,39 @@ export function calculateItemPrice(
   settings: BudgetSettings,
   catalog: CatalogByBrand = INITIAL_CHAPAS_CATALOG
 ): BudgetItem {
-  // Resolve correspondência e preço de tabela automático se não estiver desvinculado
-  const resolved = !item.price_unlinked
+  const isAppliance = isEletrodomestico(item.code, item.description, item.category);
+
+  // Resolve correspondência e preço de tabela automático se não estiver desvinculado nem for eletrodoméstico
+  const resolved = (!item.price_unlinked && !isAppliance)
     ? resolveItemPrice(
         {
           code: item.code,
           description: item.description,
           dimensions: item.dimensions,
           unit: item.unit,
+          category: item.category,
           is_parent_module: item.is_parent_module,
           is_chapa: item.is_chapa,
           is_fita: item.is_fita,
           fita_metros: item.fita_metros,
+          table_price: item.table_price,
         },
         catalog,
         database
       )
     : null;
 
-  const found = !item.price_unlinked && (
+  const found = isAppliance || (!item.price_unlinked && (
     (resolved ? resolved.matched : false) ||
     (item.table_price !== undefined && item.table_price > 0)
-  );
+  ));
 
-  const isItemChapa = item.is_chapa !== undefined
+  const isItemChapa = !isAppliance && (item.is_chapa !== undefined
     ? item.is_chapa
-    : (resolved?.source === 'catalog_chapa' || resolved?.source === 'mdf_padrao' || isChapa(item.code, item.description));
-  const isItemFita = item.is_fita !== undefined
+    : (resolved?.source === 'catalog_chapa' || resolved?.source === 'mdf_padrao' || isChapa(item.code, item.description)));
+  const isItemFita = !isAppliance && (item.is_fita !== undefined
     ? item.is_fita
-    : isFitaBorda(item.code, item.description);
+    : isFitaBorda(item.code, item.description));
 
   // Quantidade efetiva e unidade:
   let effectiveQuantity = item.quantity;
@@ -985,7 +1091,9 @@ export function calculateItemPrice(
 
   // Custo base unitário (preço tabela do Promob ou catálogo)
   let unit_cost = 0;
-  if (item.price_unlinked) {
+  if (isAppliance) {
+    unit_cost = 0;
+  } else if (item.price_unlinked) {
     unit_cost = item.unit_cost !== undefined ? item.unit_cost : 0;
   } else if (item.unit_cost !== undefined && item.unit_cost > 0) {
     unit_cost = item.unit_cost;
@@ -1010,7 +1118,13 @@ export function calculateItemPrice(
   let total_price = 0;
   let marginPercent = 0;
 
-  if (item.final_price !== undefined && item.final_price > 0 && effectiveQuantity > 0) {
+  if (isAppliance) {
+    unit_cost = 0;
+    unit_price = 0;
+    total_cost = 0;
+    total_price = 0;
+    marginPercent = 0;
+  } else if (item.final_price !== undefined && item.final_price > 0 && effectiveQuantity > 0) {
     total_cost = round2(unit_cost * effectiveQuantity);
     total_price = round2(item.final_price);
     unit_price = round2(total_price / effectiveQuantity);
@@ -1027,20 +1141,22 @@ export function calculateItemPrice(
   }
 
   let finalDescription = item.description;
-  if (resolved && resolved.matched && resolved.source === 'catalog_chapa' && resolved.brand && resolved.line) {
-    if (!finalDescription.includes(`[${resolved.brand}`)) {
-      finalDescription = `${item.description} [${resolved.brand} - ${resolved.line} ${resolved.thickness}]`;
-    }
-  } else if (resolved && resolved.matched && resolved.matched_name) {
-    if (!finalDescription.includes(`(${resolved.matched_name})`)) {
-      finalDescription = `${item.description} (${resolved.matched_name})`;
+  if (!isAppliance) {
+    if (resolved && resolved.matched && resolved.source === 'catalog_chapa' && resolved.brand && resolved.line) {
+      if (!finalDescription.includes(`[${resolved.brand}`)) {
+        finalDescription = `${item.description} [${resolved.brand} - ${resolved.line} ${resolved.thickness}]`;
+      }
+    } else if (resolved && resolved.matched && resolved.matched_name && resolved.source !== 'database') {
+      if (!finalDescription.includes(`(${resolved.matched_name})`)) {
+        finalDescription = `${item.description} (${resolved.matched_name})`;
+      }
     }
   }
 
   return {
-    id: `item-${Math.random().toString(36).substr(2, 9)}`,
-    item_number: 1,
-    code: resolved?.code || item.code,
+    id: item.id || `item-${Math.random().toString(36).substr(2, 9)}`,
+    item_number: item.item_number !== undefined ? item.item_number : 1,
+    code: item.code, // Mantém SEMPRE o código original do item Promob
     description: finalDescription,
     quantity: effectiveQuantity,
     unit: displayUnit,
@@ -1061,10 +1177,10 @@ export function calculateItemPrice(
     rep: item.rep,
     unit_quantity: item.unit_quantity,
     dimensions: item.dimensions,
-    category: item.category,
+    category: isAppliance ? 'Eletrodomésticos' : item.category,
     external_model: item.external_model,
-    table_price: item.table_price !== undefined ? item.table_price : unit_cost,
-    final_price: item.final_price !== undefined ? item.final_price : total_price,
+    table_price: isAppliance ? 0 : (item.table_price !== undefined ? item.table_price : unit_cost),
+    final_price: isAppliance ? 0 : (item.final_price !== undefined ? item.final_price : total_price),
     is_parent_module: item.is_parent_module,
   };
 }
@@ -1086,22 +1202,23 @@ export function recalculateBudget(
   };
 } {
   const recalculatedItems = items.map((it, idx) => {
+    const isAppliance = isEletrodomestico(it.code, it.description, it.category);
     const updated = calculateItemPrice(
       {
         code: it.original_code || it.code,
         description: it.description,
         quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
         unit: it.original_unit || it.unit,
-        unit_cost: it.unit_cost,
-        margin: it.margin,
+        unit_cost: isAppliance ? 0 : it.unit_cost,
+        margin: isAppliance ? 0 : it.margin,
         price_unlinked: it.price_unlinked,
         rep: it.rep,
         unit_quantity: it.unit_quantity,
         dimensions: it.dimensions,
-        category: it.category,
+        category: isAppliance ? 'Eletrodomésticos' : it.category,
         external_model: it.external_model,
-        table_price: it.price_unlinked ? 0 : it.table_price,
-        final_price: it.price_unlinked ? undefined : it.final_price,
+        table_price: isAppliance ? 0 : (it.price_unlinked ? 0 : it.table_price),
+        final_price: isAppliance ? 0 : (it.price_unlinked ? undefined : it.final_price),
         is_parent_module: it.is_parent_module,
         is_chapa: it.is_chapa,
         is_fita: it.is_fita,
@@ -1114,24 +1231,27 @@ export function recalculateBudget(
     return {
       ...updated,
       id: it.id,
+      code: it.code, // Mantém SEMPRE o código original do item Promob
       item_number: it.item_number || idx + 1,
       rep: it.rep,
       unit_quantity: it.unit_quantity,
       dimensions: it.dimensions,
-      category: it.category,
+      category: isAppliance ? 'Eletrodomésticos' : it.category,
       external_model: it.external_model,
-      table_price: it.price_unlinked ? 0 : (it.table_price !== undefined ? it.table_price : updated.unit_cost),
-      final_price: it.price_unlinked ? updated.total_price : (it.final_price !== undefined ? it.final_price : updated.total_price),
+      table_price: isAppliance ? 0 : (it.price_unlinked ? 0 : (it.table_price !== undefined ? it.table_price : updated.unit_cost)),
+      final_price: isAppliance ? 0 : (it.price_unlinked ? updated.total_price : (it.final_price !== undefined ? it.final_price : updated.total_price)),
       is_parent_module: it.is_parent_module,
     };
   });
 
   // Se houver módulos pais agrupadores (Promob), não duplicamos a contagem!
-  // Itens faturáveis são os itens que não são módulos agrupadores pais
+  // Eletrodomésticos NUNCA entram no total financeiro da marcenaria!
   const hasParentModules = recalculatedItems.some(it => it.is_parent_module);
-  const billableItems = hasParentModules
-    ? recalculatedItems.filter(it => !it.is_parent_module)
-    : recalculatedItems;
+  const billableItems = recalculatedItems.filter(it => {
+    if (hasParentModules && it.is_parent_module) return false;
+    if (isEletrodomestico(it.code, it.description, it.category)) return false;
+    return true;
+  });
 
   const total_cost = round2(billableItems.reduce((acc, curr) => acc + curr.total_cost, 0));
   const total_price = round2(billableItems.reduce((acc, curr) => acc + curr.total_price, 0));
@@ -1153,6 +1273,7 @@ export function recalculateBudget(
 // Agrupa as peças e processos por Móvel / Módulo para visualização executiva
 export function groupItemsByModule(items: BudgetItem[]): ModuleGroup[] {
   const groups: ModuleGroup[] = [];
+  let eletroGroup: ModuleGroup | null = null;
   let currentGroup: ModuleGroup | null = null;
   let moduleCounter = 1;
 
@@ -1160,7 +1281,35 @@ export function groupItemsByModule(items: BudgetItem[]): ModuleGroup[] {
     const normDesc = normalizeText(it.description || '');
     const normCat = normalizeText(it.category || '');
 
-    // 1. Processos de Fabricação (Mão de Obra Fixa)
+    // 1. Eletrodomésticos (vão para o final de tudo com custo e preço R$ 0,00)
+    if (isEletrodomestico(it.code, it.description, it.category)) {
+      if (!eletroGroup) {
+        eletroGroup = {
+          id: 'group-eletros',
+          name: 'Eletrodomésticos & Equipamentos (Informativo - Sem Cobrança)',
+          category: 'Eletrodomésticos',
+          piecesCount: 0,
+          totalCost: 0,
+          totalPrice: 0,
+          subtotal_cost: 0,
+          subtotal_price: 0,
+          total_pieces: 0,
+          items: [],
+        };
+      }
+      eletroGroup.items.push({
+        ...it,
+        unit_cost: 0,
+        unit_price: 0,
+        total_cost: 0,
+        total_price: 0,
+      });
+      eletroGroup.piecesCount += (it.rep || 1);
+      eletroGroup.total_pieces = eletroGroup.piecesCount;
+      continue;
+    }
+
+    // 2. Processos de Fabricação (Mão de Obra Fixa)
     const isLabor = it.is_processo || it.is_mao_de_obra ||
       normCat.includes('processo') || normCat.includes('mao de obra') ||
       normDesc.includes('processo de fabricacao') || normDesc.includes('porta reta') ||
@@ -1191,34 +1340,6 @@ export function groupItemsByModule(items: BudgetItem[]): ModuleGroup[] {
       procGroup.subtotal_cost = procGroup.totalCost;
       procGroup.totalPrice = round2(procGroup.totalPrice + it.total_price);
       procGroup.subtotal_price = procGroup.totalPrice;
-      continue;
-    }
-
-    // 2. Eletrodomésticos
-    if (normCat.includes('electrolux') || normDesc.includes('forno') || normDesc.includes('fogao') || normDesc.includes('cooktop') || normDesc.includes('coifa') || normDesc.includes('lava loucas')) {
-      let eletroGroup = groups.find(g => g.id === 'group-eletros');
-      if (!eletroGroup) {
-        eletroGroup = {
-          id: 'group-eletros',
-          name: 'Eletrodomésticos & Equipamentos',
-          category: 'Eletrodomésticos',
-          piecesCount: 0,
-          totalCost: 0,
-          totalPrice: 0,
-          subtotal_cost: 0,
-          subtotal_price: 0,
-          total_pieces: 0,
-          items: [],
-        };
-        groups.push(eletroGroup);
-      }
-      eletroGroup.items.push(it);
-      eletroGroup.piecesCount += (it.rep || 1);
-      eletroGroup.total_pieces = eletroGroup.piecesCount;
-      eletroGroup.totalCost = round2(eletroGroup.totalCost + it.total_cost);
-      eletroGroup.subtotal_cost = eletroGroup.totalCost;
-      eletroGroup.totalPrice = round2(eletroGroup.totalPrice + it.total_price);
-      eletroGroup.subtotal_price = eletroGroup.totalPrice;
       continue;
     }
 
@@ -1257,8 +1378,7 @@ export function groupItemsByModule(items: BudgetItem[]): ModuleGroup[] {
 
     // 4. Módulos / Móveis Mestres (Armário, Balcão, Torre)
     const isTopModule = it.is_parent_module &&
-      !normDesc.includes('caixa armario') &&
-      !normDesc.includes('caixa gaveta') &&
+      !normDesc.includes('caixa') &&
       !normDesc.includes('balcao 1 div') &&
       !normDesc.includes('balcao gav/pia');
 
@@ -1347,6 +1467,11 @@ export function groupItemsByModule(items: BudgetItem[]): ModuleGroup[] {
         generalGroup.subtotal_price = generalGroup.totalPrice;
       }
     }
+  }
+
+  // Eletrodomésticos sempre ficam no final de tudo ("lá embaixo"), conforme solicitado pelo usuário
+  if (eletroGroup && eletroGroup.items.length > 0) {
+    groups.push(eletroGroup);
   }
 
   return groups;

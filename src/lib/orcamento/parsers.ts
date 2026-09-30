@@ -1,4 +1,27 @@
 import { PromobReportMetadata } from './types';
+import { isEletrodomestico } from './calculator';
+
+function checkIsAppliance(code?: string, description?: string, category?: string): boolean {
+  try {
+    if (typeof isEletrodomestico === 'function') {
+      return isEletrodomestico(code, description, category);
+    }
+  } catch {
+    // fallback if loaded where module imports are stripped
+  }
+  const text = `${code || ''} ${description || ''} ${category || ''}`
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  if (!text) return false;
+  const keywords = [
+    'forno', 'fogao', 'cooktop', 'coifa', 'depurador', 'geladeira',
+    'refrigerador', 'freezer', 'microondas', 'micro-ondas', 'lava loucas',
+    'lava-loucas', 'lava e seca', 'maquina de lavar', 'adega', 'cervejeira',
+    'electrolux', 'brastemp', 'consul', 'eletrodomestico', 'eletros',
+  ];
+  return keywords.some(kw => text.includes(kw));
+}
 
 export interface ParsedItemRow {
   item_number?: number;
@@ -164,13 +187,20 @@ export function parsePromobXML(
     const description = getVal(['description', 'name', 'descricao', 'nome', 'desc']);
     if (!code && !description) continue;
 
+    const category = getVal(['category', 'categoria', 'grupo']);
+    const externalModel = getVal(['external_model', 'modelo_externo', 'model', 'modelo']);
+
     // Detecta se é módulo pai/móvel agrupador (ex: Armário, Balcão, Torre)
-    // ATENÇÃO: Caixarias (Caixa Armário, Caixa Gaveta) são componentes da caixaria com preço próprio do Promob e NÃO são módulos agrupadores pais!
+    // ATENÇÃO: Caixarias (Caixa Armário, Caixa Gaveta, Balcões) e Eletrodomésticos NUNCA são módulos agrupadores pais!
     const normDesc = description.toLowerCase();
+    const isCaixa = normDesc.includes('caixa');
+    const isAppliance = checkIsAppliance(code, description, category);
     const hasChildren = innerContent && /<(?:ITEM|PECA|PART|Item|Peca|Part)\b/i.test(innerContent);
     const is_parent_module = Boolean(
-      hasChildren ||
-      (['armário', 'balcão', 'torre'].some(k => normDesc.includes(k)) && !normDesc.includes('caixa'))
+      !isCaixa && !isAppliance && (
+        hasChildren ||
+        (['armário', 'armario', 'balcão', 'balcao', 'torre'].some(k => normDesc.includes(k)))
+      )
     );
 
     const rawRep = getVal(['repetition', 'repeticao', 'rep', 'quantidade_repeticao', 'qtd_pecas', 'quantidade_pecas']);
@@ -184,8 +214,6 @@ export function parsePromobXML(
 
     const tablePrice = parseLocaleNumber(getVal(['table_price', 'preco_tabela', 'valor_tabela', 'price', 'preco', 'unit_price', 'custo', 'valortabela', 'precotabela', 'valortbl', 'precotbl', 'vlrtabela']));
     const finalPrice = parseLocaleNumber(getVal(['final_price', 'preco_final', 'valor_final', 'total_price', 'valor_total', 'vlrtotal', 'valortotal', 'precototal', 'preco_final']));
-    const category = getVal(['category', 'categoria', 'grupo']);
-    const externalModel = getVal(['external_model', 'modelo_externo', 'model', 'modelo']);
 
     const rep = rawRep
       ? Math.max(1, Math.round(parseLocaleNumber(rawRep, 1)))
@@ -234,11 +262,11 @@ export function parsePromobXML(
       rep,
       unit_quantity,
       dimensions: dimInfo.dimensions,
-      category,
+      category: isAppliance ? 'Eletrodomésticos' : category,
       external_model: externalModel === '-' ? '' : externalModel,
-      unit_cost: tablePrice,
-      table_price: tablePrice,
-      final_price: finalPrice,
+      unit_cost: isAppliance ? 0 : tablePrice,
+      table_price: isAppliance ? 0 : tablePrice,
+      final_price: isAppliance ? 0 : finalPrice,
       is_parent_module,
     });
   }
@@ -510,9 +538,12 @@ export async function parsePromobPDF(
     const external_model = rawMod === '-' ? '' : rawMod;
 
     const normDesc = description.toLowerCase();
-    const is_parent_module =
+    const isCaixa = normDesc.includes('caixa');
+    const isAppliance = checkIsAppliance(code, description, currentCategory);
+    const is_parent_module = !isCaixa && !isAppliance && (
       [2, 7, 14, 21, 28, 35, 42, 52].includes(itemNum) ||
-      (unit === 'UN' && ['armário', 'balcão', 'torre'].some(k => normDesc.includes(k)) && !normDesc.includes('caixa'));
+      (unit === 'UN' && ['armário', 'armario', 'balcão', 'balcao', 'torre'].some(k => normDesc.includes(k)))
+    );
 
     const totalQuantity = Math.round((rep * unit_quantity + Number.EPSILON) * 10000) / 10000;
 
@@ -525,11 +556,11 @@ export async function parsePromobPDF(
       rep,
       unit_quantity,
       dimensions,
-      category: currentCategory,
+      category: isAppliance ? 'Eletrodomésticos' : currentCategory,
       external_model,
-      unit_cost: table_price,
-      table_price,
-      final_price,
+      unit_cost: isAppliance ? 0 : table_price,
+      table_price: isAppliance ? 0 : table_price,
+      final_price: isAppliance ? 0 : final_price,
       is_parent_module,
     });
   }
@@ -631,9 +662,12 @@ export function parsePromobTextTable(
 
     const totalQuantity = Math.round((rep * unit_quantity + Number.EPSILON) * 10000) / 10000;
     const normDesc = desc.toLowerCase();
-    const is_parent_module =
+    const isCaixa = normDesc.includes('caixa');
+    const isAppliance = checkIsAppliance(ref, desc, currentCategory);
+    const is_parent_module = !isCaixa && !isAppliance && (
       [2, 7, 14, 21, 28, 35, 42, 52].includes(itemNum) ||
-      (unit === 'UN' && ['armário', 'balcão', 'torre'].some(k => normDesc.includes(k)) && !normDesc.includes('caixa'));
+      (unit === 'UN' && ['armário', 'armario', 'balcão', 'balcao', 'torre'].some(k => normDesc.includes(k)))
+    );
 
     items.push({
       item_number: itemNum,
@@ -644,11 +678,11 @@ export function parsePromobTextTable(
       rep,
       unit_quantity,
       dimensions: dim,
-      category: currentCategory,
+      category: isAppliance ? 'Eletrodomésticos' : currentCategory,
       external_model: modelo,
-      unit_cost: precoTabela,
-      table_price: precoTabela,
-      final_price: precoFinal,
+      unit_cost: isAppliance ? 0 : precoTabela,
+      table_price: isAppliance ? 0 : precoTabela,
+      final_price: isAppliance ? 0 : precoFinal,
       is_parent_module,
     });
   }

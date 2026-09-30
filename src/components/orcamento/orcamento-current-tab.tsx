@@ -22,7 +22,7 @@ import { parsePromobXML, parseTXT, parseCSV, parseJSON, parsePromobPDF, parsePro
 import { 
   calculateItemPrice, recalculateBudget, CHAPA_AREA_M2, round2, isChapa,
   smartMatchPromobChapa, matchProduct, chapaSalePrice, resolveItemPrice, smartMatchAccessory,
-  smartMatchMaoDeObra, isSimilarPromobItem, groupItemsByModule
+  smartMatchMaoDeObra, isSimilarPromobItem, groupItemsByModule, isEletrodomestico
 } from '@/lib/orcamento/calculator';
 import { generateBudgetPdf } from '@/lib/orcamento/pdf-generator';
 import { BrandCatalog, CatalogByBrand, MaoDeObraCatalog } from '@/lib/orcamento/chapas-catalog';
@@ -191,12 +191,17 @@ export function OrcamentoCurrentTab({
     });
   };
 
-  // Contagem de itens semelhantes identificados no orçamento
+  // Contagem de itens semelhantes identificados no orçamento que precisam de preço
   const similarItemsCount = useMemo(() => {
     if (!linkingItem) return 0;
     const isAcc = selectedBrand === 'Acessórios';
-    return items.filter(it => isSimilarPromobItem(linkingItem, it, isAcc)).length;
-  }, [items, linkingItem, selectedBrand]);
+    return items.filter(it => isSimilarPromobItem(
+      { ...linkingItem, targetThickness: selectedThickness },
+      it,
+      isAcc,
+      true
+    )).length;
+  }, [items, linkingItem, selectedBrand, selectedThickness]);
 
   // Handle File Upload (Aceita arquivos .xml, .pdf, .txt, .csv do Promob)
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -719,6 +724,11 @@ export function OrcamentoCurrentTab({
 
   // Puxar valor da tabela de preço diretamente ao clicar no botão "Trazer Preço" de um item
   const handleConsultarVincularPreco = (item: BudgetItem) => {
+    if (isEletrodomestico(item.code, item.description, item.category)) {
+      toast.info('Eletrodomésticos são informativos / fornecidos pelo cliente e não possuem cobrança.');
+      return;
+    }
+
     // 1. Tenta correspondência inteligente direta via resolveItemPrice (chapas, acessórios ou insumos)
     const res = resolveItemPrice(item, catalog, database);
     if (res.matched && res.unit_cost > 0) {
@@ -726,7 +736,7 @@ export function OrcamentoCurrentTab({
         if (it.id === item.id) {
           const calculated = calculateItemPrice(
             {
-              code: res.code || it.code,
+              code: it.code,
               description: it.description,
               quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
               unit: res.unit || it.original_unit || it.unit,
@@ -739,7 +749,7 @@ export function OrcamentoCurrentTab({
               external_model: it.external_model,
               table_price: res.unit_cost,
               final_price: it.final_price,
-              is_parent_module: it.is_parent_module,
+              is_parent_module: false,
               is_chapa: res.source === 'catalog_chapa' || res.source === 'mdf_padrao' || it.is_chapa,
               is_fita: it.is_fita,
               fita_metros: it.fita_metros,
@@ -752,9 +762,18 @@ export function OrcamentoCurrentTab({
           return {
             ...calculated,
             id: it.id,
+            code: it.code,
+            item_number: it.item_number,
+            rep: it.rep,
+            unit_quantity: it.unit_quantity,
+            dimensions: it.dimensions,
+            category: it.category,
+            external_model: it.external_model,
+            is_parent_module: false,
             price_unlinked: false,
             found: true,
             table_price: res.unit_cost,
+            unit_cost: res.unit_cost,
           };
         }
         return it;
@@ -781,7 +800,8 @@ export function OrcamentoCurrentTab({
     let prodCount = 0;
 
     const updated = items.map(it => {
-      // Pula apenas módulos pais agrupadores que não possuam preço definido
+      // Pula eletrodomésticos e módulos pais que não possuam preço definido
+      if (isEletrodomestico(it.code, it.description, it.category)) return it;
       if (it.is_parent_module && (!it.table_price || it.table_price <= 0)) return it;
 
       const res = resolveItemPrice(it, catalog, database);
@@ -796,7 +816,7 @@ export function OrcamentoCurrentTab({
 
         const calculated = calculateItemPrice(
           {
-            code: res.code || it.code,
+            code: it.code,
             description: it.description,
             quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
             unit: res.unit || it.original_unit || it.unit,
@@ -809,7 +829,7 @@ export function OrcamentoCurrentTab({
             external_model: it.external_model,
             table_price: res.unit_cost,
             final_price: it.final_price,
-            is_parent_module: it.is_parent_module,
+            is_parent_module: false,
             is_chapa: res.source === 'catalog_chapa' || res.source === 'mdf_padrao' || it.is_chapa,
             is_fita: it.is_fita,
             fita_metros: it.fita_metros,
@@ -822,9 +842,18 @@ export function OrcamentoCurrentTab({
         return {
           ...calculated,
           id: it.id,
+          code: it.code,
+          item_number: it.item_number,
+          rep: it.rep,
+          unit_quantity: it.unit_quantity,
+          dimensions: it.dimensions,
+          category: it.category,
+          external_model: it.external_model,
+          is_parent_module: false,
           price_unlinked: false,
           found: true,
           table_price: res.unit_cost,
+          unit_cost: res.unit_cost,
         };
       }
 
@@ -865,15 +894,24 @@ export function OrcamentoCurrentTab({
 
         if (isTarget) {
           matchedCount++;
+          const baseDesc = it.description.replace(/\s*\([^)]*\)\s*$/, '').trim();
+          const newDesc = `${baseDesc} (${selectedAcessorio.name})`;
+
           const calculated = calculateItemPrice(
             {
-              code: selectedAcessorio.id || it.code,
-              description: `${it.description} (${selectedAcessorio.name})`,
+              code: it.code,
+              description: newDesc,
               quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
-              unit: it.original_unit || it.unit || 'UN',
+              unit: selectedAcessorio.unit || it.original_unit || it.unit || 'UN',
               unit_cost: unitCost,
               margin: it.margin,
               table_price: unitCost,
+              rep: it.rep,
+              unit_quantity: it.unit_quantity,
+              dimensions: it.dimensions,
+              category: it.category || 'Acessórios',
+              external_model: it.external_model,
+              is_parent_module: false,
             },
             database,
             settings,
@@ -882,9 +920,19 @@ export function OrcamentoCurrentTab({
           return {
             ...calculated,
             id: it.id,
+            code: it.code,
+            item_number: it.item_number,
+            description: newDesc,
+            rep: it.rep,
+            unit_quantity: it.unit_quantity,
+            dimensions: it.dimensions,
+            category: it.category || 'Acessórios',
+            external_model: it.external_model,
+            is_parent_module: false,
             price_unlinked: false,
             found: true,
             table_price: unitCost,
+            unit_cost: unitCost,
           };
         }
         return it;
@@ -916,12 +964,13 @@ export function OrcamentoCurrentTab({
 
         if (isTarget) {
           matchedCount++;
+          const baseDesc = it.description.replace(/\s*\([^)]*\)\s*$/, '').trim();
+          const newDesc = `${baseDesc} (${selectedMaoDeObra.name})`;
+
           const calculated = calculateItemPrice(
             {
-              code: selectedMaoDeObra.id || it.code,
-              description: it.description.includes(selectedMaoDeObra.name)
-                ? it.description
-                : `${it.description} (${selectedMaoDeObra.name})`,
+              code: it.code,
+              description: newDesc,
               quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
               unit: selectedMaoDeObra.unit || it.original_unit || it.unit || 'UN',
               unit_cost: unitCost,
@@ -931,6 +980,10 @@ export function OrcamentoCurrentTab({
               unit_quantity: it.unit_quantity,
               dimensions: it.dimensions,
               category: 'Processo de Fabricação',
+              external_model: it.external_model,
+              is_parent_module: false,
+              is_processo: true,
+              is_mao_de_obra: true,
             },
             database,
             settings,
@@ -939,9 +992,21 @@ export function OrcamentoCurrentTab({
           return {
             ...calculated,
             id: it.id,
+            code: it.code,
+            item_number: it.item_number,
+            description: newDesc,
+            rep: it.rep,
+            unit_quantity: it.unit_quantity,
+            dimensions: it.dimensions,
+            category: 'Processo de Fabricação',
+            external_model: it.external_model,
+            is_parent_module: false,
+            is_processo: true,
+            is_mao_de_obra: true,
             price_unlinked: false,
             found: true,
             table_price: unitCost,
+            unit_cost: unitCost,
           };
         }
         return it;
@@ -975,20 +1040,30 @@ export function OrcamentoCurrentTab({
 
     const updated = items.map(it => {
       const isTarget = applyToAllSimilar
-        ? isSimilarPromobItem(linkingItem, it, false)
+        ? isSimilarPromobItem({ ...linkingItem, targetThickness: selectedThickness }, it, false)
         : it.id === linkingItem.id;
 
       if (isTarget) {
         matchedCount++;
+        const baseDesc = it.description.replace(/\s*\[[^\]]+\]\s*$/, '').trim();
+        const newDesc = `${baseDesc} [${selectedBrand} - ${lineObj.name} ${selectedThickness}]`;
+
         const calculated = calculateItemPrice(
           {
-            code: `${selectedBrand.toUpperCase()}-${lineObj.name.toUpperCase().replace(/\s+/g, '_')}-${selectedThickness}`,
-            description: `${it.description} [${selectedBrand} - ${lineObj.name} ${selectedThickness}]`,
+            code: it.code,
+            description: newDesc,
             quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
             unit: it.original_unit || it.unit,
             unit_cost: m2Cost,
             margin: it.margin,
             table_price: m2Cost,
+            rep: it.rep,
+            unit_quantity: it.unit_quantity,
+            dimensions: it.dimensions,
+            category: it.category,
+            external_model: it.external_model,
+            is_parent_module: false,
+            is_chapa: true,
           },
           database,
           settings,
@@ -997,9 +1072,19 @@ export function OrcamentoCurrentTab({
         return {
           ...calculated,
           id: it.id,
+          code: it.code,
+          item_number: it.item_number,
+          description: newDesc,
+          rep: it.rep,
+          unit_quantity: it.unit_quantity,
+          dimensions: it.dimensions,
+          category: it.category,
+          external_model: it.external_model,
+          is_parent_module: false,
           price_unlinked: false,
           found: true,
           table_price: m2Cost,
+          unit_cost: m2Cost,
         };
       }
       return it;
@@ -1138,6 +1223,9 @@ export function OrcamentoCurrentTab({
   };
 
   const renderItemRow = (item: BudgetItem, index: number) => {
+    const isAppliance = isEletrodomestico(item.code, item.description, item.category);
+    const isCaixa = item.description.toLowerCase().includes('caixa');
+
     return (
       <tr
         key={item.id}
@@ -1153,7 +1241,11 @@ export function OrcamentoCurrentTab({
               {item.code}
             </span>
 
-            {item.unit_cost === 0 || !item.found || item.price_unlinked ? (
+            {isAppliance ? (
+              <span className="inline-flex items-center rounded-md bg-stone-100 px-2 py-0.5 text-[10px] font-semibold text-stone-500 border border-stone-200">
+                Eletro (Informativo)
+              </span>
+            ) : item.unit_cost === 0 || !item.found || item.price_unlinked ? (
               <button
                 onClick={() => handleConsultarVincularPreco(item)}
                 className="inline-flex items-center gap-1 rounded-md bg-stone-100 px-2 py-0.5 text-[10px] font-semibold text-stone-700 hover:bg-[#c92031]/10 hover:text-[#c92031] hover:border-[#c92031]/30 border border-stone-200 transition-colors shrink-0 shadow-2xs"
@@ -1179,12 +1271,17 @@ export function OrcamentoCurrentTab({
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="font-medium text-xs text-slate-800 leading-snug">{item.description}</span>
-              {item.is_parent_module && (
+              {item.is_parent_module && !isCaixa && !isAppliance && (
                 <span className="inline-flex items-center rounded border border-amber-300/80 bg-amber-50 px-1.5 py-0.2 text-[9px] font-semibold text-amber-800">
                   Módulo Promob
                 </span>
               )}
-              {item.category && (
+              {isAppliance && (
+                <span className="inline-flex items-center rounded border border-blue-200 bg-blue-50 px-1.5 py-0.2 text-[9px] font-medium text-blue-700">
+                  Sem Cobrança / Equipamento
+                </span>
+              )}
+              {item.category && !isAppliance && (
                 <span className="inline-flex items-center rounded border border-stone-200 bg-stone-100 px-1.5 py-0.2 text-[9px] font-medium text-stone-600">
                   {item.category}
                 </span>
@@ -1202,7 +1299,7 @@ export function OrcamentoCurrentTab({
                   {item.dimensions}
                 </span>
               )}
-              {item.found && !item.price_unlinked && (
+              {!isAppliance && item.found && !item.price_unlinked && (
                 <span className="text-emerald-700 font-medium flex items-center gap-0.5">
                   ✓ Na Tabela
                 </span>
@@ -1212,7 +1309,7 @@ export function OrcamentoCurrentTab({
                   Fita: {item.fita_metros.toFixed(2)}m
                 </span>
               )}
-              {item.is_parent_module && (!item.table_price || item.table_price <= 0) && (!item.unit_cost || item.unit_cost <= 0) && (
+              {item.is_parent_module && !isCaixa && !isAppliance && (!item.table_price || item.table_price <= 0) && (!item.unit_cost || item.unit_cost <= 0) && (
                 <span className="text-amber-700 italic text-[10px]">
                   (Composto pelas peças de corte abaixo)
                 </span>
@@ -1270,6 +1367,8 @@ export function OrcamentoCurrentTab({
         <td className="px-3 py-2 text-right">
           {hideFinancialValues ? (
             <span className="text-stone-400 font-mono text-xs select-none">••••••</span>
+          ) : isAppliance ? (
+            <span className="text-stone-400 font-mono text-xs select-none tabular-nums">—</span>
           ) : (
             <div className="flex items-center justify-end gap-1">
               <span className="text-stone-400 text-[10px] font-medium font-mono">R$</span>
@@ -1294,12 +1393,19 @@ export function OrcamentoCurrentTab({
         <td className="px-3 py-2.5 text-right font-mono text-xs font-medium text-stone-600 tabular-nums">
           {hideFinancialValues
             ? '••••••'
+            : isAppliance
+            ? '—'
             : item.unit_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
         </td>
 
         <td className="px-3 py-2.5 text-right font-mono tabular-nums">
           {hideFinancialValues ? (
             <span className="font-bold text-stone-400 text-xs select-none">••••••</span>
+          ) : isAppliance ? (
+            <>
+              <span className="font-bold text-stone-400 text-xs block select-none">—</span>
+              <span className="text-[10px] text-stone-400 font-normal block">Sem Custo</span>
+            </>
           ) : (
             <>
               <span className="font-bold text-slate-900 text-xs block">
@@ -1314,22 +1420,24 @@ export function OrcamentoCurrentTab({
 
         <td className="py-2.5 pl-2 pr-4 text-center">
           <div className="flex items-center justify-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => {
-                if (item.found && !item.price_unlinked) {
-                  setItems(prev => recalculateBudget(prev.map(it => it.id === item.id
-                    ? { ...it, price_unlinked: true, found: false, unit_cost: 0 }
-                    : it), database, settings, catalog).items);
-                  toast.success('Preço desvinculado.');
-                } else handleConsultarVincularPreco(item);
-              }}
-              className="h-7 w-7 text-stone-600 hover:text-slate-900 hover:bg-stone-100 rounded-md"
-              title={item.found && !item.price_unlinked ? "Desvincular preço da tabela" : "Vincular preço da tabela"}
-            >
-              {item.found && !item.price_unlinked ? <Unlink className="h-3.5 w-3.5" /> : <Link2 className="h-3.5 w-3.5" />}
-            </Button>
+            {!isAppliance && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  if (item.found && !item.price_unlinked) {
+                    setItems(prev => recalculateBudget(prev.map(it => it.id === item.id
+                      ? { ...it, price_unlinked: true, found: false, unit_cost: 0 }
+                      : it), database, settings, catalog).items);
+                    toast.success('Preço desvinculado.');
+                  } else handleConsultarVincularPreco(item);
+                }}
+                className="h-7 w-7 text-stone-600 hover:text-slate-900 hover:bg-stone-100 rounded-md"
+                title={item.found && !item.price_unlinked ? "Desvincular preço da tabela" : "Vincular preço da tabela"}
+              >
+                {item.found && !item.price_unlinked ? <Unlink className="h-3.5 w-3.5" /> : <Link2 className="h-3.5 w-3.5" />}
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon"
