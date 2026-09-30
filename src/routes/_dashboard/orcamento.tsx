@@ -276,50 +276,71 @@ function OrcamentoPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-black/[0.06] pb-4">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-stone-200/80 pb-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-[#17191d] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#cbb27a]">
+              Marcenaria Sob Medida
+            </span>
+            <span className="text-xs text-stone-400">•</span>
+            <span className="text-xs font-medium text-stone-500">Engenharia de Custos & Produção</span>
+          </div>
           <h2 className="text-xl font-bold tracking-tight text-slate-900 md:text-2xl">
-            Calculadora de Orçamentos (DF Móveis)
+            Calculadora de Orçamentos
           </h2>
-          <p className="text-xs text-slate-500">
-            Conectada aos Clientes e Projetos cadastrados, com inserção de custos sob demanda, margem automática e exportação comercial em PDF.
+          <p className="text-xs text-stone-500 max-w-2xl">
+            Importação precisa de arquivos Promob XML/PDF, decomposição de módulos e ferragens, vinculação instantânea com a tabela de chapas e geração de propostas comerciais.
           </p>
         </div>
       </div>
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="bg-slate-200/70 p-1">
-          <TabsTrigger value="current" className="text-xs font-semibold data-[state=active]:bg-white">
-            <Calculator className="mr-1.5 h-3.5 w-3.5 text-[#c92031]" />
-            Orçamento Atual
-            {items.length > 0 && (
-              <span className="ml-1.5 rounded-full bg-[#c92031] px-1.5 py-0.2 text-[10px] font-bold text-white">
-                {items.length}
-              </span>
-            )}
-          </TabsTrigger>
+        <div className="overflow-x-auto pb-1">
+          <TabsList className="h-11 inline-flex items-center gap-1 rounded-xl border border-stone-200/90 bg-stone-100/90 p-1 text-xs shadow-2xs">
+            <TabsTrigger
+              value="current"
+              className="h-9 px-3.5 text-xs font-medium text-stone-600 transition-all data-[state=active]:bg-white data-[state=active]:font-semibold data-[state=active]:text-slate-900 data-[state=active]:shadow-xs rounded-lg"
+            >
+              <Calculator className="mr-2 h-3.5 w-3.5 text-[#c92031]" />
+              Orçamento em Edição
+              {items.length > 0 && (
+                <span className="ml-2 rounded-full bg-[#c92031] px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+                  {items.length}
+                </span>
+              )}
+            </TabsTrigger>
 
-          <TabsTrigger value="saved" className="text-xs font-semibold data-[state=active]:bg-white">
-            <FileSpreadsheet className="mr-1.5 h-3.5 w-3.5 text-blue-600" />
-            Meus Orçamentos & Agrupados
-            {savedBudgets.length > 0 && (
-              <span className="ml-1.5 rounded-full bg-slate-300 px-1.5 py-0.2 text-[10px] font-bold text-slate-800">
-                {savedBudgets.length}
-              </span>
-            )}
-          </TabsTrigger>
+            <TabsTrigger
+              value="saved"
+              className="h-9 px-3.5 text-xs font-medium text-stone-600 transition-all data-[state=active]:bg-white data-[state=active]:font-semibold data-[state=active]:text-slate-900 data-[state=active]:shadow-xs rounded-lg"
+            >
+              <FileSpreadsheet className="mr-2 h-3.5 w-3.5 text-slate-600" />
+              Projetos Salvos & Agrupados
+              {savedBudgets.length > 0 && (
+                <span className="ml-2 rounded-full bg-stone-200 px-1.5 py-0.5 text-[10px] font-bold leading-none text-stone-800">
+                  {savedBudgets.length}
+                </span>
+              )}
+            </TabsTrigger>
 
-          <TabsTrigger value="database" className="text-xs font-semibold data-[state=active]:bg-white">
-            <Database className="mr-1.5 h-3.5 w-3.5 text-emerald-600" />
-            Tabela de Preços & Chapas por Marca (2026)
-          </TabsTrigger>
+            <TabsTrigger
+              value="database"
+              className="h-9 px-3.5 text-xs font-medium text-stone-600 transition-all data-[state=active]:bg-white data-[state=active]:font-semibold data-[state=active]:text-slate-900 data-[state=active]:shadow-xs rounded-lg"
+            >
+              <Database className="mr-2 h-3.5 w-3.5 text-slate-600" />
+              Tabela de Preços & Chapas (2026)
+            </TabsTrigger>
 
-          <TabsTrigger value="settings" className="text-xs font-semibold data-[state=active]:bg-white">
-            <Settings className="mr-1.5 h-3.5 w-3.5 text-amber-600" />
-            Margens & Acréscimos
-          </TabsTrigger>
-        </TabsList>
+            <TabsTrigger
+              value="settings"
+              className="h-9 px-3.5 text-xs font-medium text-stone-600 transition-all data-[state=active]:bg-white data-[state=active]:font-semibold data-[state=active]:text-slate-900 data-[state=active]:shadow-xs rounded-lg"
+            >
+              <Settings className="mr-2 h-3.5 w-3.5 text-slate-600" />
+              Margens & Parâmetros
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
         <TabsContent value="current">
           <OrcamentoCurrentTab

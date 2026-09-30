@@ -167,7 +167,7 @@ export function smartMatchPromobChapa(
   }
 
   // Se não foi encontrada marca explícita, mas é peça de chapa MDF/MDP (comum na caixaria Promob):
-  const isChapaItem = isChapa(code, description) || normText.includes('mdf') || normText.includes('mdp') || normText.includes('bp');
+  const isChapaItem = isChapa(code, description) || normText.includes('mdf') || normText.includes('mdp') || normText.includes('bp') || normText.includes('caixa');
   if (!detectedBrand && isChapaItem && catalog) {
     if (normText.includes('freijo')) {
       if (catalog['Arauco']) detectedBrand = 'Arauco';
@@ -224,8 +224,8 @@ export function smartMatchPromobChapa(
     }
   }
 
-  // Se o item contém "branco" e não encontrou score alto, busca linha com "branco"
-  if (!bestLine && (normText.includes('branco') || normText.includes('branca'))) {
+  // Se o item contém "branco" ou "caixa" e não encontrou score alto, busca linha com "branco"
+  if (!bestLine && (normText.includes('branco') || normText.includes('branca') || normText.includes('caixa'))) {
     bestLine = lines.find(l => {
       const nl = normalizeText(l.name);
       return nl.includes('branco') && !nl.includes('ultra');
@@ -762,7 +762,20 @@ export function resolveItemPrice(
   catalog: CatalogByBrand = INITIAL_CHAPAS_CATALOG,
   database: ProductItem[] = DEFAULT_MATERIALS
 ): PriceMatchResult {
-  // Pula módulos pais agrupadores
+  // 0. Se o item já veio com preço de tabela do Promob (ou custo válido), vincula e preserva com prioridade
+  if (item.table_price !== undefined && item.table_price > 0) {
+    return {
+      matched: true,
+      source: 'promob_table',
+      unit_cost: item.table_price,
+      code: item.code,
+      description: item.description,
+      unit: item.unit || 'UN',
+      matched_name: `Tabela Promob (${item.table_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})`,
+    };
+  }
+
+  // Pula apenas módulos pais agrupadores que não tenham preço definido
   if (item.is_parent_module) {
     return {
       matched: false,

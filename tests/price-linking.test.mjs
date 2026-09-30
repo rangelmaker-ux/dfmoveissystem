@@ -315,4 +315,41 @@ test('groupItemsByModule agrupa módulos pais com suas respectivas peças de cor
   assert.equal(procGroup.subtotal_cost, 700);
 });
 
+test('Caixa Armário e Caixa Gaveta mantêm seus preços de tabela Promob e vinculam corretamente', () => {
+  const caixaArmario = {
+    id: 'c1',
+    code: '1.0245.990.Branco',
+    description: 'Caixa Armário',
+    quantity: 1,
+    unit: 'UN',
+    table_price: 122.12,
+    final_price: 366.36,
+  };
+
+  const resolved = resolveItemPrice(caixaArmario, INITIAL_CHAPAS_CATALOG, DEFAULT_MATERIALS);
+  assert.equal(resolved.matched, true);
+  assert.equal(resolved.unit_cost, 122.12);
+  assert.equal(resolved.source, 'promob_table');
+
+  const calculated = calculateItemPrice(caixaArmario, DEFAULT_MATERIALS, settings, INITIAL_CHAPAS_CATALOG);
+  assert.equal(calculated.found, true);
+  assert.equal(calculated.unit_cost, 122.12);
+  assert.equal(calculated.total_cost, 122.12);
+  assert.equal(calculated.total_price, 366.36);
+
+  // Caixa Gaveta
+  const caixaGaveta = {
+    id: 'c2',
+    code: '1.0252.414.9998.Branco',
+    description: 'Caixa Gaveta c/ Contra Frente',
+    quantity: 1,
+    unit: 'UN',
+    table_price: 20.90,
+    final_price: 62.70,
+  };
+  const resolvedGav = resolveItemPrice(caixaGaveta, INITIAL_CHAPAS_CATALOG, DEFAULT_MATERIALS);
+  assert.equal(resolvedGav.matched, true);
+  assert.equal(resolvedGav.unit_cost, 20.90);
+});
+
 

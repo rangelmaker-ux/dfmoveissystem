@@ -781,8 +781,8 @@ export function OrcamentoCurrentTab({
     let prodCount = 0;
 
     const updated = items.map(it => {
-      // Pula módulos pais agrupadores do Promob (como Torre, Balcão 2 Portas)
-      if (it.is_parent_module) return it;
+      // Pula apenas módulos pais agrupadores que não possuam preço definido
+      if (it.is_parent_module && (!it.table_price || it.table_price <= 0)) return it;
 
       const res = resolveItemPrice(it, catalog, database);
       if (res.matched && res.unit_cost > 0) {
@@ -1141,34 +1141,34 @@ export function OrcamentoCurrentTab({
     return (
       <tr
         key={item.id}
-        className="hover:bg-slate-50/80 transition-colors"
+        className="group border-b border-stone-100 hover:bg-stone-50/80 transition-colors"
       >
-        <td className="py-2.5 pl-3 pr-1 text-center font-medium text-slate-400">
+        <td className="py-2.5 pl-3 pr-1 text-center font-mono text-[11px] font-medium text-stone-400">
           {item.item_number || index + 1}
         </td>
 
-        <td className="px-2 py-2.5 font-mono font-semibold text-slate-900">
+        <td className="px-2.5 py-2.5">
           <div className="flex items-center gap-1.5">
-            <span className="truncate max-w-[180px]" title={item.code}>
+            <span className="font-mono text-xs font-semibold text-slate-900 truncate max-w-[170px]" title={item.code}>
               {item.code}
             </span>
 
             {item.unit_cost === 0 || !item.found || item.price_unlinked ? (
               <button
                 onClick={() => handleConsultarVincularPreco(item)}
-                className="flex items-center gap-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-blue-700 hover:bg-blue-100 border border-blue-200 transition-colors shrink-0"
+                className="inline-flex items-center gap-1 rounded-md bg-stone-100 px-2 py-0.5 text-[10px] font-semibold text-stone-700 hover:bg-[#c92031]/10 hover:text-[#c92031] hover:border-[#c92031]/30 border border-stone-200 transition-colors shrink-0 shadow-2xs"
                 title="Trazer preço da tabela para este item"
               >
-                <Link2 className="h-3 w-3 text-blue-600" />
+                <Link2 className="h-3 w-3 text-[#c92031]" />
                 Trazer Preço
               </button>
             ) : (
               <button
                 onClick={() => handleOpenLinkModal(item)}
-                className="flex items-center gap-0.5 text-[10px] font-semibold text-emerald-700 hover:underline shrink-0"
+                className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-800 border border-emerald-200 hover:bg-emerald-100 transition-colors shrink-0"
                 title="Item vinculado à tabela de preços. Clique para consultar ou trocar de linha."
               >
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                <CheckCircle2 className="h-3 w-3 text-emerald-600 shrink-0" />
                 <span>Vinculado</span>
               </button>
             )}
@@ -1176,43 +1176,45 @@ export function OrcamentoCurrentTab({
         </td>
 
         <td className="px-3 py-2.5">
-          <div className="space-y-0.5">
-            <div className="flex flex-wrap items-center gap-1">
-              <span className="font-medium text-slate-800">{item.description}</span>
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="font-medium text-xs text-slate-800 leading-snug">{item.description}</span>
               {item.is_parent_module && (
-                <Badge variant="outline" className="border-amber-300 bg-amber-50 text-[9px] text-amber-800 font-semibold">
+                <span className="inline-flex items-center rounded border border-amber-300/80 bg-amber-50 px-1.5 py-0.2 text-[9px] font-semibold text-amber-800">
                   Módulo Promob
-                </Badge>
+                </span>
               )}
               {item.category && (
-                <Badge variant="outline" className="border-slate-300 bg-slate-100 text-[9px] text-slate-700">
+                <span className="inline-flex items-center rounded border border-stone-200 bg-stone-100 px-1.5 py-0.2 text-[9px] font-medium text-stone-600">
                   {item.category}
-                </Badge>
+                </span>
               )}
               {item.external_model && (
-                <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-[9px] text-emerald-700">
+                <span className="inline-flex items-center rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.2 text-[9px] font-medium text-emerald-700">
                   {item.external_model}
-                </Badge>
+                </span>
               )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 text-[10px] text-slate-500">
+            <div className="flex flex-wrap items-center gap-2 text-[10px] text-stone-500">
               {item.dimensions && (
-                <span className="font-mono text-slate-600 bg-slate-100 px-1 py-0.5 rounded">
+                <span className="font-mono text-stone-700 bg-stone-100 border border-stone-200/60 px-1.5 py-0.5 rounded-sm">
                   {item.dimensions}
                 </span>
               )}
-              {item.found && (
-                <span className="text-emerald-700 font-medium">✓ Vinculado na Tabela</span>
+              {item.found && !item.price_unlinked && (
+                <span className="text-emerald-700 font-medium flex items-center gap-0.5">
+                  ✓ Na Tabela
+                </span>
               )}
               {item.is_fita && item.fita_metros && (
-                <span className="font-mono text-indigo-600">
+                <span className="font-mono text-indigo-700 bg-indigo-50 border border-indigo-200 px-1 py-0.2 rounded">
                   Fita: {item.fita_metros.toFixed(2)}m
                 </span>
               )}
-              {item.is_parent_module && (
-                <span className="text-amber-700 italic">
-                  (Móvel montado / composto por suas peças)
+              {item.is_parent_module && (!item.table_price || item.table_price <= 0) && (!item.unit_cost || item.unit_cost <= 0) && (
+                <span className="text-amber-700 italic text-[10px]">
+                  (Composto pelas peças de corte abaixo)
                 </span>
               )}
             </div>
@@ -1227,8 +1229,8 @@ export function OrcamentoCurrentTab({
             min="1"
             value={item.rep || 1}
             onCommit={value => handleUpdateItemRep(item.id, value)}
-            className="h-7 w-12 text-center text-xs font-bold text-slate-800 px-1 py-0 border-slate-200 mx-auto bg-slate-50/50 hover:bg-white focus:bg-white"
-            title="Clique para alterar a repetição de peças"
+            className="h-7 w-12 text-center text-xs font-bold text-slate-800 px-1 py-0 border-stone-200 mx-auto bg-stone-50/70 hover:bg-white focus:bg-white focus:ring-1 focus:ring-[#c92031]/30 focus:border-[#c92031] rounded-md transition-all"
+            title="Alterar repetição de peças"
           />
         </td>
 
@@ -1240,7 +1242,7 @@ export function OrcamentoCurrentTab({
             min="0.001"
             value={item.unit_quantity !== undefined ? item.unit_quantity : item.quantity}
             onCommit={value => handleUpdateItemUnitQty(item.id, value)}
-            className="h-7 w-16 text-center text-xs font-mono text-slate-700 px-1 py-0 border-slate-200 mx-auto"
+            className="h-7 w-16 text-center text-xs font-mono text-stone-700 px-1 py-0 border-stone-200 mx-auto bg-white focus:ring-1 focus:ring-[#c92031]/30 focus:border-[#c92031] rounded-md transition-all"
             title="Matéria-prima unitária por peça (m² ou UN)"
           />
         </td>
@@ -1253,13 +1255,13 @@ export function OrcamentoCurrentTab({
             min="0.001"
             value={item.quantity}
             onCommit={value => handleUpdateItemQty(item.id, value)}
-            className="h-7 w-16 text-center text-xs font-bold text-slate-900 px-1 py-0 border-slate-200 mx-auto bg-slate-50/50 hover:bg-white focus:bg-white"
+            className="h-7 w-16 text-center text-xs font-bold text-slate-900 px-1 py-0 border-stone-200 mx-auto bg-stone-50/70 hover:bg-white focus:bg-white focus:ring-1 focus:ring-[#c92031]/30 focus:border-[#c92031] rounded-md transition-all"
             title="Consumo total de matéria-prima (Rep × Qtd Unit)"
           />
         </td>
 
         <td className="px-2 py-2.5 text-center">
-          <span className="rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600 text-[11px]">
+          <span className="rounded bg-stone-100 border border-stone-200/60 px-1.5 py-0.5 font-medium text-stone-600 text-[10px]">
             {item.unit}
           </span>
         </td>
@@ -1267,10 +1269,10 @@ export function OrcamentoCurrentTab({
         {/* Custo Unitário Manual Inline */}
         <td className="px-3 py-2 text-right">
           {hideFinancialValues ? (
-            <span className="text-slate-400 font-mono text-xs">••••••</span>
+            <span className="text-stone-400 font-mono text-xs select-none">••••••</span>
           ) : (
             <div className="flex items-center justify-end gap-1">
-              <span className="text-slate-400 text-[10px] font-medium">R$</span>
+              <span className="text-stone-400 text-[10px] font-medium font-mono">R$</span>
               <BudgetNumberInput
                 type="number"
                 step="0.01"
@@ -1278,32 +1280,32 @@ export function OrcamentoCurrentTab({
                 value={item.unit_cost === 0 ? '' : item.unit_cost}
                 onCommit={value => handleUpdateItemCost(item.id, value)}
                 placeholder="0,00"
-                className={`h-7 w-24 text-right text-xs font-bold px-2 py-0 border ${
+                className={`h-7 w-24 text-right text-xs font-mono font-bold px-2 py-0 border rounded-md transition-all ${
                   item.unit_cost === 0
-                    ? 'border-amber-300 bg-amber-50/50 text-amber-900 placeholder:text-amber-400'
-                    : 'border-slate-200 text-slate-900 focus:border-[#c92031]'
+                    ? 'border-amber-300 bg-amber-50/60 text-amber-900 placeholder:text-amber-400 focus:border-amber-400'
+                    : 'border-stone-200 text-slate-900 bg-white focus:border-[#c92031] focus:ring-1 focus:ring-[#c92031]/30'
                 }`}
-                title="Digite o custo unitário do material ou clique no link para trazer da tabela"
+                title="Custo unitário da matéria-prima"
               />
             </div>
           )}
         </td>
 
-        <td className="px-3 py-2.5 text-right font-medium text-slate-600">
+        <td className="px-3 py-2.5 text-right font-mono text-xs font-medium text-stone-600 tabular-nums">
           {hideFinancialValues
             ? '••••••'
             : item.unit_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
         </td>
 
-        <td className="px-3 py-2.5 text-right">
+        <td className="px-3 py-2.5 text-right font-mono tabular-nums">
           {hideFinancialValues ? (
-            <span className="font-bold text-slate-400 font-mono text-xs">••••••</span>
+            <span className="font-bold text-stone-400 text-xs select-none">••••••</span>
           ) : (
             <>
-              <span className="font-bold text-slate-900">
+              <span className="font-bold text-slate-900 text-xs block">
                 {item.total_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
               </span>
-              <span className="block text-[10px] text-slate-400">
+              <span className="text-[10px] text-stone-400 font-normal block">
                 Custo: {item.total_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
               </span>
             </>
@@ -1311,7 +1313,7 @@ export function OrcamentoCurrentTab({
         </td>
 
         <td className="py-2.5 pl-2 pr-4 text-center">
-          <div className="flex items-center justify-center gap-1">
+          <div className="flex items-center justify-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
             <Button
               variant="ghost"
               size="icon"
@@ -1323,16 +1325,16 @@ export function OrcamentoCurrentTab({
                   toast.success('Preço desvinculado.');
                 } else handleConsultarVincularPreco(item);
               }}
-              className="h-7 w-7 text-blue-600 hover:bg-blue-50 hover:text-blue-800"
+              className="h-7 w-7 text-stone-600 hover:text-slate-900 hover:bg-stone-100 rounded-md"
               title={item.found && !item.price_unlinked ? "Desvincular preço da tabela" : "Vincular preço da tabela"}
             >
-              {item.found && !item.price_unlinked ? <Unlink className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
+              {item.found && !item.price_unlinked ? <Unlink className="h-3.5 w-3.5" /> : <Link2 className="h-3.5 w-3.5" />}
             </Button>
             <Button
               variant="ghost"
               size="icon"
               onClick={() => handleRemoveItem(item.id)}
-              className="h-7 w-7 text-slate-400 hover:bg-red-50 hover:text-red-600"
+              className="h-7 w-7 text-stone-400 hover:bg-red-50 hover:text-red-600 rounded-md"
               title="Remover Item"
             >
               <Trash2 className="h-3.5 w-3.5" />
@@ -1345,17 +1347,17 @@ export function OrcamentoCurrentTab({
 
   return (
     <div className="space-y-6">
-      {/* Resumo Financeiro Compacto com Botão de Ocultar Valores para Atendimento ao Cliente */}
-      <div className="space-y-2">
+      {/* Resumo Financeiro Compacto & Discreto */}
+      <div className="space-y-2.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-              Resumo Financeiro
+            <span className="text-xs font-semibold tracking-wide text-stone-700">
+              Resumo Executivo do Orçamento
             </span>
             {hideFinancialValues && (
-              <Badge variant="outline" className="border-amber-300 bg-amber-50 text-[10px] text-amber-800 font-semibold py-0 h-5">
-                Valores Ocultos (Modo Cliente)
-              </Badge>
+              <span className="inline-flex items-center rounded-md border border-amber-300/80 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                Modo Apresentação (Valores Ocultos)
+              </span>
             )}
           </div>
           <Button
@@ -1363,86 +1365,99 @@ export function OrcamentoCurrentTab({
             variant="ghost"
             size="sm"
             onClick={toggleHideFinancialValues}
-            className="h-7 gap-1.5 px-2.5 text-xs text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 bg-white shadow-xs rounded-lg transition-colors cursor-pointer"
+            className="h-7 gap-1.5 px-2.5 text-xs text-stone-600 hover:text-slate-900 hover:bg-stone-100 border border-stone-200 bg-white shadow-2xs rounded-lg transition-colors cursor-pointer"
             title={hideFinancialValues ? "Exibir valores financeiros" : "Ocultar valores do cliente"}
           >
             {hideFinancialValues ? (
               <>
                 <EyeOff className="h-3.5 w-3.5 text-amber-600" />
-                <span className="text-[11px] font-medium text-slate-700">Exibir Valores</span>
+                <span className="text-[11px] font-medium text-stone-700">Exibir Valores</span>
               </>
             ) : (
               <>
-                <Eye className="h-3.5 w-3.5 text-slate-500" />
-                <span className="text-[11px] font-medium text-slate-700">Ocultar Valores</span>
+                <Eye className="h-3.5 w-3.5 text-stone-400" />
+                <span className="text-[11px] font-medium text-stone-700">Ocultar do Cliente</span>
               </>
             )}
           </Button>
         </div>
 
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
-          <Card className="border-l-4 border-l-[#c92031] bg-white shadow-xs py-2 px-3">
+          {/* Valor Total de Venda */}
+          <div className="group relative rounded-xl border border-stone-200/90 bg-white/95 p-3 shadow-2xs transition-all hover:border-stone-300">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                Valor Total de Venda
-              </span>
-              <span className="text-[10px] text-slate-400">Total</span>
+              <div className="flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#c92031]" />
+                <span className="text-[11px] font-medium text-stone-500">Valor Total de Venda</span>
+              </div>
+              <span className="font-mono text-[10px] text-stone-400">Total Proposta</span>
             </div>
             <div className="mt-1 flex items-baseline justify-between">
-              <div className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+              <div className="font-mono text-base sm:text-lg font-bold tracking-tight text-slate-900 tabular-nums">
                 {hideFinancialValues
                   ? '••••••••'
                   : totals.total_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
               </div>
             </div>
-          </Card>
+          </div>
 
-          <Card className="border-l-4 border-l-slate-500 bg-white shadow-xs py-2 px-3">
+          {/* Custo Total dos Materiais */}
+          <div className="group relative rounded-xl border border-stone-200/90 bg-white/95 p-3 shadow-2xs transition-all hover:border-stone-300">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                Custo Total dos Materiais
-              </span>
-              <span className="text-[10px] text-slate-400">{totals.items_count} peças</span>
+              <div className="flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-stone-400" />
+                <span className="text-[11px] font-medium text-stone-500">Custo Total de Materiais</span>
+              </div>
+              <span className="font-mono text-[10px] text-stone-400">{totals.items_count} peças</span>
             </div>
             <div className="mt-1 flex items-baseline justify-between">
-              <div className="text-base sm:text-lg font-bold text-slate-700 tracking-tight">
+              <div className="font-mono text-base sm:text-lg font-semibold tracking-tight text-stone-700 tabular-nums">
                 {hideFinancialValues
                   ? '••••••••'
                   : totals.total_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
               </div>
             </div>
-          </Card>
+          </div>
 
-          <Card className="border-l-4 border-l-emerald-600 bg-white shadow-xs py-2 px-3">
+          {/* Lucro Bruto Estimado */}
+          <div className="group relative rounded-xl border border-stone-200/90 bg-white/95 p-3 shadow-2xs transition-all hover:border-stone-300">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                Lucro Bruto Estimado
-              </span>
-              <span className="text-[10px] text-emerald-600 font-semibold">Líquido</span>
+              <div className="flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
+                <span className="text-[11px] font-medium text-stone-500">Lucro Bruto Estimado</span>
+              </div>
+              <span className="text-[10px] font-medium text-emerald-700">Líquido</span>
             </div>
             <div className="mt-1 flex items-baseline justify-between">
-              <div className="text-base sm:text-lg font-bold text-emerald-700 tracking-tight">
+              <div className="font-mono text-base sm:text-lg font-bold tracking-tight text-emerald-700 tabular-nums">
                 {hideFinancialValues
                   ? '••••••••'
                   : totals.gross_profit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
               </div>
             </div>
-          </Card>
+          </div>
         </div>
       </div>
 
       {/* Quadrante Cliente, Ambiente e Projeto */}
-      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+      <div className="rounded-xl border border-stone-200/90 bg-white/95 p-4 shadow-2xs space-y-3.5">
+        <div className="flex flex-wrap items-center justify-between border-b border-stone-100 pb-2.5 gap-2">
           <div className="flex items-center gap-2">
-            <User className="h-4 w-4 text-[#c92031]" />
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-800">
-              Identificação do Orçamento (Cliente & Projeto)
-            </span>
+            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-[#17191d] text-[#cbb27a]">
+              <User className="h-3.5 w-3.5" />
+            </div>
+            <div>
+              <span className="text-xs font-bold text-slate-900 block leading-tight">
+                Dados do Cliente & Ambiente
+              </span>
+              <span className="text-[11px] text-stone-500">
+                Vinculação com a carteira ou atendimento avulso
+              </span>
+            </div>
           </div>
           {selectedClientId !== 'custom' && (
-            <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px] font-semibold">
-              <Check className="mr-1 h-3 w-3" /> Cliente do Sistema Conectado
+            <Badge className="bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-semibold">
+              <Check className="mr-1 h-3 w-3" /> Cliente Conectado
             </Badge>
           )}
         </div>
@@ -1450,11 +1465,11 @@ export function OrcamentoCurrentTab({
         <div className="grid grid-cols-1 gap-3 md:grid-cols-12 items-end">
           {/* Cliente Seletor */}
           <div className="md:col-span-4 space-y-1">
-            <Label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+            <Label className="text-xs font-medium text-stone-600">
               Cliente Cadastrado
             </Label>
             <Select value={selectedClientId} onValueChange={handleSelectClient}>
-              <SelectTrigger className="h-9 text-xs font-medium bg-slate-50/50">
+              <SelectTrigger className="h-9 text-xs font-medium bg-stone-50/60 border-stone-200 hover:bg-white focus:bg-white rounded-lg">
                 <SelectValue placeholder="Selecione ou digite manual..." />
               </SelectTrigger>
               <SelectContent>
@@ -1472,27 +1487,27 @@ export function OrcamentoCurrentTab({
 
           {/* Nome do Cliente (Exibição / Edição) */}
           <div className="md:col-span-3 space-y-1">
-            <Label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+            <Label className="text-xs font-medium text-stone-600">
               Nome do Cliente
             </Label>
             <Input
               value={clientName}
               onChange={e => setClientName(e.target.value)}
               placeholder="Nome do cliente..."
-              className="h-9 text-xs font-bold text-slate-900"
+              className="h-9 text-xs font-semibold text-slate-900 bg-white border-stone-200 focus:border-[#c92031] focus:ring-1 focus:ring-[#c92031]/30 rounded-lg"
             />
           </div>
 
           {/* Projeto / Ambiente */}
           <div className="md:col-span-3 space-y-1">
-            <Label className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+            <Label className="text-xs font-medium text-stone-600">
               Ambiente / Projeto
             </Label>
             {selectedClientId !== 'custom' &&
             clientsList.find(c => c.id === selectedClientId)?.projetos &&
             (clientsList.find(c => c.id === selectedClientId)?.projetos?.length || 0) > 0 ? (
               <Select value={selectedProjectId} onValueChange={handleSelectProject}>
-                <SelectTrigger className="h-9 text-xs font-medium bg-slate-50/50">
+                <SelectTrigger className="h-9 text-xs font-medium bg-stone-50/60 border-stone-200 hover:bg-white focus:bg-white rounded-lg">
                   <SelectValue placeholder="Selecione o projeto..." />
                 </SelectTrigger>
                 <SelectContent>
@@ -1513,7 +1528,7 @@ export function OrcamentoCurrentTab({
                 value={projectName}
                 onChange={e => setProjectName(e.target.value)}
                 placeholder="Ex: Cozinha Planejada + Ilha"
-                className="h-9 text-xs font-medium text-slate-800"
+                className="h-9 text-xs font-medium text-slate-800 bg-white border-stone-200 focus:border-[#c92031] focus:ring-1 focus:ring-[#c92031]/30 rounded-lg"
               />
             )}
           </div>
@@ -1525,20 +1540,20 @@ export function OrcamentoCurrentTab({
               disabled={items.length === 0}
               variant="outline"
               size="sm"
-              className="h-9 border-[#cbb27a] bg-[#cbb27a]/10 text-[#886e35] hover:bg-[#cbb27a]/20 text-xs font-semibold px-2.5"
+              className="h-9 border-[#cbb27a]/60 bg-[#cbb27a]/10 text-[#886e35] hover:bg-[#cbb27a]/20 text-xs font-semibold px-3 rounded-lg shadow-2xs"
               title="Baixar proposta em PDF"
             >
-              <Download className="mr-1 h-3.5 w-3.5" />
-              PDF
+              <Download className="mr-1.5 h-3.5 w-3.5" />
+              PDF Comercial
             </Button>
 
             <Button
               onClick={handleDirectSave}
               disabled={items.length === 0 || isSaving}
               size="sm"
-              className={`h-9 font-semibold text-xs px-3 transition-all duration-300 ${
+              className={`h-9 font-semibold text-xs px-3.5 rounded-lg transition-all duration-300 shadow-2xs ${
                 saveSuccess
-                  ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                  ? 'bg-emerald-600 text-white shadow-emerald-600/30'
                   : 'bg-[#c92031] text-white hover:bg-[#aa1726]'
               }`}
             >
@@ -1564,21 +1579,21 @@ export function OrcamentoCurrentTab({
 
         {/* Input descritivo manual de ambiente caso tenha selecionado um projeto específico ou queira customizar */}
         {selectedClientId !== 'custom' && selectedProjectId !== 'custom' && (
-          <div className="flex items-center gap-2 pt-1 text-[11px] text-slate-600">
-            <FolderKanban className="h-3.5 w-3.5 text-blue-600" />
-            <span>Nome do ambiente:</span>
+          <div className="flex items-center gap-2 pt-1 text-[11px] text-stone-600">
+            <FolderKanban className="h-3.5 w-3.5 text-stone-500" />
+            <span>Nome descritivo do ambiente:</span>
             <Input
               value={projectName}
               onChange={e => setProjectName(e.target.value)}
               placeholder="Ex: Cozinha Integrada"
-              className="h-7 text-xs w-72"
+              className="h-7 text-xs w-72 bg-white border-stone-200 rounded-md"
             />
           </div>
         )}
       </div>
 
-      {/* Toolbar: Import & Chapa Switch */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm">
+      {/* Workbench Toolbar: Import & Chapa Switch */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-stone-200/90 bg-white/95 p-3 shadow-2xs">
         <div className="flex flex-wrap items-center gap-2">
           <input
             type="file"
@@ -1592,7 +1607,7 @@ export function OrcamentoCurrentTab({
           <Button
             onClick={() => fileInputRef.current?.click()}
             disabled={isUploading}
-            className="bg-[#17191d] text-xs text-white hover:bg-slate-800"
+            className="bg-[#17191d] text-xs text-white hover:bg-stone-800 rounded-lg shadow-2xs h-9 px-3.5 font-medium"
           >
             <Upload className="mr-1.5 h-4 w-4" />
             {isUploading ? 'Processando Arquivo...' : 'Importar Promob (XML / PDF)'}
@@ -1601,18 +1616,18 @@ export function OrcamentoCurrentTab({
           <Button
             variant="outline"
             onClick={() => setPasteModalOpen(true)}
-            className="border-slate-300 text-xs hover:bg-slate-50"
+            className="border-stone-200 bg-white text-stone-700 text-xs hover:bg-stone-50 rounded-lg h-9 px-3 shadow-2xs font-medium"
           >
-            <ClipboardPaste className="mr-1.5 h-3.5 w-3.5 text-blue-600" />
-            Colar Relatório Promob
+            <ClipboardPaste className="mr-1.5 h-3.5 w-3.5 text-stone-500" />
+            Colar Relatório
           </Button>
 
           <Button
             variant="outline"
             onClick={() => setAddItemModalOpen(true)}
-            className="border-slate-300 text-xs hover:bg-slate-50"
+            className="border-stone-200 bg-white text-stone-700 text-xs hover:bg-stone-50 rounded-lg h-9 px-3 shadow-2xs font-medium"
           >
-            <Plus className="mr-1.5 h-3.5 w-3.5 text-emerald-600" />
+            <Plus className="mr-1.5 h-3.5 w-3.5 text-stone-500" />
             Adicionar Item Manual
           </Button>
 
@@ -1620,10 +1635,10 @@ export function OrcamentoCurrentTab({
             <Button
               variant="outline"
               onClick={handlePullAllPricesFromTable}
-              className="border-blue-200 bg-blue-50/60 text-xs font-semibold text-blue-700 hover:bg-blue-100 hover:text-blue-800"
+              className="border-[#c92031]/25 bg-[#c92031]/5 text-xs font-semibold text-[#c92031] hover:bg-[#c92031]/10 rounded-lg h-9 px-3 shadow-2xs"
               title="Percorre os itens e traz o valor da tabela de preço para todas as chapas reconhecidas"
             >
-              <Sparkles className="mr-1.5 h-3.5 w-3.5 text-blue-600" />
+              <Sparkles className="mr-1.5 h-3.5 w-3.5 text-[#c92031]" />
               Trazer Preços da Tabela
             </Button>
           )}
@@ -1633,38 +1648,38 @@ export function OrcamentoCurrentTab({
               variant="ghost"
               size="sm"
               onClick={handleClearBudget}
-              className="text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
+              className="text-xs text-red-600 hover:bg-red-50 hover:text-red-700 rounded-lg h-9 px-2.5"
             >
               <Trash2 className="mr-1 h-3.5 w-3.5" />
-              Limpar Lista
+              Limpar
             </Button>
           )}
         </div>
 
         {/* Chapa Conversion Controls & View Filter */}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           {items.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-[11px]">
+              <div className="inline-flex items-center gap-0.5 rounded-lg border border-stone-200 bg-stone-100/90 p-0.5 text-xs">
                 <button
                   type="button"
                   onClick={() => setItemsViewFilter('grouped')}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md font-semibold transition-colors ${
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
                     itemsViewFilter === 'grouped'
-                      ? 'bg-white shadow text-slate-900 font-bold'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-white shadow-2xs text-slate-900 font-semibold'
+                      : 'text-stone-600 hover:text-slate-900'
                   }`}
                 >
-                  <Box className="h-3.5 w-3.5 text-blue-600" />
-                  <span>Por Móvel / Módulo ({moduleGroups.length})</span>
+                  <Box className="h-3.5 w-3.5 text-[#886e35]" />
+                  <span>Por Móvel ({moduleGroups.length})</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setItemsViewFilter('leaves')}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md font-medium transition-colors ${
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
                     itemsViewFilter === 'leaves'
-                      ? 'bg-white shadow text-slate-900 font-bold'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-white shadow-2xs text-slate-900 font-semibold'
+                      : 'text-stone-600 hover:text-slate-900'
                   }`}
                 >
                   <span>Peças de Corte ({items.filter(it => !it.is_parent_module).length})</span>
@@ -1672,41 +1687,41 @@ export function OrcamentoCurrentTab({
                 <button
                   type="button"
                   onClick={() => setItemsViewFilter('all')}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md font-medium transition-colors ${
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
                     itemsViewFilter === 'all'
-                      ? 'bg-white shadow text-slate-900 font-bold'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-white shadow-2xs text-slate-900 font-semibold'
+                      : 'text-stone-600 hover:text-slate-900'
                   }`}
                 >
-                  <span>Todas as Linhas ({items.length})</span>
+                  <span>Todas ({items.length})</span>
                 </button>
               </div>
 
               {itemsViewFilter === 'grouped' && (
-                <div className="flex items-center gap-1 text-[11px] text-slate-500">
+                <div className="flex items-center gap-1 text-[11px] text-stone-500">
                   <button
                     type="button"
                     onClick={() => handleExpandAllModules(true)}
-                    className="px-1.5 py-0.5 text-blue-600 hover:text-blue-800 hover:underline font-medium cursor-pointer"
+                    className="px-1.5 py-0.5 text-stone-600 hover:text-slate-900 hover:underline font-medium cursor-pointer"
                   >
-                    Expandir Todos
+                    Expandir
                   </button>
                   <span>•</span>
                   <button
                     type="button"
                     onClick={() => handleExpandAllModules(false)}
-                    className="px-1.5 py-0.5 text-slate-500 hover:text-slate-800 hover:underline cursor-pointer"
+                    className="px-1.5 py-0.5 text-stone-500 hover:text-slate-900 hover:underline cursor-pointer"
                   >
-                    Recolher Todos
+                    Recolher
                   </button>
                 </div>
               )}
             </div>
           )}
 
-          <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1 text-xs">
-            <Layers className="h-3.5 w-3.5 text-slate-500" />
-            <span className="font-medium text-slate-700">Chapas MDF:</span>
+          <div className="flex items-center gap-1.5 rounded-lg border border-stone-200 bg-stone-50/80 px-2.5 py-1 text-xs">
+            <Layers className="h-3.5 w-3.5 text-stone-500" />
+            <span className="font-medium text-stone-600">MDF:</span>
             <Select
               value={settings.chapa_mode}
               onValueChange={(val: 'm2' | 'chapa') => {
@@ -1716,7 +1731,7 @@ export function OrcamentoCurrentTab({
                 setItems(res.items);
               }}
             >
-              <SelectTrigger className="h-7 border-0 bg-transparent p-0 font-semibold text-slate-900 focus:ring-0">
+              <SelectTrigger className="h-6 border-0 bg-transparent p-0 font-semibold text-slate-900 focus:ring-0 text-xs">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1735,7 +1750,7 @@ export function OrcamentoCurrentTab({
                   setItems(res.items);
                 }}
               >
-                <SelectTrigger className="h-7 border-0 bg-transparent p-0 font-semibold text-slate-900 focus:ring-0">
+                <SelectTrigger className="h-6 border-0 bg-transparent p-0 font-semibold text-slate-900 focus:ring-0 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1748,13 +1763,13 @@ export function OrcamentoCurrentTab({
           </div>
 
           {items.length > 0 && (
-            <div className="relative w-48">
-              <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-slate-400" />
+            <div className="relative w-44">
+              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-stone-400" />
               <Input
                 placeholder="Filtrar peças..."
                 value={filterSearch}
                 onChange={e => setFilterSearch(e.target.value)}
-                className="h-8 pl-8 text-xs"
+                className="h-9 pl-8 text-xs bg-white border-stone-200 rounded-lg focus:border-[#c92031] focus:ring-1 focus:ring-[#c92031]/30"
               />
             </div>
           )}
@@ -1763,20 +1778,20 @@ export function OrcamentoCurrentTab({
 
       {/* Main Table or Empty State */}
       {items.length === 0 ? (
-        <Card className="border-dashed border-2 border-slate-200 bg-slate-50/50 p-12 text-center">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-white shadow-md">
+        <Card className="border-dashed border-2 border-stone-200 bg-stone-50/40 p-12 text-center rounded-2xl">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-white shadow-xs border border-stone-200/80">
             <FileSpreadsheet className="h-8 w-8 text-[#c92031]" />
           </div>
-          <h3 className="mt-4 text-lg font-bold text-slate-900">
+          <h3 className="mt-4 text-lg font-bold text-slate-900 tracking-tight">
             Nenhum arquivo ou item carregado
           </h3>
-          <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">
+          <p className="mx-auto mt-2 max-w-md text-xs sm:text-sm text-stone-500 leading-relaxed">
             Importe o arquivo exportado pelo <strong>Promob Plus ou Promob Start (.xml ou .pdf)</strong>. As repetições de peças e o consumo em m² quebrados serão calculados com exatidão matemática.
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
             <Button
               onClick={() => fileInputRef.current?.click()}
-              className="bg-[#c92031] text-white hover:bg-[#aa1726]"
+              className="bg-[#c92031] text-white hover:bg-[#aa1726] shadow-xs font-semibold text-xs h-9 px-4 rounded-lg"
             >
               <Upload className="mr-2 h-4 w-4" />
               Selecionar Arquivo Promob (XML / PDF)
@@ -1784,16 +1799,17 @@ export function OrcamentoCurrentTab({
             <Button
               variant="outline"
               onClick={() => setPasteModalOpen(true)}
-              className="border-slate-300"
+              className="border-stone-200 bg-white text-stone-700 text-xs hover:bg-stone-50 h-9 px-3.5 rounded-lg shadow-2xs font-medium"
             >
-              <ClipboardPaste className="mr-2 h-4 w-4 text-blue-600" />
+              <ClipboardPaste className="mr-2 h-4 w-4 text-stone-500" />
               Colar Relatório Promob
             </Button>
             <Button
               variant="outline"
               onClick={() => setAddItemModalOpen(true)}
+              className="border-stone-200 bg-white text-stone-700 text-xs hover:bg-stone-50 h-9 px-3.5 rounded-lg shadow-2xs font-medium"
             >
-              <Plus className="mr-2 h-4 w-4" />
+              <Plus className="mr-2 h-4 w-4 text-stone-500" />
               Inserir Item Manualmente
             </Button>
           </div>
@@ -1801,7 +1817,7 @@ export function OrcamentoCurrentTab({
       ) : itemsViewFilter === 'grouped' ? (
         <div className="space-y-4">
           {filteredModuleGroups.length === 0 ? (
-            <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
+            <div className="rounded-xl border border-stone-200 bg-white p-8 text-center text-xs text-stone-500">
               Nenhum móvel ou módulo encontrado com o filtro pesquisado.
             </div>
           ) : (
@@ -1810,62 +1826,62 @@ export function OrcamentoCurrentTab({
               return (
                 <div
                   key={group.id}
-                  className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs transition-shadow hover:shadow-sm"
+                  className="overflow-hidden rounded-xl border border-stone-200/90 bg-white shadow-2xs transition-all hover:border-stone-300"
                 >
                   {/* Cabeçalho do Móvel / Módulo */}
                   <div
                     onClick={() => handleToggleModuleExpand(group.id)}
-                    className="flex flex-wrap items-center justify-between gap-3 bg-slate-50/90 hover:bg-slate-100/90 px-4 py-3 cursor-pointer transition-colors border-b border-slate-100 select-none"
+                    className="flex flex-wrap items-center justify-between gap-3 bg-stone-50/80 hover:bg-stone-100/70 px-4 py-3 cursor-pointer transition-colors border-b border-stone-200/60 select-none"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
                       <button
                         type="button"
-                        className="p-1 rounded hover:bg-slate-200 text-slate-500 transition-colors shrink-0"
+                        className="p-1 rounded-md hover:bg-stone-200/70 text-stone-500 transition-colors shrink-0"
                         title={isExpanded ? 'Recolher peças' : 'Expandir peças'}
                       >
                         {isExpanded ? (
-                          <ChevronDown className="h-4 w-4" />
+                          <ChevronDown className="h-4 w-4 text-stone-600" />
                         ) : (
-                          <ChevronRight className="h-4 w-4" />
+                          <ChevronRight className="h-4 w-4 text-stone-600" />
                         )}
                       </button>
 
                       {group.is_hardware_only ? (
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700 shrink-0">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-stone-100 text-stone-700 border border-stone-200 shrink-0 shadow-2xs">
                           <Wrench className="h-4 w-4" />
                         </div>
                       ) : group.is_process_only ? (
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100 text-purple-700 shrink-0">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-purple-50 text-purple-700 border border-purple-200 shrink-0 shadow-2xs">
                           <Sparkles className="h-4 w-4" />
                         </div>
                       ) : (
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-amber-800 shrink-0">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#f8f4e9] text-[#886e35] border border-[#cbb27a]/30 shrink-0 shadow-2xs">
                           <Box className="h-4 w-4" />
                         </div>
                       )}
 
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="font-bold text-sm text-slate-900 truncate">
+                          <span className="font-bold text-sm text-slate-900 truncate tracking-tight">
                             {group.name}
                           </span>
                           {group.category && (
-                            <Badge variant="outline" className="text-[10px] py-0 border-slate-300 bg-white text-slate-600">
+                            <span className="rounded border border-stone-200 bg-white px-2 py-0.5 text-[10px] font-medium text-stone-600">
                               {group.category}
-                            </Badge>
+                            </span>
                           )}
                           {group.dimensions && (
-                            <span className="font-mono text-[10px] text-slate-600 bg-slate-200/70 px-1.5 py-0.5 rounded">
+                            <span className="font-mono text-[10px] font-semibold text-stone-700 bg-stone-100 border border-stone-200/70 px-2 py-0.5 rounded">
                               {group.dimensions}
                             </span>
                           )}
-                          <span className="text-[11px] text-slate-500 font-medium">
-                            ({group.items.length} {group.items.length === 1 ? 'peça/item' : 'peças/itens'})
+                          <span className="text-xs text-stone-500 font-normal">
+                            ({group.items.length} {group.items.length === 1 ? 'peça' : 'peças'})
                           </span>
                         </div>
                         {group.parent_item && (
-                          <span className="text-[11px] text-slate-500 block truncate">
-                            Módulo Promob: {group.parent_item.code} {group.parent_item.dimensions ? `(${group.parent_item.dimensions})` : ''}
+                          <span className="text-[11px] text-stone-500 block truncate mt-0.5">
+                            Módulo Promob: <span className="font-mono text-stone-700 font-medium">{group.parent_item.code}</span> {group.parent_item.dimensions ? `(${group.parent_item.dimensions})` : ''}
                           </span>
                         )}
                       </div>
@@ -1874,16 +1890,16 @@ export function OrcamentoCurrentTab({
                     {/* Subtotais do Móvel */}
                     <div className="flex items-center gap-4 text-right">
                       <div>
-                        <span className="text-[10px] uppercase font-semibold text-slate-400 block">Custo Materiais</span>
-                        <span className="font-semibold text-xs text-slate-700">
+                        <span className="text-[10px] uppercase font-medium text-stone-400 block tracking-wider">Custo Materiais</span>
+                        <span className="font-mono font-semibold text-xs text-stone-700 tabular-nums">
                           {hideFinancialValues
                             ? '••••••'
                             : group.subtotal_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                         </span>
                       </div>
-                      <div className="border-l border-slate-200 pl-3">
-                        <span className="text-[10px] uppercase font-semibold text-slate-400 block">Preço de Venda</span>
-                        <span className="font-bold text-sm text-[#c92031]">
+                      <div className="border-l border-stone-200 pl-3.5">
+                        <span className="text-[10px] uppercase font-semibold text-[#c92031]/80 block tracking-wider">Preço de Venda</span>
+                        <span className="font-mono font-bold text-sm text-[#c92031] tabular-nums">
                           {hideFinancialValues
                             ? '••••••'
                             : group.subtotal_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
@@ -1897,10 +1913,10 @@ export function OrcamentoCurrentTab({
                     <div>
                       <div className="overflow-x-auto">
                         <table className="w-full text-left text-xs text-slate-700">
-                          <thead className="bg-[#17191d] text-[10px] uppercase tracking-wider text-white">
+                          <thead className="bg-[#17191d] text-[10px] uppercase tracking-wider text-white font-semibold">
                             <tr>
-                              <th className="py-2.5 pl-3 pr-1 font-semibold w-10 text-center">#</th>
-                              <th className="px-2 py-2.5 font-semibold">Código / Peça</th>
+                              <th className="py-2.5 pl-3 pr-1 font-semibold w-10 text-center text-stone-400">#</th>
+                              <th className="px-2.5 py-2.5 font-semibold">Código / Peça</th>
                               <th className="px-3 py-2.5 font-semibold">Descrição do Material / Dimensões</th>
                               <th className="px-2 py-2.5 text-center font-semibold w-16" title="Repetições da peça">Rep (Peças)</th>
                               <th className="px-2 py-2.5 text-center font-semibold w-20" title="Matéria-prima unitária por peça (m²)">Qtd Unit. (M²)</th>
@@ -1909,21 +1925,21 @@ export function OrcamentoCurrentTab({
                               <th className="px-3 py-2.5 text-right font-semibold text-amber-300">Custo Tabela (R$) ✏️</th>
                               <th className="px-3 py-2.5 text-right font-semibold">Preço Unit.</th>
                               <th className="px-3 py-2.5 text-right font-semibold">Total Linha</th>
-                              <th className="py-2.5 pl-2 pr-4 text-center font-semibold">Ação</th>
+                              <th className="py-2.5 pl-2 pr-4 text-center font-semibold w-16">Ação</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-100">
+                          <tbody className="divide-y divide-stone-100 bg-white">
                             {group.items.map((item, idx) => renderItemRow(item, idx))}
                           </tbody>
                         </table>
                       </div>
-                      <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50/50 px-4 py-2 text-[11px] text-slate-500">
+                      <div className="flex items-center justify-between border-t border-stone-100 bg-stone-50/70 px-4 py-2 text-[11px] text-stone-600">
                         <span>Subtotal deste móvel: {group.items.length} itens</span>
-                        <div className="flex items-center gap-3 font-medium">
+                        <div className="flex items-center gap-3 font-mono">
                           <span>
                             Custo: {hideFinancialValues ? '••••••' : group.subtotal_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                           </span>
-                          <span>•</span>
+                          <span className="text-stone-300">•</span>
                           <span className="font-bold text-slate-900">
                             Venda: {hideFinancialValues ? '••••••' : group.subtotal_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                           </span>
@@ -1936,47 +1952,47 @@ export function OrcamentoCurrentTab({
             })
           )}
 
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-[11px] text-slate-500">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-stone-200/90 bg-white/95 px-4 py-3 text-xs text-stone-600 shadow-2xs">
             <span>
               {moduleGroups.length} móveis / módulos ({items.length} peças totais, {items.filter(it => it.found && !it.price_unlinked).length} vinculados à tabela de preços)
             </span>
-            <span className="text-slate-500">
-              Margem de cálculo aplicada: <strong className="font-semibold text-slate-700">{settings.margin}%</strong> (definida em Configurações)
+            <span className="text-stone-500">
+              Margem de cálculo aplicada: <strong className="font-semibold text-slate-800">{settings.margin}%</strong> (definida em Parâmetros)
             </span>
           </div>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-hidden rounded-xl border border-stone-200/90 bg-white shadow-2xs">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs text-slate-700">
-              <thead className="bg-[#17191d] text-[11px] uppercase tracking-wider text-white">
+              <thead className="bg-[#17191d] text-[10px] uppercase tracking-wider text-white font-semibold">
                 <tr>
-                  <th className="py-3 pl-3 pr-1 font-semibold w-10 text-center">#</th>
-                  <th className="px-2 py-3 font-semibold">Código / Peça</th>
-                  <th className="px-3 py-3 font-semibold">Descrição do Material / Dimensões</th>
-                  <th className="px-2 py-3 text-center font-semibold w-16" title="Repetições da peça no projeto (ex: 2 bases, 26 dobradiças)">Rep (Peças)</th>
-                  <th className="px-2 py-3 text-center font-semibold w-20" title="Matéria-prima unitária por peça (m² da chapa ou unidade)">Qtd Unit. (M²)</th>
-                  <th className="px-2 py-3 text-center font-semibold w-20" title="Consumo total de matéria-prima (Rep × Qtd Unit)">Total Matéria</th>
-                  <th className="px-2 py-3 text-center font-semibold w-12">Un</th>
-                  <th className="px-3 py-3 text-right font-semibold text-amber-300">
+                  <th className="py-2.5 pl-3 pr-1 font-semibold w-10 text-center text-stone-400">#</th>
+                  <th className="px-2.5 py-2.5 font-semibold">Código / Peça</th>
+                  <th className="px-3 py-2.5 font-semibold">Descrição do Material / Dimensões</th>
+                  <th className="px-2 py-2.5 text-center font-semibold w-16" title="Repetições da peça">Rep (Peças)</th>
+                  <th className="px-2 py-2.5 text-center font-semibold w-20" title="Matéria-prima unitária por peça (m²)">Qtd Unit. (M²)</th>
+                  <th className="px-2 py-2.5 text-center font-semibold w-20" title="Consumo total de matéria-prima">Total Matéria</th>
+                  <th className="px-2 py-2.5 text-center font-semibold w-12">Un</th>
+                  <th className="px-3 py-2.5 text-right font-semibold text-amber-300">
                     Custo Tabela (R$) ✏️
                   </th>
-                  <th className="px-3 py-3 text-right font-semibold">Preço Unit.</th>
-                  <th className="px-3 py-3 text-right font-semibold">Total Linha</th>
-                  <th className="py-3 pl-2 pr-4 text-center font-semibold">Ação</th>
+                  <th className="px-3 py-2.5 text-right font-semibold">Preço Unit.</th>
+                  <th className="px-3 py-2.5 text-right font-semibold">Total Linha</th>
+                  <th className="py-2.5 pl-2 pr-4 text-center font-semibold w-16">Ação</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-stone-100 bg-white">
                 {filteredItems.map((item, index) => renderItemRow(item, index))}
               </tbody>
             </table>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/70 px-4 py-2.5 text-[11px] text-slate-500">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-stone-100 bg-stone-50/70 px-4 py-2.5 text-[11px] text-stone-600">
             <span>
               {items.length} itens no orçamento ({items.filter(it => it.found && !it.price_unlinked).length} vinculados à tabela de preços)
             </span>
-            <span className="text-slate-500">
-              Margem de cálculo aplicada: <strong className="font-semibold text-slate-700">{settings.margin}%</strong> (definida em Configurações)
+            <span className="text-stone-500">
+              Margem de cálculo aplicada: <strong className="font-semibold text-slate-800">{settings.margin}%</strong> (definida em Parâmetros)
             </span>
           </div>
         </div>
@@ -1984,30 +2000,30 @@ export function OrcamentoCurrentTab({
 
       {/* MODAL: Vincular Chapa ou Acessório / Linha Inteligente */}
       <Dialog open={linkModalOpen} onOpenChange={setLinkModalOpen}>
-        <DialogContent className="sm:max-w-xl w-full max-h-[88vh] overflow-y-auto overflow-x-hidden p-5 sm:p-6">
+        <DialogContent className="sm:max-w-xl w-full max-h-[88vh] overflow-y-auto overflow-x-hidden p-5 sm:p-6 rounded-2xl">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900">
-              <Sparkles className="h-5 w-5 text-[#cbb27a]" />
+            <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900 tracking-tight">
+              <Sparkles className="h-4 w-4 text-[#c92031]" />
               Vincular Preço da Tabela DF Móveis
             </DialogTitle>
           </DialogHeader>
 
           {linkingItem && (
             <div className="space-y-4 py-1">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5 text-xs space-y-1.5 overflow-hidden">
+              <div className="rounded-xl border border-stone-200/90 bg-stone-50/80 p-3.5 text-xs space-y-1.5 overflow-hidden">
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Item Selecionado:</span>
-                  <Badge variant="outline" className="border-slate-300 text-[10px] bg-white">
+                  <span className="text-[11px] font-semibold text-stone-500 uppercase tracking-wider">Item Selecionado:</span>
+                  <span className="rounded border border-stone-200 bg-white px-2 py-0.5 text-[10px] font-mono text-stone-700">
                     {linkingItem.unit || 'UN'}
-                  </Badge>
+                  </span>
                 </div>
                 <p className="font-mono font-bold text-slate-900 break-all">{linkingItem.code}</p>
-                <p className="font-medium text-slate-700 break-words">{linkingItem.description}</p>
+                <p className="font-medium text-stone-700 break-words">{linkingItem.description}</p>
                 {linkingItem.dimensions && (
-                  <p className="text-[10px] text-slate-500 font-mono">Dimensões: {linkingItem.dimensions}</p>
+                  <p className="text-[10px] text-stone-600 font-mono">Dimensões: {linkingItem.dimensions}</p>
                 )}
                 {similarItemsCount > 1 && (
-                  <div className="flex items-center gap-1.5 pt-1 text-[11px] text-blue-700 font-medium border-t border-slate-200 mt-2">
+                  <div className="flex items-center gap-1.5 pt-1.5 text-[11px] text-blue-700 font-medium border-t border-stone-200 mt-2">
                     <span>⚡</span>
                     <span><strong>{similarItemsCount} itens semelhantes</strong> encontrados no orçamento com este padrão/material.</span>
                   </div>
@@ -2018,9 +2034,9 @@ export function OrcamentoCurrentTab({
                 <>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="min-w-0">
-                      <Label className="text-xs font-semibold">1. Categoria</Label>
+                      <Label className="text-xs font-semibold text-stone-700">1. Categoria</Label>
                       <Select value={selectedBrand} onValueChange={setSelectedBrand}>
-                        <SelectTrigger className="mt-1 text-xs w-full">
+                        <SelectTrigger className="mt-1 text-xs w-full bg-white border-stone-200 rounded-lg">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent className="max-h-60">
@@ -2032,17 +2048,17 @@ export function OrcamentoCurrentTab({
                     </div>
 
                     <div className="min-w-0">
-                      <Label className="text-xs font-semibold">2. Tipo</Label>
-                      <div className="mt-1 flex h-9 items-center rounded-md border border-slate-200 bg-slate-100 px-3 text-xs font-medium text-slate-600">
+                      <Label className="text-xs font-semibold text-stone-700">2. Tipo</Label>
+                      <div className="mt-1 flex h-9 items-center rounded-lg border border-stone-200 bg-stone-100/80 px-3 text-xs font-medium text-stone-600">
                         Ferragem / Acessório
                       </div>
                     </div>
                   </div>
 
                   <div className="min-w-0">
-                    <Label className="text-xs font-semibold">3. Acessório / Ferragem da Tabela</Label>
+                    <Label className="text-xs font-semibold text-stone-700">3. Acessório / Ferragem da Tabela</Label>
                     <Select value={selectedAcessorioId} onValueChange={setSelectedAcessorioId}>
-                      <SelectTrigger className="mt-1 text-xs font-semibold w-full">
+                      <SelectTrigger className="mt-1 text-xs font-semibold w-full bg-white border-stone-200 rounded-lg">
                         <SelectValue placeholder="Selecione o acessório..." />
                       </SelectTrigger>
                       <SelectContent className="max-h-60">
@@ -2055,18 +2071,18 @@ export function OrcamentoCurrentTab({
                     </Select>
                   </div>
 
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs flex flex-wrap items-center justify-between gap-2">
+                  <div className="rounded-xl border border-emerald-300/80 bg-emerald-50/80 p-3.5 text-xs flex flex-wrap items-center justify-between gap-2 shadow-2xs">
                     <div className="min-w-0">
                       <span className="font-bold text-emerald-900 block">Preço de Custo na Tabela:</span>
-                      <span className="text-slate-600 block truncate">
+                      <span className="text-stone-600 block truncate">
                         {selectedAcessorio?.name} {selectedAcessorio?.size ? `(${selectedAcessorio.size})` : ''}
                       </span>
                     </div>
                     <div className="text-right ml-auto">
-                      <span className="text-base font-black text-emerald-800 block">
+                      <span className="text-base font-bold text-emerald-800 block font-mono tabular-nums">
                         {(selectedAcessorio?.price || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </span>
-                      <span className="text-[10px] text-slate-500 font-medium">custo unitário</span>
+                      <span className="text-[10px] text-stone-500 font-medium">custo unitário</span>
                     </div>
                   </div>
                 </>
@@ -2074,9 +2090,9 @@ export function OrcamentoCurrentTab({
                 <>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="min-w-0">
-                      <Label className="text-xs font-semibold">1. Categoria</Label>
+                      <Label className="text-xs font-semibold text-stone-700">1. Categoria</Label>
                       <Select value={selectedBrand} onValueChange={setSelectedBrand}>
-                        <SelectTrigger className="mt-1 text-xs w-full">
+                        <SelectTrigger className="mt-1 text-xs w-full bg-white border-stone-200 rounded-lg">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent className="max-h-60">
@@ -2088,17 +2104,17 @@ export function OrcamentoCurrentTab({
                     </div>
 
                     <div className="min-w-0">
-                      <Label className="text-xs font-semibold">2. Tipo</Label>
-                      <div className="mt-1 flex h-9 items-center rounded-md border border-slate-200 bg-slate-100 px-3 text-xs font-medium text-slate-600">
+                      <Label className="text-xs font-semibold text-stone-700">2. Tipo</Label>
+                      <div className="mt-1 flex h-9 items-center rounded-lg border border-stone-200 bg-stone-100/80 px-3 text-xs font-medium text-stone-600">
                         Processo / Mão de Obra Fixa
                       </div>
                     </div>
                   </div>
 
                   <div className="min-w-0">
-                    <Label className="text-xs font-semibold">3. Processo / Mão de Obra da Tabela</Label>
+                    <Label className="text-xs font-semibold text-stone-700">3. Processo / Mão de Obra da Tabela</Label>
                     <Select value={selectedMaoDeObraId} onValueChange={setSelectedMaoDeObraId}>
-                      <SelectTrigger className="mt-1 text-xs font-semibold w-full">
+                      <SelectTrigger className="mt-1 text-xs font-semibold w-full bg-white border-stone-200 rounded-lg">
                         <SelectValue placeholder="Selecione o processo de fabricação..." />
                       </SelectTrigger>
                       <SelectContent className="max-h-60">
@@ -2111,18 +2127,18 @@ export function OrcamentoCurrentTab({
                     </Select>
                   </div>
 
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs flex flex-wrap items-center justify-between gap-2">
+                  <div className="rounded-xl border border-emerald-300/80 bg-emerald-50/80 p-3.5 text-xs flex flex-wrap items-center justify-between gap-2 shadow-2xs">
                     <div className="min-w-0">
                       <span className="font-bold text-emerald-900 block">Preço Unitário do Processo:</span>
-                      <span className="text-slate-600 block truncate">
+                      <span className="text-stone-600 block truncate">
                         {selectedMaoDeObra?.name}
                       </span>
                     </div>
                     <div className="text-right ml-auto">
-                      <span className="text-base font-black text-emerald-800 block">
+                      <span className="text-base font-bold text-emerald-800 block font-mono tabular-nums">
                         {(selectedMaoDeObra?.price || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                       </span>
-                      <span className="text-[10px] text-slate-500 font-medium">por {selectedMaoDeObra?.unit || 'unidade'}</span>
+                      <span className="text-[10px] text-stone-500 font-medium">por {selectedMaoDeObra?.unit || 'unidade'}</span>
                     </div>
                   </div>
                 </>
@@ -2130,9 +2146,9 @@ export function OrcamentoCurrentTab({
                 <>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="min-w-0">
-                      <Label className="text-xs font-semibold">1. Marca</Label>
+                      <Label className="text-xs font-semibold text-stone-700">1. Marca</Label>
                       <Select value={selectedBrand} onValueChange={setSelectedBrand}>
-                        <SelectTrigger className="mt-1 text-xs w-full">
+                        <SelectTrigger className="mt-1 text-xs w-full bg-white border-stone-200 rounded-lg">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent className="max-h-60">
@@ -2144,12 +2160,12 @@ export function OrcamentoCurrentTab({
                     </div>
 
                     <div className="min-w-0">
-                      <Label className="text-xs font-semibold">2. Espessura</Label>
+                      <Label className="text-xs font-semibold text-stone-700">2. Espessura</Label>
                       <Select
                         value={selectedThickness}
                         onValueChange={(val: '6mm' | '15mm' | '18mm' | '25mm') => setSelectedThickness(val)}
                       >
-                        <SelectTrigger className="mt-1 text-xs font-bold w-full">
+                        <SelectTrigger className="mt-1 text-xs font-bold w-full bg-white border-stone-200 rounded-lg">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -2163,9 +2179,9 @@ export function OrcamentoCurrentTab({
                   </div>
 
                   <div className="min-w-0">
-                    <Label className="text-xs font-semibold">3. Linha / Padrão da Marca ({selectedBrand})</Label>
+                    <Label className="text-xs font-semibold text-stone-700">3. Linha / Padrão da Marca ({selectedBrand})</Label>
                     <Select value={selectedLine} onValueChange={setSelectedLine}>
-                      <SelectTrigger className="mt-1 text-xs font-semibold w-full">
+                      <SelectTrigger className="mt-1 text-xs font-semibold w-full bg-white border-stone-200 rounded-lg">
                         <SelectValue placeholder="Selecione a linha..." />
                       </SelectTrigger>
                       <SelectContent className="max-h-60">
@@ -2181,18 +2197,18 @@ export function OrcamentoCurrentTab({
                     </Select>
                   </div>
 
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3 text-xs flex flex-wrap items-center justify-between gap-2">
+                  <div className="rounded-xl border border-emerald-300/80 bg-emerald-50/80 p-3.5 text-xs flex flex-wrap items-center justify-between gap-2 shadow-2xs">
                     <div className="min-w-0">
                       <span className="font-bold text-emerald-900 block">Preço de Custo na Tabela:</span>
-                      <span className="text-slate-600 block truncate">
+                      <span className="text-stone-600 block truncate">
                         {selectedBrand} - {selectedLine || 'Selecione a linha'} ({selectedThickness})
                       </span>
                     </div>
                     <div className="text-right ml-auto">
-                      <span className="text-base font-black text-emerald-800 block">
+                      <span className="text-base font-bold text-emerald-800 block font-mono tabular-nums">
                         {currentM2Cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²
                       </span>
-                      <span className="text-[10px] text-slate-500 font-medium block">
+                      <span className="text-[10px] text-stone-500 font-medium block">
                         (Chapa inteira: {currentBoardPrice.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})
                       </span>
                     </div>
@@ -2207,14 +2223,14 @@ export function OrcamentoCurrentTab({
               type="button"
               variant="outline"
               onClick={() => handleApplyLink(false)}
-              className="text-xs flex-1 border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 font-semibold h-9"
+              className="text-xs flex-1 border-stone-200 bg-white text-stone-700 hover:bg-stone-50 font-semibold h-9 rounded-lg"
             >
               📥 Trazer Preço para Este Item
             </Button>
             <Button
               type="button"
               onClick={() => handleApplyLink(true)}
-              className="bg-[#c92031] text-white hover:bg-[#aa1726] text-xs flex-1 font-semibold h-9"
+              className="bg-[#c92031] text-white hover:bg-[#aa1726] text-xs flex-1 font-semibold h-9 rounded-lg shadow-2xs"
             >
               📥 Trazer para TODOS Similares ({similarItemsCount})
             </Button>
@@ -2224,44 +2240,47 @@ export function OrcamentoCurrentTab({
 
       {/* MODAL: Inserir Item Manual */}
       <Dialog open={addItemModalOpen} onOpenChange={setAddItemModalOpen}>
-        <DialogContent className="sm:max-w-lg w-full max-h-[88vh] overflow-y-auto overflow-x-hidden p-5 sm:p-6">
+        <DialogContent className="sm:max-w-lg w-full max-h-[88vh] overflow-y-auto overflow-x-hidden p-5 sm:p-6 rounded-2xl">
           <DialogHeader>
-            <DialogTitle className="text-base font-bold text-slate-900">Adicionar Item Manual</DialogTitle>
+            <DialogTitle className="text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
+              <Plus className="h-4 w-4 text-[#c92031]" />
+              Adicionar Item Manual
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div>
-              <Label className="text-xs font-semibold">Código / Referência</Label>
+              <Label className="text-xs font-semibold text-stone-700">Código / Referência</Label>
               <Input
                 placeholder="Ex: MDF-BRANCO-15"
                 value={newItemCode}
                 onChange={e => setNewItemCode(e.target.value)}
-                className="mt-1 text-xs"
+                className="mt-1 text-xs bg-white border-stone-200 rounded-lg focus:border-[#c92031] focus:ring-1 focus:ring-[#c92031]/30 font-mono"
               />
             </div>
             <div>
-              <Label className="text-xs font-semibold">Descrição do Item</Label>
+              <Label className="text-xs font-semibold text-stone-700">Descrição do Item</Label>
               <Input
                 placeholder="Ex: Tampo de Ilha 18mm"
                 value={newItemDesc}
                 onChange={e => setNewItemDesc(e.target.value)}
-                className="mt-1 text-xs"
+                className="mt-1 text-xs bg-white border-stone-200 rounded-lg focus:border-[#c92031] focus:ring-1 focus:ring-[#c92031]/30"
               />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <div>
-                <Label className="text-xs font-semibold">Quantidade</Label>
+                <Label className="text-xs font-semibold text-stone-700">Quantidade</Label>
                 <Input
                   type="number"
                   step="0.01"
                   value={newItemQty}
                   onChange={e => setNewItemQty(parseFloat(e.target.value) || 1)}
-                  className="mt-1 text-xs"
+                  className="mt-1 text-xs bg-white border-stone-200 rounded-lg font-mono focus:border-[#c92031] focus:ring-1 focus:ring-[#c92031]/30"
                 />
               </div>
               <div>
-                <Label className="text-xs font-semibold">Unidade</Label>
+                <Label className="text-xs font-semibold text-stone-700">Unidade</Label>
                 <Select value={newItemUnit} onValueChange={setNewItemUnit}>
-                  <SelectTrigger className="mt-1 text-xs w-full">
+                  <SelectTrigger className="mt-1 text-xs w-full bg-white border-stone-200 rounded-lg">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -2274,22 +2293,22 @@ export function OrcamentoCurrentTab({
                 </Select>
               </div>
               <div>
-                <Label className="text-xs font-semibold">Custo Base (R$)</Label>
+                <Label className="text-xs font-semibold text-stone-700">Custo Base (R$)</Label>
                 <Input
                   placeholder="0,00"
                   value={newItemCost}
                   onChange={e => setNewItemCost(e.target.value)}
-                  className="mt-1 text-xs"
+                  className="mt-1 text-xs bg-white border-stone-200 rounded-lg font-mono focus:border-[#c92031] focus:ring-1 focus:ring-[#c92031]/30"
                 />
               </div>
             </div>
           </div>
           <DialogFooter className="gap-2 sm:gap-0 pt-2">
-            <Button type="button" variant="outline" onClick={() => setAddItemModalOpen(false)}>
+            <Button type="button" variant="outline" onClick={() => setAddItemModalOpen(false)} className="rounded-lg border-stone-200 text-xs">
               Cancelar
             </Button>
-            <Button type="button" onClick={handleAddManualItem} className="bg-[#c92031] text-white hover:bg-[#aa1726]">
-              Adicionar Item
+            <Button type="button" onClick={handleAddManualItem} className="bg-[#c92031] text-white hover:bg-[#aa1726] rounded-lg shadow-2xs text-xs font-semibold">
+              Adicionar ao Orçamento
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2297,35 +2316,35 @@ export function OrcamentoCurrentTab({
 
       {/* MODAL: Colar Relatório Promob */}
       <Dialog open={pasteModalOpen} onOpenChange={setPasteModalOpen}>
-        <DialogContent className="sm:max-w-2xl w-full max-h-[88vh] overflow-y-auto overflow-x-hidden p-5 sm:p-6">
+        <DialogContent className="sm:max-w-2xl w-full max-h-[88vh] overflow-y-auto overflow-x-hidden p-5 sm:p-6 rounded-2xl">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900">
-              <ClipboardPaste className="h-5 w-5 text-blue-600" />
+            <DialogTitle className="flex items-center gap-2 text-base font-bold text-slate-900 tracking-tight">
+              <ClipboardPaste className="h-4 w-4 text-stone-600" />
               Colar Relatório / Tabela Promob
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            <p className="text-xs text-slate-600">
-              Copie a tabela do relatório do <strong>Promob Plus ou Promob Start</strong> (ou o texto do PDF) e cole no campo abaixo. Os campos de cliente, repetições, m² quebrados e preços de tabela serão importados automaticamente:
+            <p className="text-xs text-stone-600 leading-relaxed">
+              Copie a tabela do relatório do <strong>Promob Plus ou Promob Start</strong> (ou o texto do PDF) e cole no campo abaixo. Os campos de cliente, repetições, m² e preços de tabela serão importados com precisão:
             </p>
             <textarea
               rows={10}
               value={pastedText}
               onChange={e => setPastedText(e.target.value)}
               placeholder="Cole aqui o texto do relatório Promob (Item, Rep, Qtd, Referência, Descrição, Preço Tabela, Preço Final)..."
-              className="w-full rounded-lg border border-slate-300 p-3 font-mono text-xs focus:border-[#c92031] focus:outline-none focus:ring-1 focus:ring-[#c92031]"
+              className="w-full rounded-xl border border-stone-300 p-3 font-mono text-xs focus:border-[#c92031] focus:outline-none focus:ring-1 focus:ring-[#c92031]/30 bg-stone-50/50"
             />
           </div>
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setPasteModalOpen(false)}>
+            <Button variant="outline" onClick={() => setPasteModalOpen(false)} className="rounded-lg border-stone-200 text-xs">
               Cancelar
             </Button>
             <Button
               onClick={handlePasteImport}
-              className="bg-[#c92031] text-white hover:bg-[#aa1726]"
+              className="bg-[#c92031] text-white hover:bg-[#aa1726] rounded-lg shadow-2xs text-xs font-semibold"
             >
               <Check className="mr-1.5 h-4 w-4" />
-              Importar Relatório
+              Processar e Importar
             </Button>
           </DialogFooter>
         </DialogContent>

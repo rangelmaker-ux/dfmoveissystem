@@ -429,16 +429,16 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                     setSelectedBrand(brand);
                     setBrandSearch('');
                   }}
-                  className={`flex shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition-all ${
+                  className={`flex shrink-0 items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold transition-all ${
                     isSelected
-                      ? 'bg-[#c92031] text-white shadow-md shadow-[#c92031]/20'
-                      : 'border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                      ? 'bg-[#c92031] text-white shadow-xs'
+                      : 'border border-stone-200/90 bg-white text-stone-700 hover:border-stone-300 hover:bg-stone-50 shadow-2xs'
                   }`}
                 >
                   <span>{brand}</span>
                   <span
-                    className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-                      isSelected ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
+                    className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none ${
+                      isSelected ? 'bg-white/20 text-white' : 'bg-stone-100 text-stone-600'
                     }`}
                   >
                     {count}
@@ -449,24 +449,24 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
           </div>
 
           {/* Brand Toolbar: Search and Add Line */}
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-stone-200/90 bg-white/95 p-3 shadow-2xs">
             <div className="flex items-center gap-3 flex-1 max-w-md">
               <div className="relative flex-1">
-                <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-stone-400" />
                 <Input
                   placeholder={`Buscar linhas e cores em ${selectedBrand}...`}
                   value={brandSearch}
                   onChange={e => setBrandSearch(e.target.value)}
-                  className="pl-9 text-xs"
+                  className="pl-9 text-xs bg-white border-stone-200 rounded-lg focus:border-[#c92031] focus:ring-1 focus:ring-[#c92031]/30"
                 />
               </div>
             </div>
 
             <div className="flex items-center gap-2">
-              <div className="hidden sm:flex items-center gap-2 text-xs text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
+              <div className="hidden sm:flex items-center gap-2 text-xs text-stone-600 bg-stone-50/80 px-3 py-1.5 rounded-lg border border-stone-200">
                 <span>Margem ativa:</span>
-                <strong className="text-[#c92031]">{settings.margin}%</strong>
-                <span className="text-[10px] text-slate-400">(Preço de Venda sugerido automático)</span>
+                <strong className="text-[#c92031] font-mono">{settings.margin}%</strong>
+                <span className="text-[10px] text-stone-400">(Preço de Venda sugerido automático)</span>
               </div>
 
               {activeBrandData.type === 'brand' && (
@@ -479,9 +479,9 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                     setEditPrice25mm('');
                     setAddLineModalOpen(true);
                   }}
-                  className="bg-[#17191d] text-xs text-white hover:bg-slate-800"
+                  className="bg-[#17191d] text-xs text-white hover:bg-stone-800 rounded-lg shadow-2xs h-9 px-3.5 font-medium"
                 >
-                  <Plus className="mr-1.5 h-3.5 w-3.5 text-emerald-400" />
+                  <Plus className="mr-1.5 h-3.5 w-3.5 text-[#cbb27a]" />
                   Nova Linha em {selectedBrand}
                 </Button>
               )}
@@ -495,9 +495,9 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                     setEditMoDesc('');
                     setAddMoModalOpen(true);
                   }}
-                  className="bg-[#17191d] text-xs text-white hover:bg-slate-800"
+                  className="bg-[#17191d] text-xs text-white hover:bg-stone-800 rounded-lg shadow-2xs h-9 px-3.5 font-medium"
                 >
-                  <Plus className="mr-1.5 h-3.5 w-3.5 text-emerald-400" />
+                  <Plus className="mr-1.5 h-3.5 w-3.5 text-[#cbb27a]" />
                   Nova Mão de Obra Fixa
                 </Button>
               )}
@@ -506,18 +506,18 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
 
           {/* Table of Brand Lines */}
           {activeBrandData.type === 'brand' ? (
-            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+            <div className="overflow-hidden rounded-xl border border-stone-200/90 bg-white shadow-2xs">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs text-slate-700">
-                  <thead className="bg-[#17191d] text-[11px] uppercase tracking-wider text-white">
+                  <thead className="bg-[#17191d] text-[10px] uppercase tracking-wider text-white font-semibold">
                     <tr>
-                      <th className="py-3.5 pl-4 pr-3 font-semibold">Linha / Padrão</th>
-                      <th className="px-3 py-3.5 text-center font-semibold">Dimensões</th>
-                      <th className="px-3 py-3.5 text-right font-semibold">6mm (Custo / Venda)</th>
-                      <th className="px-3 py-3.5 text-right font-semibold bg-white/5">15mm (Custo / Venda)</th>
-                      <th className="px-3 py-3.5 text-right font-semibold">18mm (Custo / Venda)</th>
-                      <th className="px-3 py-3.5 text-right font-semibold">25mm (Custo)</th>
-                      <th className="py-3.5 pl-2 pr-4 text-center font-semibold">Ação</th>
+                      <th className="py-3 pl-4 pr-3 font-semibold">Linha / Padrão</th>
+                      <th className="px-3 py-3 text-center font-semibold">Dimensões</th>
+                      <th className="px-3 py-3 text-right font-semibold">6mm (Custo / Venda)</th>
+                      <th className="px-3 py-3 text-right font-semibold bg-white/5">15mm (Custo / Venda)</th>
+                      <th className="px-3 py-3 text-right font-semibold">18mm (Custo / Venda)</th>
+                      <th className="px-3 py-3 text-right font-semibold">25mm (Custo)</th>
+                      <th className="py-3 pl-2 pr-4 text-center font-semibold">Ação</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">

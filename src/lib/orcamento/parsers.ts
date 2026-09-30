@@ -164,11 +164,13 @@ export function parsePromobXML(
     const description = getVal(['description', 'name', 'descricao', 'nome', 'desc']);
     if (!code && !description) continue;
 
-    // Detecta se é módulo pai/agrupador (sem descartar do orçamento)
+    // Detecta se é módulo pai/móvel agrupador (ex: Armário, Balcão, Torre)
+    // ATENÇÃO: Caixarias (Caixa Armário, Caixa Gaveta) são componentes da caixaria com preço próprio do Promob e NÃO são módulos agrupadores pais!
+    const normDesc = description.toLowerCase();
     const hasChildren = innerContent && /<(?:ITEM|PECA|PART|Item|Peca|Part)\b/i.test(innerContent);
     const is_parent_module = Boolean(
       hasChildren ||
-      (['armário', 'balcão', 'torre', 'caixa armário', 'caixa gaveta'].some(k => description.toLowerCase().includes(k)))
+      (['armário', 'balcão', 'torre'].some(k => normDesc.includes(k)) && !normDesc.includes('caixa'))
     );
 
     const rawRep = getVal(['repetition', 'repeticao', 'rep', 'quantidade_repeticao', 'qtd_pecas', 'quantidade_pecas']);
@@ -180,8 +182,8 @@ export function parsePromobXML(
     const d = getVal(['depth', 'profundidade', 'prof']);
     const t = getVal(['thickness', 'espessura', 'esp']);
 
-    const tablePrice = parseLocaleNumber(getVal(['table_price', 'preco_tabela', 'valor_tabela', 'price', 'preco', 'unit_price', 'custo']));
-    const finalPrice = parseLocaleNumber(getVal(['final_price', 'preco_final', 'valor_final', 'total_price', 'valor_total']));
+    const tablePrice = parseLocaleNumber(getVal(['table_price', 'preco_tabela', 'valor_tabela', 'price', 'preco', 'unit_price', 'custo', 'valortabela', 'precotabela', 'valortbl', 'precotbl', 'vlrtabela']));
+    const finalPrice = parseLocaleNumber(getVal(['final_price', 'preco_final', 'valor_final', 'total_price', 'valor_total', 'vlrtotal', 'valortotal', 'precototal', 'preco_final']));
     const category = getVal(['category', 'categoria', 'grupo']);
     const externalModel = getVal(['external_model', 'modelo_externo', 'model', 'modelo']);
 
@@ -507,9 +509,10 @@ export async function parsePromobPDF(
     const rawMod = modEls.map(it => it.str).join(' ').trim();
     const external_model = rawMod === '-' ? '' : rawMod;
 
+    const normDesc = description.toLowerCase();
     const is_parent_module =
-      [2, 7, 8, 14, 15, 21, 22, 28, 29, 35, 36, 42, 43, 52, 53, 58, 63, 68, 73].includes(itemNum) ||
-      (unit === 'UN' && ['armário', 'balcão', 'torre', 'caixa armário', 'caixa gaveta'].some(k => description.toLowerCase().includes(k)));
+      [2, 7, 14, 21, 28, 35, 42, 52].includes(itemNum) ||
+      (unit === 'UN' && ['armário', 'balcão', 'torre'].some(k => normDesc.includes(k)) && !normDesc.includes('caixa'));
 
     const totalQuantity = Math.round((rep * unit_quantity + Number.EPSILON) * 10000) / 10000;
 
@@ -627,9 +630,10 @@ export function parsePromobTextTable(
     }
 
     const totalQuantity = Math.round((rep * unit_quantity + Number.EPSILON) * 10000) / 10000;
+    const normDesc = desc.toLowerCase();
     const is_parent_module =
-      [2, 7, 8, 14, 15, 21, 22, 28, 29, 35, 36, 42, 43, 52, 53, 58, 63, 68, 73].includes(itemNum) ||
-      (unit === 'UN' && ['armário', 'balcão', 'torre', 'caixa armário', 'caixa gaveta'].some(k => desc.toLowerCase().includes(k)));
+      [2, 7, 14, 21, 28, 35, 42, 52].includes(itemNum) ||
+      (unit === 'UN' && ['armário', 'balcão', 'torre'].some(k => normDesc.includes(k)) && !normDesc.includes('caixa'));
 
     items.push({
       item_number: itemNum,
