@@ -453,11 +453,19 @@ export function smartMatchAccessory(
       if (match && match.price > 0) {
         return { matched: true, name: match.name, price: match.price, unit: 'UN', source: 'catalog_acessorio', code: match.id };
       }
+      const dbCont = findDbProduct(p => normalizeText(p.description).includes('continuo') || normalizeCode(p.code).includes('continuo') || (p.subcodes && p.subcodes.some(s => normalizeCode(s).includes('continuo'))));
+      if (dbCont && dbCont.unit_price > 0) {
+        return { matched: true, name: dbCont.description, price: dbCont.unit_price, unit: dbCont.unit || 'UN', source: 'database', code: dbCont.code };
+      }
     }
     if (normText.includes('gola')) {
       const match = findAcessorio(n => n.includes('puxador') && n.includes('gola'));
       if (match && match.price > 0) {
         return { matched: true, name: match.name, price: match.price, unit: 'UN', source: 'catalog_acessorio', code: match.id };
+      }
+      const dbGola = findDbProduct(p => normalizeText(p.description).includes('gola') || normalizeCode(p.code).includes('gola') || (p.subcodes && p.subcodes.some(s => normalizeCode(s).includes('gola'))));
+      if (dbGola && dbGola.unit_price > 0) {
+        return { matched: true, name: dbGola.description, price: dbGola.unit_price, unit: dbGola.unit || 'UN', source: 'database', code: dbGola.code };
       }
     }
     const dbPux = findDbProduct(p => normalizeCode(p.code) === 'puxador-perfil-alum' || normalizeText(p.description).includes('puxador'));
@@ -474,7 +482,7 @@ export function smartMatchAccessory(
     if (match && match.price > 0) {
       return { matched: true, name: match.name, price: match.price, unit: 'UN', source: 'catalog_acessorio', code: match.id };
     }
-    const dbPistao = findDbProduct(p => normalizeCode(p.code).includes('pistao'));
+    const dbPistao = findDbProduct(p => (normalizeCode(p.code).includes('pistao') || normalizeText(p.description).includes('pistao')) && p.unit_price > 0);
     if (dbPistao && dbPistao.unit_price > 0) {
       return { matched: true, name: dbPistao.description, price: dbPistao.unit_price, unit: dbPistao.unit || 'UN', source: 'database', code: dbPistao.code };
     }
@@ -1293,8 +1301,20 @@ export function recalculateBudget(
   });
 
   const total_cost = round2(billableItems.reduce((acc, curr) => acc + curr.total_cost, 0));
-  const total_price = round2(billableItems.reduce((acc, curr) => acc + curr.total_price, 0));
-  const gross_profit = round2(total_price - total_cost);
+  const additionsFactor = calculateAdditionsFactor(settings);
+  const marginPercent = Math.max(0, Number(settings.margin !== undefined ? settings.margin : 200));
+
+  const hasExplicitFinalPrices = billableItems.some(it => it.final_price !== undefined && it.final_price > 0 && it.final_price !== it.total_cost);
+  let total_price: number;
+  let gross_profit: number;
+
+  if (hasExplicitFinalPrices) {
+    total_price = round2(billableItems.reduce((acc, curr) => acc + curr.total_price, 0));
+    gross_profit = round2(total_price - total_cost);
+  } else {
+    gross_profit = round2(total_cost * (marginPercent / 100));
+    total_price = round2((total_cost + gross_profit) * additionsFactor);
+  }
   const profit_margin_percent = total_cost > 0 ? round2((gross_profit / total_cost) * 100) : 0;
 
   return {

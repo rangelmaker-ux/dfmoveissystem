@@ -21,7 +21,7 @@ export const Route = createFileRoute('/_dashboard/orcamento')({
 });
 
 const DEFAULT_SETTINGS: BudgetSettings = {
-  margin: 50,
+  margin: 200,
   frete: 5,
   montagem: 10,
   comissao_vendas: 4,
@@ -92,7 +92,13 @@ function OrcamentoPage() {
 
       const savedSet = localStorage.getItem('df_orcamento_settings');
       if (savedSet) {
-        setSettings(JSON.parse(savedSet));
+        try {
+          const parsed = JSON.parse(savedSet);
+          if (parsed.margin === 50) parsed.margin = 200;
+          setSettings({ ...DEFAULT_SETTINGS, ...parsed });
+        } catch {
+          setSettings(DEFAULT_SETTINGS);
+        }
       }
 
       const savedList = localStorage.getItem('df_orcamento_saved_list');
@@ -123,6 +129,32 @@ function OrcamentoPage() {
     }
   }, []);
 
+  // Sincronização Realtime entre todos os projetistas (materiais e catálogo de chapas)
+  useEffect(() => {
+    const channel = supabase
+      .channel('orcamento_company_sync')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'orcamento_workspace',
+      }, (payload: any) => {
+        const record = payload.new;
+        if (record) {
+          if (Array.isArray(record.materials) && record.materials.length > 0) {
+            setDatabase(record.materials);
+          }
+          if (record.catalog && Object.keys(record.catalog).length > 0) {
+            setCatalog(record.catalog);
+          }
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
   // Prefer the shared workspace when available; localStorage remains an offline fallback.
   useEffect(() => {
     let cancelled = false;
@@ -135,7 +167,11 @@ function OrcamentoPage() {
         if (cancelled || !remote) return;
         setItems(remote.currentItems || []);
         setSavedBudgets(remote.savedBudgets || []);
-        if (remote.settings && Object.keys(remote.settings).length) setSettings({ ...DEFAULT_SETTINGS, ...remote.settings });
+        if (remote.settings && Object.keys(remote.settings).length) {
+          const remoteSettings = { ...DEFAULT_SETTINGS, ...remote.settings };
+          if (remoteSettings.margin === 50) remoteSettings.margin = 200;
+          setSettings(remoteSettings);
+        }
         if (remote.database?.length) setDatabase(remote.database);
         if (remote.catalog && Object.keys(remote.catalog).length) setCatalog(remote.catalog);
         setLoadedBudgetId(remote.currentBudgetId || null);

@@ -1411,14 +1411,7 @@ export function OrcamentoCurrentTab({
           )}
         </td>
 
-        <td className="px-3 py-2.5 text-right font-mono text-xs font-medium text-stone-600 tabular-nums">
-          {hideFinancialValues
-            ? '••••••'
-            : isAppliance
-            ? '—'
-            : item.unit_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-        </td>
-
+        {/* Total Custo da Peça/Linha */}
         <td className="px-3 py-2.5 text-right font-mono tabular-nums">
           {hideFinancialValues ? (
             <span className="font-bold text-stone-400 text-xs select-none">••••••</span>
@@ -1428,14 +1421,9 @@ export function OrcamentoCurrentTab({
               <span className="text-[10px] text-stone-400 font-normal block">Sem Custo</span>
             </>
           ) : (
-            <>
-              <span className="font-bold text-slate-900 text-xs block">
-                {item.total_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-              </span>
-              <span className="text-[10px] text-stone-400 font-normal block">
-                Custo: {item.total_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-              </span>
-            </>
+            <span className="font-bold text-slate-900 text-xs block">
+              {item.total_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+            </span>
           )}
         </td>
 
@@ -1512,12 +1500,52 @@ export function OrcamentoCurrentTab({
         </div>
 
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
-          {/* Valor Total de Venda */}
+          {/* 1. Custo Total dos Materiais */}
+          <div className="group relative rounded-xl border border-stone-200/90 bg-white/95 p-3 shadow-2xs transition-all hover:border-stone-300">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-stone-500" />
+                <span className="text-[11px] font-semibold text-stone-700">Custo Total de Materiais</span>
+              </div>
+              <span className="font-mono text-[10px] text-stone-400">{totals.items_count} peças</span>
+            </div>
+            <div className="mt-1 flex items-baseline justify-between">
+              <div className="font-mono text-base sm:text-lg font-bold tracking-tight text-stone-800 tabular-nums">
+                {hideFinancialValues
+                  ? '••••••••'
+                  : totals.total_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+              </div>
+              <span className="text-[10px] text-stone-400 font-medium">Soma de Custo</span>
+            </div>
+          </div>
+
+          {/* 2. Lucro Bruto Estimado (+200% somado no final) */}
+          <div className="group relative rounded-xl border border-emerald-200/80 bg-emerald-50/40 p-3 shadow-2xs transition-all hover:border-emerald-300">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
+                <span className="text-[11px] font-bold text-emerald-800">Lucro Bruto Estimado</span>
+              </div>
+              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/90 px-1.5 py-0.5 rounded">
+                +{settings.margin}% no Final
+              </span>
+            </div>
+            <div className="mt-1 flex items-baseline justify-between">
+              <div className="font-mono text-base sm:text-lg font-bold tracking-tight text-emerald-700 tabular-nums">
+                {hideFinancialValues
+                  ? '••••••••'
+                  : totals.gross_profit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+              </div>
+              <span className="text-[10px] text-emerald-600 font-medium">Margem</span>
+            </div>
+          </div>
+
+          {/* 3. Valor Final de Venda */}
           <div className="group relative rounded-xl border border-stone-200/90 bg-white/95 p-3 shadow-2xs transition-all hover:border-stone-300">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-[#c92031]" />
-                <span className="text-[11px] font-medium text-stone-500">Valor Total de Venda</span>
+                <span className="text-[11px] font-bold text-slate-900">Valor Final de Venda</span>
               </div>
               <span className="font-mono text-[10px] text-stone-400">Total Proposta</span>
             </div>
@@ -1527,42 +1555,7 @@ export function OrcamentoCurrentTab({
                   ? '••••••••'
                   : totals.total_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
               </div>
-            </div>
-          </div>
-
-          {/* Custo Total dos Materiais */}
-          <div className="group relative rounded-xl border border-stone-200/90 bg-white/95 p-3 shadow-2xs transition-all hover:border-stone-300">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-stone-400" />
-                <span className="text-[11px] font-medium text-stone-500">Custo Total de Materiais</span>
-              </div>
-              <span className="font-mono text-[10px] text-stone-400">{totals.items_count} peças</span>
-            </div>
-            <div className="mt-1 flex items-baseline justify-between">
-              <div className="font-mono text-base sm:text-lg font-semibold tracking-tight text-stone-700 tabular-nums">
-                {hideFinancialValues
-                  ? '••••••••'
-                  : totals.total_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-              </div>
-            </div>
-          </div>
-
-          {/* Lucro Bruto Estimado */}
-          <div className="group relative rounded-xl border border-stone-200/90 bg-white/95 p-3 shadow-2xs transition-all hover:border-stone-300">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-600" />
-                <span className="text-[11px] font-medium text-stone-500">Lucro Bruto Estimado</span>
-              </div>
-              <span className="text-[10px] font-medium text-emerald-700">Líquido</span>
-            </div>
-            <div className="mt-1 flex items-baseline justify-between">
-              <div className="font-mono text-base sm:text-lg font-bold tracking-tight text-emerald-700 tabular-nums">
-                {hideFinancialValues
-                  ? '••••••••'
-                  : totals.gross_profit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-              </div>
+              <span className="text-[10px] text-stone-500 font-medium">Custo + Lucro + Adic.</span>
             </div>
           </div>
         </div>
@@ -2054,9 +2047,8 @@ export function OrcamentoCurrentTab({
                               <th className="px-2 py-2.5 text-center font-semibold w-20" title="Matéria-prima unitária por peça (m²)">Qtd Unit. (M²)</th>
                               <th className="px-2 py-2.5 text-center font-semibold w-20" title="Consumo total de matéria-prima">Total Matéria</th>
                               <th className="px-2 py-2.5 text-center font-semibold w-12">Un</th>
-                              <th className="px-3 py-2.5 text-right font-semibold text-amber-300">Custo Tabela (R$) ✏️</th>
-                              <th className="px-3 py-2.5 text-right font-semibold">Preço Unit.</th>
-                              <th className="px-3 py-2.5 text-right font-semibold">Total Linha</th>
+                              <th className="px-3 py-2.5 text-right font-semibold text-amber-300" title="Custo unitário base do item (definido pelo operador ou tabela)">Custo Unit. (R$) ✏️</th>
+                              <th className="px-3 py-2.5 text-right font-semibold" title="Custo total acumulado do item (Qtd × Custo Unitário)">Total Custo (R$)</th>
                               <th className="py-2.5 pl-2 pr-4 text-center font-semibold w-16">Ação</th>
                             </tr>
                           </thead>
@@ -2069,11 +2061,11 @@ export function OrcamentoCurrentTab({
                         <span>Subtotal deste móvel: {group.items.length} itens</span>
                         <div className="flex items-center gap-3 font-mono">
                           <span>
-                            Custo: {hideFinancialValues ? '••••••' : group.subtotal_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            Custo Total: {hideFinancialValues ? '••••••' : group.subtotal_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                           </span>
                           <span className="text-stone-300">•</span>
                           <span className="font-bold text-slate-900">
-                            Venda: {hideFinancialValues ? '••••••' : group.subtotal_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            Venda (+{settings.margin}%): {hideFinancialValues ? '••••••' : group.subtotal_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                           </span>
                         </div>
                       </div>
@@ -2106,11 +2098,10 @@ export function OrcamentoCurrentTab({
                   <th className="px-2 py-2.5 text-center font-semibold w-20" title="Matéria-prima unitária por peça (m²)">Qtd Unit. (M²)</th>
                   <th className="px-2 py-2.5 text-center font-semibold w-20" title="Consumo total de matéria-prima">Total Matéria</th>
                   <th className="px-2 py-2.5 text-center font-semibold w-12">Un</th>
-                  <th className="px-3 py-2.5 text-right font-semibold text-amber-300">
-                    Custo Tabela (R$) ✏️
+                  <th className="px-3 py-2.5 text-right font-semibold text-amber-300" title="Custo unitário base do item (definido pelo operador ou tabela)">
+                    Custo Unit. (R$) ✏️
                   </th>
-                  <th className="px-3 py-2.5 text-right font-semibold">Preço Unit.</th>
-                  <th className="px-3 py-2.5 text-right font-semibold">Total Linha</th>
+                  <th className="px-3 py-2.5 text-right font-semibold" title="Custo total acumulado do item (Qtd × Custo Unitário)">Total Custo (R$)</th>
                   <th className="py-2.5 pl-2 pr-4 text-center font-semibold w-16">Ação</th>
                 </tr>
               </thead>

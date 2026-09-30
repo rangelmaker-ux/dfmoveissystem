@@ -875,7 +875,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                     <th className="px-3 py-3 font-semibold">Descrição do Material</th>
                     <th className="px-3 py-3 text-center font-semibold">Categoria</th>
                     <th className="px-3 py-3 text-center font-semibold">Unidade</th>
-                    <th className="px-3 py-3 text-right font-semibold">Preço Custo Base</th>
+                    <th className="px-3 py-3 text-right font-semibold">Preço Custo / Preço Final</th>
                     <th className="px-3 py-3 text-right font-semibold">Preço por Chapa (5,09m²)</th>
                     <th className="py-3 pl-2 pr-4 text-center font-semibold">Ação</th>
                   </tr>
@@ -946,7 +946,13 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                           </td>
 
                           <td className="px-3 py-3 text-right font-bold text-slate-900">
-                            {p.unit_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            {p.unit_price === 0 && (p.category === 'FERRAGEM' || p.category === 'ACESSORIO') ? (
+                              <span className="text-amber-700 font-normal text-[11px] italic bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                A definir pelo operador
+                              </span>
+                            ) : (
+                              p.unit_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+                            )}
                           </td>
 
                           <td className="px-3 py-3 text-right font-medium text-slate-600">
@@ -1319,7 +1325,11 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
             </div>
 
             <div>
-              <Label className="text-xs font-semibold text-slate-700">Preço Custo Base (R$)</Label>
+              <Label className="text-xs font-semibold text-slate-700">
+                {prodCategory === 'FERRAGEM' || prodCategory === 'ACESSORIO'
+                  ? 'Preço Final do Acessório (R$) [Definido pelo Operador]'
+                  : 'Preço Custo Base (R$)'}
+              </Label>
               <Input
                 type="number"
                 step="0.01"
@@ -1328,6 +1338,11 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                 placeholder="0,00"
                 className="mt-1 font-mono font-bold"
               />
+              {(prodCategory === 'FERRAGEM' || prodCategory === 'ACESSORIO') && (
+                <p className="text-[11px] text-stone-500 mt-1">
+                  Acessórios e ferragens (unitários ou par) não possuem preço de custo separado; o operador define diretamente o preço final.
+                </p>
+              )}
             </div>
           </div>
 

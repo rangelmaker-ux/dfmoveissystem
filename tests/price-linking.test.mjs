@@ -36,36 +36,52 @@ const settings = {
   pdf_show_unit_price: true, pdf_show_item_total: true,
 };
 
-test('smartMatchAccessory reconhece dobradiças, corrediças, puxadores e pistões Promob', () => {
+// Mock de catálogo do operador com preços finais de ferragens definidos
+const OPERATOR_MATERIALS = DEFAULT_MATERIALS.map(p => {
+  if (p.code === 'DOBRADICA-SEM-AMORT') return { ...p, unit_price: 8.50 };
+  if (p.code === 'DOBRADICA-CANTO-L-CURVA') return { ...p, unit_price: 22.52 };
+  if (p.code === 'CORREDICA-TELESC-45') return { ...p, unit_price: 24.50 };
+  if (p.code === 'CORREDICA-INV-45') return { ...p, unit_price: 65.00 };
+  if (p.code === 'PUXADOR-GOLA-3M' || p.code === 'PUX-GOLA') return { ...p, unit_price: 130.00 };
+  if (p.code.includes('PISTAO')) return { ...p, unit_price: 14.50 };
+  return p;
+});
+
+test('acessórios iniciam limpos (R$ 0,00) e smartMatchAccessory reconhece preços definidos pelo operador', () => {
+  // 1. Por padrão no banco base, acessórios iniciam limpos (unit_price: 0)
+  const defaultDobradica = smartMatchAccessory('1.1086.000', 'Dobradiça Aço s/ Amort. Reta / Baixa', '31 x 42 x 2', INITIAL_CHAPAS_CATALOG, DEFAULT_MATERIALS);
+  assert.equal(defaultDobradica.price, 0);
+
+  // 2. Quando o operador define o preço final no Catálogo Geral de Materiais:
   // Dobradiça Promob
-  const dobradica = smartMatchAccessory('1.1086.000', 'Dobradiça Aço s/ Amort. Reta / Baixa', '31 x 42 x 2', INITIAL_CHAPAS_CATALOG, DEFAULT_MATERIALS);
+  const dobradica = smartMatchAccessory('1.1086.000', 'Dobradiça Aço s/ Amort. Reta / Baixa', '31 x 42 x 2', INITIAL_CHAPAS_CATALOG, OPERATOR_MATERIALS);
   assert.equal(dobradica.matched, true);
   assert.equal(dobradica.price, 8.50);
   assert.equal(dobradica.unit, 'UN');
 
   // Dobradiça Curva Canto L
-  const dobradicaCanto = smartMatchAccessory('1.1087.000', 'Dobradiça Curva Canto L com amortecedor', '', INITIAL_CHAPAS_CATALOG, DEFAULT_MATERIALS);
+  const dobradicaCanto = smartMatchAccessory('1.1087.000', 'Dobradiça Curva Canto L com amortecedor', '', INITIAL_CHAPAS_CATALOG, OPERATOR_MATERIALS);
   assert.equal(dobradicaCanto.matched, true);
   assert.equal(dobradicaCanto.price, 22.52);
 
   // Corrediça Telescópica 450mm
-  const corredica450 = smartMatchAccessory('0684371004', 'Corrediça Telescópica Simples Eco BHS 450mm', '450 x 45 x 12', INITIAL_CHAPAS_CATALOG, DEFAULT_MATERIALS);
+  const corredica450 = smartMatchAccessory('0684371004', 'Corrediça Telescópica Simples Eco BHS 450mm', '450 x 45 x 12', INITIAL_CHAPAS_CATALOG, OPERATOR_MATERIALS);
   assert.equal(corredica450.matched, true);
   assert.equal(corredica450.price, 24.50);
   assert.equal(corredica450.unit, 'PAR');
 
   // Corrediça Invisível com freio
-  const corredicaInvisivel = smartMatchAccessory('CORR-INV', 'Corrediça invisível com amortecedor 450mm', '', INITIAL_CHAPAS_CATALOG, DEFAULT_MATERIALS);
+  const corredicaInvisivel = smartMatchAccessory('CORR-INV', 'Corrediça invisível com amortecedor 450mm', '', INITIAL_CHAPAS_CATALOG, OPERATOR_MATERIALS);
   assert.equal(corredicaInvisivel.matched, true);
   assert.equal(corredicaInvisivel.price, 65.00);
 
   // Puxador Gola
-  const puxadorGola = smartMatchAccessory('PUX-GOLA', 'Puxador gola barra', '3m', INITIAL_CHAPAS_CATALOG, DEFAULT_MATERIALS);
+  const puxadorGola = smartMatchAccessory('PUX-GOLA', 'Puxador gola barra', '3m', INITIAL_CHAPAS_CATALOG, OPERATOR_MATERIALS);
   assert.equal(puxadorGola.matched, true);
   assert.equal(puxadorGola.price, 130.00);
 
-  // Pistão a gás (preço real verificado do catálogo: R$ 14,50)
-  const pistao = smartMatchAccessory('PIST-01', 'Pistão a gás para porta basculante', '', INITIAL_CHAPAS_CATALOG, DEFAULT_MATERIALS);
+  // Pistão a gás
+  const pistao = smartMatchAccessory('PIST-01', 'Pistão a gás para porta basculante', '', INITIAL_CHAPAS_CATALOG, OPERATOR_MATERIALS);
   assert.equal(pistao.matched, true);
   assert.equal(pistao.price, 14.50);
 });
@@ -145,9 +161,9 @@ test('resolveItemPrice e Trazer Preços da Tabela vinculam todos os itens do or�
   // Simula o clique no botão "Trazer Preços da Tabela"
   let matchedCount = 0;
   const updatedItems = rawItems.map(it => {
-    if (it.is_parent_module) return calculateItemPrice(it, DEFAULT_MATERIALS, settings, INITIAL_CHAPAS_CATALOG);
+    if (it.is_parent_module) return calculateItemPrice(it, OPERATOR_MATERIALS, settings, INITIAL_CHAPAS_CATALOG);
 
-    const res = resolveItemPrice(it, INITIAL_CHAPAS_CATALOG, DEFAULT_MATERIALS);
+    const res = resolveItemPrice(it, INITIAL_CHAPAS_CATALOG, OPERATOR_MATERIALS);
     if (res.matched && res.unit_cost > 0) {
       matchedCount++;
       return calculateItemPrice({
@@ -157,9 +173,9 @@ test('resolveItemPrice e Trazer Preços da Tabela vinculam todos os itens do or�
         unit: res.unit || it.unit,
         table_price: res.unit_cost,
         price_unlinked: false,
-      }, DEFAULT_MATERIALS, settings, INITIAL_CHAPAS_CATALOG);
+      }, OPERATOR_MATERIALS, settings, INITIAL_CHAPAS_CATALOG);
     }
-    return calculateItemPrice(it, DEFAULT_MATERIALS, settings, INITIAL_CHAPAS_CATALOG);
+    return calculateItemPrice(it, OPERATOR_MATERIALS, settings, INITIAL_CHAPAS_CATALOG);
   });
 
   // Todos os 4 itens operacionais devem ter sido reconhecidos e vinculados!
@@ -464,5 +480,48 @@ test('calculateItemPrice preserva código Promob original, dimensões, rep e is_
   assert.equal(calculated.total_cost, 244.24);
 });
 
+test('recalculateBudget soma todos os custos e aplica 200% de margem no resultado final', () => {
+  const budgetItems = [
+    {
+      code: 'ITEM-1',
+      description: 'Chapa MDF',
+      quantity: 2,
+      unit: 'M2',
+      unit_cost: 100.00,
+      total_cost: 200.00,
+      unit_price: 300.00,
+      total_price: 600.00,
+    },
+    {
+      code: 'ITEM-2',
+      description: 'Dobradiça (Acessório com preço definido)',
+      quantity: 10,
+      unit: 'UN',
+      unit_cost: 15.00,
+      total_cost: 150.00,
+      unit_price: 45.00,
+      total_price: 450.00,
+    },
+  ];
 
+  const budgetSettings = {
+    margin: 200, // 200% de margem sobre o custo total
+    frete: 0,
+    montagem: 0,
+    comissao_vendas: 0,
+    comissao_executivo: 0,
+    outros: [],
+  };
 
+  const res = recalculateBudget(budgetItems, OPERATOR_MATERIALS, budgetSettings);
+
+  // Soma de custo: 200.00 + 150.00 = 350.00
+  assert.equal(res.totals.total_cost, 350.00);
+
+  // Lucro Bruto (+200% sobre o custo somado ao final): 350.00 * 200% = 700.00
+  assert.equal(res.totals.gross_profit, 700.00);
+
+  // Valor Final de Venda: Custo Total (350.00) + Lucro Bruto (700.00) = 1050.00
+  assert.equal(res.totals.total_price, 1050.00);
+  assert.equal(res.totals.profit_margin_percent, 200);
+});

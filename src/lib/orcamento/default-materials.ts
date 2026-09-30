@@ -2,7 +2,7 @@ import { ProductItem } from './types';
 
 export const DEFAULT_MATERIALS: ProductItem[] = [
   // ==========================================
-  // 1. MDFs Brancos e Madeirados (padrão 2.75m x 1.85m = 5.09 m²)
+  // 1. MDFs Brancos e Madeirados (padrão 2.75m x 1.85m = 5.09 m²) - Custo Base
   // ==========================================
   {
     id: 'mat-1',
@@ -60,7 +60,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
   },
 
   // ==========================================
-  // 2. Fitas de Borda PVC (Rolos de 20m ou 50m)
+  // 2. Fitas de Borda PVC (Rolos de 20m ou 50m) - Custo Base
   // ==========================================
   {
     id: 'mat-7',
@@ -95,6 +95,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
 
   // ==========================================
   // 3. Ferragens e Acessórios Gerais (Catálogo Geral)
+  // Preço Final definido pelo Operador (inicia limpo / 0,00)
   // ==========================================
   {
     id: 'mat-10',
@@ -102,7 +103,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['CORR_45', 'CORREDICA_450MM', 'TELESC_450'],
     description: 'Corrediça Telescópica Larga 450mm',
     unit: 'PAR',
-    unit_price: 24.50,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -111,7 +112,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['CORR_50', 'CORREDICA_500MM', 'TELESC_500'],
     description: 'Corrediça Telescópica Larga 500mm',
     unit: 'PAR',
-    unit_price: 27.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -120,7 +121,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['DOBR_CURVA_AMORT', 'DOBRADICA_PISTAO_35', 'DOBR_RETA_AMORT'],
     description: 'Dobradiça Curva 35mm com Amortecedor Clip-on',
     unit: 'UN',
-    unit_price: 7.90,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -129,7 +130,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['PUX_PERFIL', 'PERFIL_GOLA', 'PUXADOR_GOLA_METRO'],
     description: 'Puxador Perfil Alumínio Champagne (Barra 3m)',
     unit: 'UN',
-    unit_price: 68.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -138,7 +139,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['PISTAO_80N', 'AMORTECEDOR_PORTA_BASCULANTE'],
     description: 'Pistão a Gás Força 80N para Porta Basculante',
     unit: 'UN',
-    unit_price: 14.50,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -147,18 +148,16 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['PARAFUSO_CHATO_4X40', 'PARAF_4X40'],
     description: 'Parafuso Chipboard Philips Chata 4,0x40mm (Cento)',
     unit: 'CENTO',
-    unit_price: 11.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
-
-  // Ferragens e Acessórios integrados ao Catálogo Geral de Materiais
   {
     id: 'mat-16',
     code: 'DOBRADICA-RETA-AMORT',
     subcodes: ['DOBR_RETA_AMORT', 'DOBRADICA_RETA_AMORTECEDOR'],
     description: 'Dobradiça Reta com Amortecedor Clip-on',
     unit: 'UN',
-    unit_price: 8.50,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -167,7 +166,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['DOBR_SEM_AMORT', 'DOBRADICA_S_AMORT', 'DOBRADICA_BAIXA'],
     description: 'Dobradiça Aço s/ Amort. Reta / Baixa',
     unit: 'UN',
-    unit_price: 8.50,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -176,7 +175,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['DOBR_CANTO_L_RETA', 'DOBRADICA_CANTO_L_RETA'],
     description: 'Dobradiça reta canto L com amortecedor',
     unit: 'UN',
-    unit_price: 22.52,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -185,7 +184,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['DOBR_CANTO_L_CURVA', 'DOBRADICA_CANTO_L'],
     description: 'Dobradiça Curva Canto L com amortecedor',
     unit: 'UN',
-    unit_price: 22.52,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -194,7 +193,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['CORR_30', 'CORREDICA_300MM', 'TELESC_300'],
     description: 'Corrediça Telescópica 300mm',
     unit: 'PAR',
-    unit_price: 24.50,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -203,7 +202,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['CORR_35', 'CORREDICA_350MM', 'TELESC_350'],
     description: 'Corrediça Telescópica 350mm',
     unit: 'PAR',
-    unit_price: 24.50,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -212,7 +211,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['CORR_40', 'CORREDICA_400MM', 'TELESC_400'],
     description: 'Corrediça Telescópica 400mm',
     unit: 'PAR',
-    unit_price: 24.50,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -221,7 +220,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['CORR_INV_350', 'INVISIVEL_350'],
     description: 'Corrediça invisível com freio 350mm',
     unit: 'PAR',
-    unit_price: 65.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -230,7 +229,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['CORR_INV_400', 'INVISIVEL_400'],
     description: 'Corrediça invisível com freio 400mm',
     unit: 'PAR',
-    unit_price: 65.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -239,7 +238,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['CORR_INV_450', 'INVISIVEL_450', 'CORR-INV'],
     description: 'Corrediça invisível com amortecedor 450mm',
     unit: 'PAR',
-    unit_price: 65.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -248,7 +247,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['CORR_INV_500', 'INVISIVEL_500'],
     description: 'Corrediça invisível com freio 500mm',
     unit: 'PAR',
-    unit_price: 100.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -257,7 +256,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['PUX_GOLA', 'PUX_GOLA_3M', 'PERFIL_GOLA_3M', 'PUX-GOLA'],
     description: 'Puxador gola barra (3m)',
     unit: 'UN',
-    unit_price: 130.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -266,7 +265,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['PONTEIRA_GOLA'],
     description: 'Ponteira para Puxador Gola',
     unit: 'UN',
-    unit_price: 8.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -275,7 +274,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['PUX_CONTINUO', 'PERFIL_CONTINUO'],
     description: 'Puxador Contínuo Alumínio (Barra 3m)',
     unit: 'UN',
-    unit_price: 85.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -284,7 +283,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['PONTEIRA_CONTINUO'],
     description: 'Ponteira para Puxador Contínuo',
     unit: 'UN',
-    unit_price: 18.50,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -293,7 +292,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['PISTAO_GAS', 'PISTAO_BASCULANTE', 'PIST-01'],
     description: 'Pistão a gás para porta basculante',
     unit: 'UN',
-    unit_price: 13.50,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -302,7 +301,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['PISTAO_INVERTIDO'],
     description: 'Pistão a gás invertido',
     unit: 'UN',
-    unit_price: 13.50,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -311,7 +310,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['CABIDEIRO_CURVO'],
     description: 'Cabideiro Curvo (1m x 1m)',
     unit: 'UN',
-    unit_price: 44.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -320,7 +319,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['CABIDEIRO_RETO'],
     description: 'Cabideiro Reto (Barra 3m)',
     unit: 'UN',
-    unit_price: 38.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -329,7 +328,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['CABIDEIRO_EXTENSIVO', 'CABIDEIRO_BASCULANTE'],
     description: 'Cabideiro extensivo articulado basculante',
     unit: 'UN',
-    unit_price: 410.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -338,7 +337,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['SUPORTE_CABIDEIRO'],
     description: 'Suporte Lateral para Cabideiro Oval',
     unit: 'PAR',
-    unit_price: 5.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -347,7 +346,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['SISTEMA_CORRER', 'PORTA_CORRER_FREIO'],
     description: 'Sistema de correr com freio / amortecedor',
     unit: 'UN',
-    unit_price: 350.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -356,7 +355,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['TABUA_PASSAR', 'TABUA_EMBUTIDA'],
     description: 'Tábua de passar embutida dobrável',
     unit: 'UN',
-    unit_price: 440.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -365,7 +364,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['GANCHO_VASSOURA', 'SUPORTE_VASSOURA'],
     description: 'Ganchos / suporte para vassoura',
     unit: 'UN',
-    unit_price: 25.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -374,7 +373,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['MAO_FRANCESA'],
     description: 'Suporte Mão Francesa reforçada',
     unit: 'UN',
-    unit_price: 35.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -383,7 +382,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['RODIZIO_FREIO'],
     description: 'Rodízio maior giratório com freio',
     unit: 'UN',
-    unit_price: 12.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -392,7 +391,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['RODIZIO_SEM_FREIO'],
     description: 'Rodízio maior giratório sem freio',
     unit: 'UN',
-    unit_price: 12.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -401,7 +400,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['LIXEIRA_EMBUTIDA', 'LIXEIRA_INOX'],
     description: 'Lixeira embutida de inox',
     unit: 'UN',
-    unit_price: 350.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -410,7 +409,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['TOALHEIRO'],
     description: 'Toalheiro extensível',
     unit: 'UN',
-    unit_price: 45.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -419,7 +418,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['DIVISOR_ECOPLAST_300'],
     description: 'Divisor de gaveta ecoplast 300mm',
     unit: 'UN',
-    unit_price: 35.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -428,7 +427,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['DIVISOR_ECOPLAST_400'],
     description: 'Divisor de gaveta ecoplast 400mm',
     unit: 'UN',
-    unit_price: 40.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -437,7 +436,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['DIVISOR_ECOPLAST_500'],
     description: 'Divisor de gaveta ecoplast 500mm',
     unit: 'UN',
-    unit_price: 45.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -446,7 +445,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['DIVISOR_ECOPLAST_600'],
     description: 'Divisor de gaveta ecoplast 600mm',
     unit: 'UN',
-    unit_price: 50.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -455,7 +454,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['PORTA_GRAVATA'],
     description: 'Porta gravata acrílico',
     unit: 'UN',
-    unit_price: 60.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
   {
@@ -464,7 +463,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     subcodes: ['DIVISOR_ACRILICO'],
     description: 'Divisor de acrílico para gaveta',
     unit: 'UN',
-    unit_price: 65.00,
+    unit_price: 0,
     category: 'FERRAGEM',
   },
 
