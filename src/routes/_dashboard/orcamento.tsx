@@ -117,12 +117,41 @@ function OrcamentoPage() {
           const parsedCat = JSON.parse(savedCatalog);
           if (parsedCat['Acessórios']) {
             delete parsedCat['Acessórios'];
-            localStorage.setItem('df_orcamento_chapas_catalog', JSON.stringify(parsedCat));
           }
-          setCatalog(parsedCat);
+          // Verifica se o catálogo salvo possui a nova estrutura de cores nas linhas
+          const hasColors = Object.values(parsedCat).some(
+            (b: any) => b && b.type === 'brand' && Array.isArray(b.lines) && b.lines.some((l: any) => Array.isArray(l.colors) && l.colors.length > 0)
+          );
+          if (!hasColors) {
+            // Migra para o catálogo oficial Promob Plus preservando preços customizados
+            const mergedCat: CatalogByBrand = { ...INITIAL_CHAPAS_CATALOG };
+            for (const [bName, bData] of Object.entries(parsedCat)) {
+              if (bData && (bData as any).type === 'brand' && mergedCat[bName] && (mergedCat[bName] as any).type === 'brand') {
+                const oldLines = (bData as any).lines || [];
+                const newLines = (mergedCat[bName] as any).lines || [];
+                for (const nl of newLines) {
+                  const matchOld = oldLines.find((ol: any) => ol.name.toLowerCase() === nl.name.toLowerCase());
+                  if (matchOld && matchOld.prices) {
+                    if (matchOld.prices['6mm']) nl.prices['6mm'] = matchOld.prices['6mm'];
+                    if (matchOld.prices['15mm']) nl.prices['15mm'] = matchOld.prices['15mm'];
+                    if (matchOld.prices['18mm']) nl.prices['18mm'] = matchOld.prices['18mm'];
+                    if (matchOld.prices['25mm']) nl.prices['25mm'] = matchOld.prices['25mm'];
+                  }
+                }
+              }
+            }
+            localStorage.setItem('df_orcamento_chapas_catalog', JSON.stringify(mergedCat));
+            setCatalog(mergedCat);
+          } else {
+            setCatalog(parsedCat);
+          }
         } catch (e) {
           console.error(e);
+          setCatalog(INITIAL_CHAPAS_CATALOG);
         }
+      } else {
+        setCatalog(INITIAL_CHAPAS_CATALOG);
+        localStorage.setItem('df_orcamento_chapas_catalog', JSON.stringify(INITIAL_CHAPAS_CATALOG));
       }
     } catch (e) {
       console.error('Erro ao ler dados do localStorage:', e);
@@ -173,7 +202,12 @@ function OrcamentoPage() {
           setSettings(remoteSettings);
         }
         if (remote.database?.length) setDatabase(remote.database);
-        if (remote.catalog && Object.keys(remote.catalog).length) setCatalog(remote.catalog);
+        if (remote.catalog && Object.keys(remote.catalog).length) {
+          const hasColors = Object.values(remote.catalog).some(
+            (b: any) => b && b.type === 'brand' && Array.isArray(b.lines) && b.lines.some((l: any) => Array.isArray(l.colors) && l.colors.length > 0)
+          );
+          if (hasColors) setCatalog(remote.catalog);
+        }
         setLoadedBudgetId(remote.currentBudgetId || null);
       })
       .catch(error => console.warn('Sincronização remota indisponível; usando dados locais.', error))

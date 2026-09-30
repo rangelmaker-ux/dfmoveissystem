@@ -111,6 +111,49 @@ test('smartMatchPromobChapa reconhece MDF Branco da caixaria Promob com preço e
   assert.equal(greenplac18.m2Cost, 116.94);
 });
 
+test('smartMatchPromobChapa vincula marca e cor Promob à linha correspondente usando line.colors', () => {
+  // 1. Arauco: Promob identifica marca e cor 'Beige Matt' -> Vincula à linha 'Cores > Matt > Lisos'
+  const araucoBeige = smartMatchPromobChapa('1.0139E.15.Arauco.Beige Matt.MDF BP 2L Revest', 'Porta 15', INITIAL_CHAPAS_CATALOG);
+  assert.equal(araucoBeige.matched, true);
+  assert.equal(araucoBeige.brand, 'Arauco');
+  assert.equal(araucoBeige.line, 'Cores > Matt > Lisos');
+  assert.equal(araucoBeige.thickness, '15mm');
+
+  // 2. Greenplac: Promob identifica 'Carmel' -> Vincula à linha 'Essenziale'
+  const greenplacCarmel = smartMatchPromobChapa('1.0309.18.Greenplac.Carmel.MDF BP 2L Revest', 'Lateral 18', INITIAL_CHAPAS_CATALOG);
+  assert.equal(greenplacCarmel.matched, true);
+  assert.equal(greenplacCarmel.brand, 'Greenplac');
+  assert.equal(greenplacCarmel.line, 'Essenziale');
+
+  // 3. Guararapes: Promob identifica 'Alecrim' -> Vincula à linha 'Colors'
+  const guaraAlecrim = smartMatchPromobChapa('1.0139E.15.Guararapes.Alecrim.MDF BP 2L Revest', 'Frente 15', INITIAL_CHAPAS_CATALOG);
+  assert.equal(guaraAlecrim.matched, true);
+  assert.equal(guaraAlecrim.brand, 'Guararapes');
+  assert.equal(guaraAlecrim.line, 'Colors');
+
+  // 4. Berneck: Promob identifica 'Cinamomo' -> Vincula à linha 'Amadeirados Médios'
+  const berneckCinamomo = smartMatchPromobChapa('1.0139E.18.Berneck.Cinamomo.MDF BP 2L Revest', 'Lateral 18', INITIAL_CHAPAS_CATALOG);
+  assert.equal(berneckCinamomo.matched, true);
+  assert.equal(berneckCinamomo.brand, 'Berneck');
+  assert.equal(berneckCinamomo.line, 'Amadeirados Médios');
+
+  // 5. Sudati: Promob identifica 'Bellini' -> Vincula à linha 'Naturally'
+  const sudatiBellini = smartMatchPromobChapa('1.0139E.15.Sudati.Bellini.MDF BP 2L Revest', 'Porta 15', INITIAL_CHAPAS_CATALOG);
+  assert.equal(sudatiBellini.matched, true);
+  assert.equal(sudatiBellini.brand, 'Sudati');
+  assert.equal(sudatiBellini.line, 'Naturally');
+
+  // 6. Todas as 8 marcas do catálogo oficial Promob Plus estão presentes com suas linhas e cores
+  const expectedBrands = ['Arauco', 'Berneck', 'Duratex', 'Eucatex', 'Fórmica', 'Greenplac', 'Guararapes', 'Sudati'];
+  for (const b of expectedBrands) {
+    assert.ok(INITIAL_CHAPAS_CATALOG[b], `Marca ${b} deve existir no catálogo`);
+    assert.equal(INITIAL_CHAPAS_CATALOG[b].type, 'brand');
+    assert.ok(INITIAL_CHAPAS_CATALOG[b].lines.length > 0, `Marca ${b} deve ter linhas`);
+    const totalColors = INITIAL_CHAPAS_CATALOG[b].lines.reduce((acc, l) => acc + (l.colors?.length || 0), 0);
+    assert.ok(totalColors > 0, `Marca ${b} deve ter cores/padrões cadastrados`);
+  }
+});
+
 test('resolveItemPrice e Trazer Preços da Tabela vinculam todos os itens do orçamento', () => {
   const rawItems = [
     {

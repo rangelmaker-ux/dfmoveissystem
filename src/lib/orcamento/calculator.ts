@@ -159,7 +159,7 @@ export function smartMatchPromobChapa(
   let detectedBrand: string | null = null;
   for (const b of KNOWN_BRANDS) {
     if (normText.includes(normalizeText(b))) {
-      detectedBrand = b === 'Berneck' ? 'Bernek' : b === 'Formica' ? 'Fórmica' : b;
+      detectedBrand = (b === 'Berneck' || b === 'Bernek') ? (catalog && catalog['Berneck'] ? 'Berneck' : 'Bernek') : b === 'Formica' ? 'Fórmica' : b;
       break;
     }
   }
@@ -256,6 +256,28 @@ export function smartMatchPromobChapa(
     const normLine = normalizeText(line.name);
     let score = 0;
 
+    // 1. Busca por cores e padrões cadastrados na linha (Promob envia cor no final)
+    if (Array.isArray(line.colors) && line.colors.length > 0) {
+      for (const color of line.colors) {
+        const normColor = normalizeText(color);
+        // Correspondência exata da cor completa dentro do código ou descrição Promob
+        if (normText.includes(normColor)) {
+          score += 30;
+          break;
+        }
+        // Correspondência de tokens significativos da cor
+        const colorWords = normColor.split(/\s+/).filter(w => w.length >= 3);
+        const matchedWords = colorWords.filter(w => normText.includes(w));
+        if (colorWords.length > 0 && matchedWords.length === colorWords.length) {
+          score += 20;
+          break;
+        } else if (matchedWords.length > 0) {
+          score += matchedWords.length * 4;
+        }
+      }
+    }
+
+    // 2. Busca por nome da linha
     for (const t of tokens) {
       if (normLine.includes(t)) {
         score += 2;
@@ -279,9 +301,13 @@ export function smartMatchPromobChapa(
   // Se o item contém "branco" ou "caixa" e não encontrou score alto, busca linha com "branco"
   if (!bestLine && (normText.includes('branco') || normText.includes('branca') || normText.includes('caixa'))) {
     bestLine = lines.find(l => {
+      const hasWhiteColor = Array.isArray(l.colors) && l.colors.some(c => normalizeText(c).includes('branco'));
       const nl = normalizeText(l.name);
-      return nl.includes('branco') && !nl.includes('ultra');
-    }) || lines.find(l => normalizeText(l.name).includes('branco'));
+      return (hasWhiteColor || nl.includes('branco')) && !nl.includes('ultra');
+    }) || lines.find(l => {
+      const hasWhiteColor = Array.isArray(l.colors) && l.colors.some(c => normalizeText(c).includes('branco'));
+      return hasWhiteColor || normalizeText(l.name).includes('branco');
+    });
   }
 
   // Se não encontrou por tokens específicos mas é da marca, usa a linha padrão/intermediária

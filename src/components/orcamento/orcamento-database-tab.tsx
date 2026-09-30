@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { 
   Search, Plus, Trash2, Edit2, RotateCcw, Package, Layers, Download, Upload, 
-  Check, DollarSign, ArrowRight, ShieldAlert, Sparkles, Filter, Wrench
+  Check, DollarSign, ArrowRight, ShieldAlert, Sparkles, Filter, Wrench, Palette, Eye
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -32,15 +32,18 @@ interface DatabaseTabProps {
   setCatalog: React.Dispatch<React.SetStateAction<CatalogByBrand>>;
 }
 
+const BRAND_ORDER = ['Arauco', 'Berneck', 'Duratex', 'Eucatex', 'Fórmica', 'Greenplac', 'Guararapes', 'Sudati', 'Mão de Obra Fixa'];
+
 export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog, setCatalog }: DatabaseTabProps) {
   const [subTab, setSubTab] = useState<'chapas' | 'produtos'>('chapas');
 
-  const [selectedBrand, setSelectedBrand] = useState<string>('Duratex');
+  const [selectedBrand, setSelectedBrand] = useState<string>('Arauco');
   const [brandSearch, setBrandSearch] = useState('');
 
   // Editing state for Chapa Line
   const [editLineModalOpen, setEditLineModalOpen] = useState(false);
   const [editingLine, setEditingLine] = useState<ChapaLineItem | null>(null);
+  const [editLineColors, setEditLineColors] = useState('');
   const [editPrice6mm, setEditPrice6mm] = useState('');
   const [editPrice15mm, setEditPrice15mm] = useState('');
   const [editPrice18mm, setEditPrice18mm] = useState('');
@@ -49,6 +52,12 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
   // Add line modal
   const [addLineModalOpen, setAddLineModalOpen] = useState(false);
   const [newLineName, setNewLineName] = useState('');
+  const [newLineColors, setNewLineColors] = useState('');
+
+  // View colors modal
+  const [viewingColorsLine, setViewingColorsLine] = useState<ChapaLineItem | null>(null);
+  const [viewColorsModalOpen, setViewColorsModalOpen] = useState(false);
+  const [colorModalSearch, setColorModalSearch] = useState('');
 
   // State for Mão de Obra Fixa
   const [editMoModalOpen, setEditMoModalOpen] = useState(false);
@@ -74,14 +83,34 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
 
   const jsonInputRef = useRef<HTMLInputElement>(null);
 
-  // Filtra marcas excluindo "Acessórios", pois pertencem ao Catálogo Geral de Materiais
-  const brandNames = Object.keys(catalog).filter(b => b !== 'Acessórios');
-  const activeBrandName = brandNames.includes(selectedBrand) ? selectedBrand : (brandNames[0] || 'Duratex');
-  const activeBrandData = catalog[activeBrandName] || catalog['Duratex'] || Object.values(catalog)[0];
+  // Ordenação oficial das 8 marcas e exclusão de alias/acessórios
+  const brandNames = Object.keys(catalog)
+    .filter(b => b !== 'Acessórios' && b !== 'Bernek')
+    .sort((a, b) => {
+      const idxA = BRAND_ORDER.indexOf(a);
+      const idxB = BRAND_ORDER.indexOf(b);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b);
+    });
 
-  // Filter lines for active brand
+  const activeBrandName = brandNames.includes(selectedBrand) ? selectedBrand : (brandNames[0] || 'Arauco');
+  const activeBrandData = catalog[activeBrandName] || catalog['Arauco'] || Object.values(catalog)[0];
+
+  const activeBrandTotalColors = activeBrandData && activeBrandData.type === 'brand'
+    ? activeBrandData.lines.reduce((acc, l) => acc + (l.colors?.length || 0), 0)
+    : 0;
+
+  // Filter lines for active brand (pesquisa por nome da Linha E por nome da Cor/Padrão)
+  const brandQuery = brandSearch.trim().toLowerCase();
   const filteredLines = activeBrandData && activeBrandData.type === 'brand'
-    ? activeBrandData.lines.filter(l => l.name.toLowerCase().includes(brandSearch.toLowerCase()))
+    ? activeBrandData.lines.filter(l => {
+        if (!brandQuery) return true;
+        if (l.name.toLowerCase().includes(brandQuery)) return true;
+        if (Array.isArray(l.colors) && l.colors.some(c => c.toLowerCase().includes(brandQuery))) return true;
+        return false;
+      })
     : [];
 
   const filteredMaoDeObra = activeBrandData && activeBrandData.type === 'maodeobra'
@@ -196,6 +225,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
   // Open Edit Line Modal
   const handleOpenEditLine = (line: ChapaLineItem) => {
     setEditingLine(line);
+    setEditLineColors((line.colors || []).join(', '));
     setEditPrice6mm(line.prices['6mm'] ? line.prices['6mm']!.toString() : '');
     setEditPrice15mm(line.prices['15mm'] ? line.prices['15mm']!.toString() : '');
     setEditPrice18mm(line.prices['18mm'] ? line.prices['18mm']!.toString() : '');
@@ -217,6 +247,11 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
       return;
     }
 
+    const updatedColors = editLineColors
+      .split(/[,;\n]/)
+      .map(c => c.trim())
+      .filter(Boolean);
+
     setCatalog(prev => {
       const brandObj = prev[selectedBrand];
       if (brandObj.type !== 'brand') return prev;
@@ -225,6 +260,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
         l.id === editingLine.id
           ? {
               ...l,
+              colors: updatedColors.length > 0 ? updatedColors : l.colors || [],
               prices: {
                 '6mm': p6,
                 '15mm': p15,
@@ -318,9 +354,15 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
       return;
     }
 
+    const parsedColors = newLineColors
+      .split(/[,;\n]/)
+      .map(c => c.trim())
+      .filter(Boolean);
+
     const newLine: ChapaLineItem = {
       id: `${selectedBrand.toLowerCase()}-${Date.now()}`,
       name: newLineName.trim(),
+      colors: parsedColors,
       width: 2.75,
       height: 1.85,
       area: CHAPA_AREA_M2,
@@ -348,6 +390,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
 
     setAddLineModalOpen(false);
     setNewLineName('');
+    setNewLineColors('');
     setEditPrice6mm('');
     setEditPrice15mm('');
     setEditPrice18mm('');
@@ -613,7 +656,13 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                 <table className="w-full text-left text-xs text-slate-700">
                   <thead className="bg-[#17191d] text-[10px] uppercase tracking-wider text-white font-semibold">
                     <tr>
-                      <th className="py-3 pl-4 pr-3 font-semibold">Linha / Padrão</th>
+                      <th className="py-3 pl-4 pr-3 font-semibold">Linha</th>
+                      <th className="px-3 py-3 font-semibold">
+                        <div className="flex items-center gap-1.5">
+                          <Palette className="h-3.5 w-3.5 text-[#cbb27a]" />
+                          <span>Cores / Padrões ({activeBrandTotalColors})</span>
+                        </div>
+                      </th>
                       <th className="px-3 py-3 text-center font-semibold">Dimensões</th>
                       <th className="px-3 py-3 text-right font-semibold">6mm (Custo / Venda)</th>
                       <th className="px-3 py-3 text-right font-semibold bg-white/5">15mm (Custo / Venda)</th>
@@ -625,7 +674,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                   <tbody className="divide-y divide-slate-100">
                     {filteredLines.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="py-8 text-center text-slate-400">
+                        <td colSpan={8} className="py-8 text-center text-slate-400">
                           Nenhuma linha encontrada com o termo "{brandSearch}".
                         </td>
                       </tr>
@@ -639,18 +688,82 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                         const sale15 = getSalePrice(p15);
                         const sale18 = getSalePrice(p18);
 
+                        const colors = line.colors || [];
+                        const query = brandSearch.trim().toLowerCase();
+                        // Se o operador está buscando uma cor específica, prioriza exibi-la nas tags
+                        const sortedColors = query
+                          ? [...colors].sort((a, b) => {
+                              const matchA = a.toLowerCase().includes(query) ? -1 : 1;
+                              const matchB = b.toLowerCase().includes(query) ? -1 : 1;
+                              return matchA - matchB;
+                            })
+                          : colors;
+
                         return (
                           <tr key={line.id} className="hover:bg-slate-50/80 transition-colors">
-                            <td className="py-3 pl-4 pr-3">
-                              <div className="flex items-center gap-2">
-                                <span className="font-bold text-slate-900">{line.name}</span>
-                                <Badge variant="outline" className="text-[9px] border-slate-200 bg-slate-50 text-slate-500">
-                                  {selectedBrand}
-                                </Badge>
+                            <td className="py-3 pl-4 pr-3 align-top min-w-[150px]">
+                              <div className="flex flex-col">
+                                <span className="font-bold text-slate-900 leading-tight">{line.name}</span>
+                                <span className="text-[10px] text-stone-400 mt-0.5">{selectedBrand}</span>
                               </div>
                             </td>
 
-                            <td className="px-3 py-3 text-center text-slate-500 font-mono text-[11px]">
+                            {/* Coluna Cores / Padrões do Promob Plus */}
+                            <td className="px-3 py-3 align-top max-w-[340px]">
+                              <div className="flex flex-col gap-1.5">
+                                <div className="flex items-center gap-1.5">
+                                  <Badge variant="outline" className="text-[10px] font-semibold bg-stone-100 text-stone-700 border-stone-200">
+                                    {colors.length} {colors.length === 1 ? 'padrão' : 'padrões'}
+                                  </Badge>
+                                  {colors.length > 3 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setViewingColorsLine(line);
+                                        setColorModalSearch('');
+                                        setViewColorsModalOpen(true);
+                                      }}
+                                      className="text-[10px] font-semibold text-[#c92031] hover:underline flex items-center gap-0.5"
+                                    >
+                                      <Eye className="h-3 w-3" />
+                                      <span>Ver todas</span>
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap gap-1">
+                                  {sortedColors.slice(0, 4).map(color => {
+                                    const isMatch = query && color.toLowerCase().includes(query);
+                                    return (
+                                      <span
+                                        key={color}
+                                        className={`inline-block rounded px-1.5 py-0.5 text-[11px] leading-tight ${
+                                          isMatch
+                                            ? 'bg-amber-100 text-amber-900 font-bold border border-amber-300'
+                                            : 'bg-stone-50 text-stone-600 border border-stone-200'
+                                        }`}
+                                      >
+                                        {color}
+                                      </span>
+                                    );
+                                  })}
+                                  {colors.length > 4 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setViewingColorsLine(line);
+                                        setColorModalSearch('');
+                                        setViewColorsModalOpen(true);
+                                      }}
+                                      className="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium bg-red-50 text-[#c92031] hover:bg-red-100 transition-colors"
+                                    >
+                                      +{colors.length - 4} mais
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+
+                            <td className="px-3 py-3 text-center text-slate-500 font-mono text-[11px] align-top">
                               {line.width}m × {line.height}m ({line.area}m²)
                             </td>
 
@@ -992,18 +1105,92 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
         </div>
       )}
 
-      {/* MODAL: Editar Preços da Linha */}
+      {/* MODAL: Ver Cores e Padrões da Linha */}
+      <Dialog open={viewColorsModalOpen} onOpenChange={setViewColorsModalOpen}>
+        <DialogContent className="sm:max-w-lg max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <Palette className="h-5 w-5 text-[#cbb27a]" />
+              <span>{selectedBrand} — {viewingColorsLine?.name}</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs text-stone-500">
+              {viewingColorsLine?.colors?.length || 0} padrões e cores catalogados no Promob Plus
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="relative my-2">
+            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-stone-400" />
+            <Input
+              placeholder="Filtrar cores desta linha..."
+              value={colorModalSearch}
+              onChange={e => setColorModalSearch(e.target.value)}
+              className="pl-8 text-xs bg-stone-50 h-8"
+            />
+          </div>
+
+          <div className="overflow-y-auto max-h-[50vh] pr-1 space-y-1">
+            <div className="grid grid-cols-2 gap-2">
+              {(viewingColorsLine?.colors || [])
+                .filter(c => !colorModalSearch || c.toLowerCase().includes(colorModalSearch.toLowerCase().trim()))
+                .map((color, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center gap-2 p-2 rounded-lg border border-stone-200 bg-stone-50/70 hover:bg-stone-100 transition-colors text-xs text-stone-800"
+                  >
+                    <span className="h-2 w-2 rounded-full bg-[#c92031] shrink-0" />
+                    <span className="font-medium truncate" title={color}>{color}</span>
+                  </div>
+                ))}
+            </div>
+            {viewingColorsLine?.colors?.filter(c => !colorModalSearch || c.toLowerCase().includes(colorModalSearch.toLowerCase().trim())).length === 0 && (
+              <p className="text-center py-6 text-xs text-stone-400">
+                Nenhuma cor encontrada com o termo "{colorModalSearch}".
+              </p>
+            )}
+          </div>
+
+          <DialogFooter className="mt-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setViewColorsModalOpen(false)}
+              className="text-xs"
+            >
+              Fechar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL: Editar Preços e Cores da Linha */}
       <Dialog open={editLineModalOpen} onOpenChange={setEditLineModalOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              Editar Preços: {selectedBrand} — {editingLine?.name}
+              Editar Linha: {selectedBrand} — {editingLine?.name}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <p className="text-xs text-slate-500">
-              Altere os valores de custo por chapa inteira (2,75m × 1,85m). O sistema recalcula automaticamente o metro quadrado e o preço de venda com a margem cadastrada.
+              Altere os valores de custo por chapa inteira (2,75m × 1,85m) e as cores correspondentes do Promob. O sistema recalcula automaticamente o metro quadrado e o preço de venda.
             </p>
+
+            <div className="rounded-lg bg-stone-50 p-3 border border-stone-200 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-semibold text-stone-800 flex items-center gap-1.5">
+                  <Palette className="h-3.5 w-3.5 text-[#cbb27a]" />
+                  <span>Cores e Padrões ({editingLine?.colors?.length || 0})</span>
+                </Label>
+                <span className="text-[10px] text-stone-400">Separados por vírgula</span>
+              </div>
+              <textarea
+                rows={3}
+                value={editLineColors}
+                onChange={e => setEditLineColors(e.target.value)}
+                placeholder="Ex: Branco Supremo, Cacao, Canela..."
+                className="w-full text-xs font-mono rounded-md border border-stone-200 p-2 bg-white focus:outline-none focus:ring-1 focus:ring-[#c92031]"
+              />
+            </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -1052,7 +1239,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
               Cancelar
             </Button>
             <Button onClick={handleSaveLine} className="bg-[#c92031] text-white hover:bg-[#aa1726]">
-              Salvar Novos Preços
+              Salvar Alterações
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1072,6 +1259,20 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                 value={newLineName}
                 onChange={e => setNewLineName(e.target.value)}
                 className="mt-1"
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-semibold">Cores e Padrões Promob</Label>
+                <span className="text-[10px] text-stone-400">Separados por vírgula</span>
+              </div>
+              <textarea
+                rows={2}
+                placeholder="Ex: Padrão 1, Padrão 2, Padrão 3..."
+                value={newLineColors}
+                onChange={e => setNewLineColors(e.target.value)}
+                className="mt-1 w-full text-xs font-mono rounded-md border border-stone-200 p-2 bg-white focus:outline-none focus:ring-1 focus:ring-[#c92031]"
               />
             </div>
 
