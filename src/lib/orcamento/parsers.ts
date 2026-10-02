@@ -320,7 +320,14 @@ export function parsePromobXML(
   const items: ParsedItemRow[] = [];
 
   // Previne falhas com entidades HTML não declaradas
-  const cleanXml = xmlContent.replace(/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[a-fA-F0-9]+);)/g, '&amp;');
+  const cleanXml = xmlContent
+    .replace(/&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[a-fA-F0-9]+);)/g, '&amp;')
+    // This is a diagnostic copy of unpriced items, not a second bill of materials.
+    .replace(/<ITEMSWITHOUTPRICE\b[^>]*>[\s\S]*?<\/ITEMSWITHOUTPRICE>/gi, '');
+  const startListing = /<LISTING\b[^>]*\bID\s*=\s*["']LISTING_STRUCTURED_W_OP["']/i.test(cleanXml);
+  const ambientRanges = [...cleanXml.matchAll(/<AMBIENT\b[^>]*>[\s\S]*?<\/AMBIENT>/gi)]
+    .map(match => ({ start: match.index!, end: match.index! + match[0].length }));
+  const sourceItems = new Map<string, { id: string; finish: string; dimensions: string; ambient: number }>();
 
   // Metadados do cliente e projeto no cabeçalho do XML
   const nameMatch = cleanXml.match(/<(?:NAME|NOME|Cliente|Client)[^>]*>([^<]+)<\//i);
@@ -336,6 +343,14 @@ export function parsePromobXML(
   if (totTabMatch) metadata.total_tabela = parseLocaleNumber(totTabMatch[1]);
   const totFinMatch = cleanXml.match(/<(?:TOTAL_FINAL|TotalFinal|FINAL_TOTAL)[^>]*>([^<]+)<\//i);
   if (totFinMatch) metadata.total_final = parseLocaleNumber(totFinMatch[1]);
+  const nativeTotals = cleanXml.match(/<TOTALPRICES\b([^>]*?)>([\s\S]*?)<\/TOTALPRICES>/i);
+  if (nativeTotals) {
+    const table = parseXmlAttributes(nativeTotals[1]).table;
+    const budget = nativeTotals[2].match(/<BUDGET\b([^>]*)>/i);
+    const final = budget ? parseXmlAttributes(budget[1]).value : undefined;
+    if (table !== undefined) metadata.total_tabela = parseLocaleNumber(table);
+    if (final !== undefined) metadata.total_final = parseLocaleNumber(final);
+  }
 
   // Extração precisa de tags de itens (<ITEM>, <PECA>, <PART>, <Item>, <Peca>, <Part>), incluindo subitens aninhados
   const tagStartRegex = /<(ITEM|PECA|PART|Item|Peca|Part)\b([^>]*?)(\/?)>/gi;
@@ -406,8 +421,14 @@ export function parsePromobXML(
     const d = getVal(['depth', 'profundidade', 'prof']);
     const t = getVal(['thickness', 'espessura', 'esp']);
 
-    const tablePrice = parseLocaleNumber(getVal(['table_price', 'preco_tabela', 'valor_tabela', 'price', 'preco', 'unit_price', 'custo', 'valortabela', 'precotabela', 'valortbl', 'precotbl', 'vlrtabela']));
-    const finalPrice = parseLocaleNumber(getVal(['final_price', 'preco_final', 'valor_final', 'total_price', 'valor_total', 'vlrtotal', 'valortotal', 'precototal', 'preco_final']));
+    const priceTag = [...innerContent.matchAll(/<PRICE\b([^>]*?)(\/?)>/gi)]
+      .find(tag => parseXmlAttributes(tag[1]).table !== undefined);
+    const nativePrice = priceTag ? parseXmlAttributes(priceTag[1]) : {};
+    const priceBody = priceTag ? innerContent.slice(priceTag.index).match(/^<PRICE\b[^>]*>([\s\S]*?)<\/PRICE>/i)?.[1] || '' : '';
+    const nativeBudgetTag = priceBody.match(/<BUDGET\b([^>]*)>/i);
+    const nativeBudget = nativeBudgetTag ? parseXmlAttributes(nativeBudgetTag[1]) : {};
+    const tablePrice = parseLocaleNumber(getVal(['table_price', 'preco_tabela', 'valor_tabela', 'price', 'preco', 'unit_price', 'custo', 'valortabela', 'precotabela', 'valortbl', 'precotbl', 'vlrtabela']) || nativePrice.table);
+    const finalPrice = parseLocaleNumber(getVal(['final_price', 'preco_final', 'valor_final', 'total_price', 'valor_total', 'vlrtotal', 'valortotal', 'precototal', 'preco_final']) || nativeBudget.total || nativePrice.total);
 
     const rep = rawRep
       ? Math.max(1, Math.round(parseLocaleNumber(rawRep, 1)))
@@ -454,6 +475,11 @@ export function parsePromobXML(
     }
 
     const totalQuantity = Math.round((rep * unit_quantity + Number.EPSILON) * 10000) / 10000;
+    const sourceId = itemIds.get(match.index)!;
+    const sourcePosition = match.index;
+    sourceItems.set(sourceId, { id: attrs.id || '', finish: referenceValue('ACAB'),
+      ambient: ambientRanges.findIndex(range => sourcePosition >= range.start && sourcePosition < range.end),
+      dimensions: [w, h, d].map(value => parseLocaleNumber(value)).sort((a, b) => a - b).join('|') });
 
     items.push({
       id: itemIds.get(match.index),
@@ -479,7 +505,32 @@ export function parsePromobXML(
   }
 
   // Preserva cada linha exata do projeto do Promob sem agregação indevida
-  return { items, metadata };
+  if (!startListing) return { items, metadata };
+  // Older grouped Start exports flattened physical panels and their visual wrappers.
+  // Suppress a wrapper only when its exact physical counterpart is present.
+  const wrappers = new Set(['COZ_POR_SUP', 'COZ_POR_INF', 'COZ_POR_BAS_SUP', 'COZ_POR_FRE_FRE']);
+  const filtered = items.filter(item => {
+    if (item.has_children || item.table_price || item.final_price) return true;
+    const source = sourceItems.get(item.id!);
+    if (!source) return true;
+    if (wrappers.has(source.id)) {
+      const panels = items.filter(candidate => {
+        const other = sourceItems.get(candidate.id!);
+        return other && ['POR_PAI_PORTA', 'POR_PAI_GAVETA'].includes(other.id) &&
+          other.ambient === source.ambient && other.finish === source.finish && other.dimensions === source.dimensions;
+      });
+      return !panels.length || panels.reduce((sum, panel) => sum + panel.quantity, 0) !== item.quantity;
+    }
+    if (source.id === 'ace_cor_simples' && item.code.startsWith('AGC')) {
+      return !items.some(candidate => {
+        const other = sourceItems.get(candidate.id!);
+        return other?.id === 'ace_ocu_div_cor_gen_c' && `AG${candidate.code}` === item.code &&
+          other.ambient === source.ambient && other.dimensions === source.dimensions && candidate.quantity === item.quantity;
+      });
+    }
+    return true;
+  });
+  return { items: filtered.map((item, index) => ({ ...item, item_number: index + 1 })), metadata };
 }
 
 // 2. TXT Parser (Standard cutting list / semicolon separated lines)

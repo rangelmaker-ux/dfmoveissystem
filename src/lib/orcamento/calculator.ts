@@ -1100,6 +1100,13 @@ export function resolveItemPrice(
   }
   if (direct.length > 1) return { matched: false, source: 'database', unit_cost: 0, code: item.code, description: item.description, unit: item.unit || 'UN' };
 
+  // A generic "Processo de Fabricação" description cannot identify which service
+  // was performed. Unknown services must not inherit the Porta Reta alias.
+  if (classifyPromobItem(item) === 'MANUFACTURING_PROCESS') {
+    return { matched: false, source: 'catalog_maodeobra', unit_cost: 0,
+      code: item.code, description: item.description, unit: item.unit || 'UN' };
+  }
+
   const isChapaItem = isChapa(item.code, item.description) || (item.unit || '').toUpperCase() === 'M2';
 
   if (isChapaItem) {
