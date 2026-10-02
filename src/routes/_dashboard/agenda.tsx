@@ -30,6 +30,7 @@ import {
   TooltipTrigger 
 } from '@/components/ui/tooltip';
 import { format, startOfDay, isSameDay, parseISO, areIntervalsOverlapping, addDays } from 'date-fns';
+import { agendaDisplayDate, agendaDayKey, agendaTimestamp } from '@/lib/agenda-time';
 import { cn } from '@/lib/utils';
 import { ptBR } from 'date-fns/locale';
 
@@ -66,6 +67,7 @@ interface AgendaForm {
   hora_fim: string;
   tipo: string;
   cliente_id: string;
+  necessita_administrador: boolean | null;
 }
 
 interface AgendaEvent {
@@ -83,6 +85,8 @@ interface AgendaEvent {
   data_sugerida_inicio?: string | null;
   data_sugerida_fim?: string | null;
   motivo_alteracao?: string | null;
+  necessita_administrador: boolean;
+  necessita_administrador_sugerido?: boolean | null;
 }
 
 function errorMessage(error: unknown) {
@@ -103,7 +107,8 @@ function AgendaPage() {
     hora_inicio: '',
     hora_fim: '',
     tipo: 'REUNIAO',
-    cliente_id: ''
+    cliente_id: '',
+    necessita_administrador: null as boolean | null,
   });
 
   // Modal exclusivo para Administrador: Travar Agenda
@@ -111,14 +116,14 @@ function AgendaPage() {
   const [lockFormData, setLockFormData] = useState({
     titulo: '🔒 Agenda Travada pelo Administrador',
     motivo: 'Indisponível para compromissos',
-    data_inicio: format(new Date(), 'yyyy-MM-dd'),
-    data_fim: format(new Date(), 'yyyy-MM-dd'),
+    data_inicio: agendaDayKey(new Date()),
+    data_fim: agendaDayKey(new Date()),
     dia_inteiro: true,
     hora_inicio: '08:00',
     hora_fim: '18:00',
   });
 
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(agendaDisplayDate(new Date()));
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
 
   const { data: events, isLoading } = useQuery({
@@ -126,7 +131,7 @@ function AgendaPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('agendamentos')
-        .select('id, titulo, descricao, data_inicio, data_fim, tipo, status, cliente_id, criado_por_id:criado_por, criado_por:users(nome), cliente:clientes(nome), data_sugerida_inicio, data_sugerida_fim, motivo_alteracao')
+        .select('id, titulo, descricao, data_inicio, data_fim, tipo, status, cliente_id, criado_por_id:criado_por, criado_por:users(nome), cliente:clientes(nome), data_sugerida_inicio, data_sugerida_fim, motivo_alteracao, necessita_administrador, necessita_administrador_sugerido')
         .order('data_inicio', { ascending: true });
       if (error) throw error;
       return (data ?? []) as unknown as AgendaEvent[];
@@ -160,7 +165,7 @@ function AgendaPage() {
 
   const filteredEvents = useMemo(() => {
     if (!events || !selectedDate) return [];
-    return events.filter(e => isSameDay(parseISO(e.data_inicio), selectedDate));
+    return events.filter(e => isSameDay(agendaDisplayDate(e.data_inicio), selectedDate));
   }, [events, selectedDate]);
 
   const dayTooltips = useMemo(() => {
@@ -168,7 +173,7 @@ function AgendaPage() {
     if (!events) return tooltips;
 
     const grouped = events.reduce<Record<string, AgendaEvent[]>>((acc, event) => {
-      const dateKey = event.data_inicio.split('T')[0];
+      const dateKey = agendaDayKey(event.data_inicio);
       if (!acc[dateKey]) acc[dateKey] = [];
       acc[dateKey].push(event);
       return acc;
@@ -181,7 +186,7 @@ function AgendaPage() {
             <div key={e.id} className="text-[10px] border-b border-border last:border-0 pb-1">
               <p className="font-bold truncate">{e.titulo}</p>
               <p className="text-muted-foreground">
-                {format(parseISO(e.data_inicio), "HH:mm")} - {e.cliente?.nome || 'Sem cliente'}
+                {format(agendaDisplayDate(e.data_inicio), "HH:mm")} - {e.cliente?.nome || 'Sem cliente'}
               </p>
             </div>
           ))}
@@ -199,11 +204,21 @@ function AgendaPage() {
     const mods: Record<string, Date[]> = { REUNIAO: [], ATENDIMENTO: [], VISITA: [], BLOQUEIO: [] };
     events?.forEach(e => {
       if (mods[e.tipo]) {
-        mods[e.tipo].push(parseISO(e.data_inicio));
+        mods[e.tipo].push(agendaDisplayDate(e.data_inicio));
       }
     });
     return mods;
   }, [events]);
+
+  const openNewSchedule = (day: Date) => {
+    setSelectedDate(day);
+    setEditingEventId(null);
+    setFormData({ titulo: '', descricao: '', data: format(day, 'yyyy-MM-dd'), hora_inicio: '', hora_fim: '', tipo: 'REUNIAO', cliente_id: '', necessita_administrador: null });
+    setIsDialogOpen(true);
+  };
+  const formLocks = events?.filter(event => event.tipo === 'BLOQUEIO' && formData.data &&
+    agendaDayKey(event.data_inicio) <= formData.data &&
+    agendaDayKey(new Date(new Date(event.data_fim).getTime() - 1)) >= formData.data) ?? [];
 
   const saveMutation = useMutation({
     mutationFn: async (event: AgendaForm) => {
@@ -217,17 +232,18 @@ function AgendaPage() {
         throw new Error('Apenas administradores têm permissão para travar a agenda.');
       }
 
-      const data_inicio = new Date(`${event.data}T${event.hora_inicio}`);
+      if (event.tipo !== 'BLOQUEIO' && event.necessita_administrador === null) throw new Error('Informe se precisa da presença do administrador.');
+      const data_inicio = new Date(agendaTimestamp(event.data, event.hora_inicio));
       if (isNaN(data_inicio.getTime())) {
         throw new Error('Data ou hora inválida.');
       }
-      const data_fim = new Date(`${event.data}T${event.hora_fim}`);
+      const data_fim = new Date(agendaTimestamp(event.data, event.hora_fim));
       if (isNaN(data_fim.getTime()) || data_fim <= data_inicio) {
         throw new Error('O horário final precisa ser posterior ao horário inicial.');
       }
 
-      // Validação: Impedir qualquer compromisso em período com Agenda Travada pelo Administrador
-      if (event.tipo !== 'BLOQUEIO') {
+      // Only bookings requiring the administrator are restricted by their availability.
+      if (event.tipo !== 'BLOQUEIO' && event.necessita_administrador) {
         const conflictingLock = events?.find(e => {
           if (editingEventId && e.id === editingEventId) return false;
           if (e.tipo !== 'BLOQUEIO') return false;
@@ -242,8 +258,8 @@ function AgendaPage() {
         });
 
         if (conflictingLock) {
-          const lockStartStr = format(parseISO(conflictingLock.data_inicio), 'HH:mm');
-          const lockEndStr = format(parseISO(conflictingLock.data_fim), 'HH:mm');
+          const lockStartStr = format(agendaDisplayDate(conflictingLock.data_inicio), 'HH:mm');
+          const lockEndStr = format(agendaDisplayDate(conflictingLock.data_fim), 'HH:mm');
           throw new Error(
             `A agenda está travada pelo Administrador das ${lockStartStr} às ${lockEndStr} ("${conflictingLock.titulo}"). Escolha outro horário ou dia.`
           );
@@ -267,8 +283,8 @@ function AgendaPage() {
       }) : undefined;
 
       if (conflictingMeeting) {
-        const conflictStart = format(parseISO(conflictingMeeting.data_inicio), 'HH:mm');
-        const conflictEnd = format(parseISO(conflictingMeeting.data_fim), 'HH:mm');
+        const conflictStart = format(agendaDisplayDate(conflictingMeeting.data_inicio), 'HH:mm');
+        const conflictEnd = format(agendaDisplayDate(conflictingMeeting.data_fim), 'HH:mm');
         const owner = conflictingMeeting.criado_por?.nome
           ? ` por ${conflictingMeeting.criado_por.nome}`
           : '';
@@ -284,6 +300,7 @@ function AgendaPage() {
         data_fim: data_fim.toISOString(),
         tipo: event.tipo,
         cliente_id: event.cliente_id || null,
+        necessita_administrador: event.tipo === 'BLOQUEIO' ? false : event.necessita_administrador!,
       };
 
       if (editingEventId) {
@@ -301,6 +318,7 @@ function AgendaPage() {
             .update({
               data_sugerida_inicio: data_inicio.toISOString(),
               data_sugerida_fim: data_fim.toISOString(),
+              necessita_administrador_sugerido: event.necessita_administrador,
               motivo_alteracao: event.descricao || 'Alteração de horário solicitada pelo projetista',
               status: 'ALTERACAO_SOLICITADA',
             })
@@ -319,6 +337,7 @@ function AgendaPage() {
           .from('agendamentos')
           .update({
             ...payload,
+            necessita_administrador_sugerido: null,
             data_sugerida_inicio: null,
             data_sugerida_fim: null,
             motivo_alteracao: null,
@@ -328,6 +347,7 @@ function AgendaPage() {
 
         if (adminError) {
           console.error('[agenda] update error', adminError);
+          if (adminError.code === '23P01' && adminError.message.includes('travada pelo administrador')) throw new Error(adminError.message);
           if (adminError.code === '23P01' && event.tipo === 'REUNIAO') {
             throw new Error('Outra pessoa acabou de marcar uma reunião neste horário. Escolha outro horário.');
           }
@@ -342,6 +362,7 @@ function AgendaPage() {
 
         if (insertError) {
           console.error('[agenda] insert error', insertError);
+          if (insertError.code === '23P01' && insertError.message.includes('travada pelo administrador')) throw new Error(insertError.message);
           if (insertError.code === '23P01' && event.tipo === 'REUNIAO') {
             throw new Error('Outra pessoa acabou de marcar uma reunião neste horário. Escolha outro horário.');
           }
@@ -355,7 +376,7 @@ function AgendaPage() {
       queryClient.invalidateQueries({ queryKey: ['agendamentos'] });
       setIsDialogOpen(false);
       setEditingEventId(null);
-      setFormData({ titulo: '', descricao: '', data: '', hora_inicio: '', hora_fim: '', tipo: 'REUNIAO', cliente_id: '' });
+      setFormData({ titulo: '', descricao: '', data: '', hora_inicio: '', hora_fim: '', tipo: 'REUNIAO', cliente_id: '', necessita_administrador: null });
       if (result?.isRequest) {
         toast.info('Solicitação de alteração enviada ao Administrador! O novo horário entrará em vigor assim que for autorizado.');
       } else {
@@ -376,11 +397,13 @@ function AgendaPage() {
       const { error } = await supabase
         .from('agendamentos')
         .update({
+          necessita_administrador: event.necessita_administrador_sugerido ?? event.necessita_administrador,
           data_inicio: event.data_sugerida_inicio,
           data_fim: event.data_sugerida_fim,
           data_sugerida_inicio: null,
           data_sugerida_fim: null,
           motivo_alteracao: null,
+          necessita_administrador_sugerido: null,
           status: 'CONFIRMADO',
         })
         .eq('id', event.id);
@@ -402,6 +425,7 @@ function AgendaPage() {
           data_sugerida_inicio: null,
           data_sugerida_fim: null,
           motivo_alteracao: null,
+          necessita_administrador_sugerido: null,
           status: 'CONFIRMADO',
         })
         .eq('id', event.id);
@@ -421,6 +445,8 @@ function AgendaPage() {
       if (!data.data_inicio) throw new Error('Informe a data inicial.');
       if (!data.data_fim) throw new Error('Informe a data final.');
 
+      agendaTimestamp(data.data_inicio, '00:00');
+      agendaTimestamp(data.data_fim, '00:00');
       const startDay = new Date(`${data.data_inicio}T00:00:00`);
       const endDay = new Date(`${data.data_fim}T00:00:00`);
       if (endDay < startDay) {
@@ -435,8 +461,11 @@ function AgendaPage() {
         const hInicio = data.dia_inteiro ? '00:00' : data.hora_inicio;
         const hFim = data.dia_inteiro ? '23:59' : data.hora_fim;
 
-        const dInicio = new Date(`${curDateStr}T${hInicio}`);
-        const dFim = new Date(`${curDateStr}T${hFim}`);
+        const dInicio = new Date(agendaTimestamp(curDateStr, hInicio));
+        const dFim = data.dia_inteiro
+          ? new Date(agendaTimestamp(format(addDays(cur, 1), 'yyyy-MM-dd'), '00:00'))
+          : new Date(agendaTimestamp(curDateStr, hFim));
+        if (dFim <= dInicio) throw new Error('O horário final precisa ser posterior ao inicial.');
 
         inserts.push({
           titulo: data.titulo.trim() || '🔒 Agenda Travada pelo Administrador',
@@ -521,8 +550,8 @@ function AgendaPage() {
       toast.error('Você só pode alterar os agendamentos que criou.');
       return;
     }
-    const start = parseISO(event.data_inicio);
-    const end = parseISO(event.data_fim);
+    const start = agendaDisplayDate(event.data_inicio);
+    const end = agendaDisplayDate(event.data_fim);
     setFormData({
       titulo: event.titulo,
       descricao: event.descricao || '',
@@ -530,6 +559,7 @@ function AgendaPage() {
       hora_inicio: format(start, 'HH:mm'),
       hora_fim: format(end, 'HH:mm'),
       tipo: event.tipo,
+      necessita_administrador: event.necessita_administrador,
       cliente_id: event.cliente_id || ''
     });
     setEditingEventId(event.id);
@@ -683,11 +713,11 @@ function AgendaPage() {
             setIsDialogOpen(open);
             if (!open) {
               setEditingEventId(null);
-              setFormData({ titulo: '', descricao: '', data: '', hora_inicio: '', hora_fim: '', tipo: 'REUNIAO', cliente_id: '' });
+              setFormData({ titulo: '', descricao: '', data: '', hora_inicio: '', hora_fim: '', tipo: 'REUNIAO', cliente_id: '', necessita_administrador: null });
             }
           }}>
             <DialogTrigger asChild>
-              <Button className="bg-primary hover:bg-primary/90 shadow-sm text-xs">
+              <Button onClick={() => openNewSchedule(selectedDate ?? agendaDisplayDate(new Date()))} className="bg-primary hover:bg-primary/90 shadow-sm text-xs">
                 <Plus className="mr-2 h-4 w-4" />
                 Novo Agendamento
               </Button>
@@ -712,6 +742,21 @@ function AgendaPage() {
                   <Label htmlFor="titulo">Título</Label>
                   <Input id="titulo" value={formData.titulo} onChange={(e) => setFormData({...formData, titulo: e.target.value})} placeholder="Ex: Reunião de Briefing" />
                 </div>
+                {formData.tipo !== 'BLOQUEIO' && (
+                  <div className="grid gap-2">
+                    {formLocks.length > 0 && (
+                      <p role="status" className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-900">
+                        A agenda do administrador está travada nesta data. Você pode agendar sem a presença dele, desde que a sala esteja disponível.
+                      </p>
+                    )}
+                    <Label htmlFor="necessita-administrador">Precisa da presença do administrador?</Label>
+                    <Select value={formData.necessita_administrador === null ? '' : String(formData.necessita_administrador)} onValueChange={value => setFormData({ ...formData, necessita_administrador: value === 'true' })}>
+                      <SelectTrigger id="necessita-administrador"><SelectValue placeholder="Selecione Sim ou Não" /></SelectTrigger>
+                      <SelectContent><SelectItem value="true">Sim</SelectItem><SelectItem value="false">Não</SelectItem></SelectContent>
+                    </Select>
+                    {formLocks.length > 0 && formData.necessita_administrador && <p className="text-sm text-amber-900">Para contar com o administrador, escolha um horário fora do período bloqueado.</p>}
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="grid gap-2">
                     <Label htmlFor="data">Data</Label>
@@ -782,6 +827,7 @@ function AgendaPage() {
               mode="single"
               selected={selectedDate}
               onSelect={setSelectedDate}
+              onDayClick={day => openNewSchedule(day)}
               locale={ptBR}
               className="rounded-md w-full"
               modifiers={modifiers}
@@ -896,12 +942,13 @@ function AgendaPage() {
                         </div>
                         <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                           <span className="font-semibold text-primary/80">
-                            {format(parseISO(event.data_inicio), "HH:mm")} - {format(parseISO(event.data_fim), "HH:mm")}
+                            {format(agendaDisplayDate(event.data_inicio), "HH:mm")} - {format(agendaDisplayDate(event.data_fim), "HH:mm")}
                           </span>
                           <span className="flex items-center gap-1 border-l pl-3">
                             <User className="h-3 w-3" />
                             {event.criado_por?.nome || (isBloqueio ? 'Administrador' : 'Usuário')}
                           </span>
+                          {!isBloqueio && <span>Administrador: {event.necessita_administrador ? 'presença necessária' : 'não necessário'}</span>}
                           {event.descricao && (
                             <span className="text-slate-500 italic border-l pl-3">
                               {event.descricao}
@@ -921,8 +968,9 @@ function AgendaPage() {
                               <span>Alteração solicitada pelo projetista (Aguardando autorização do Administrador):</span>
                             </div>
                             <p className="text-slate-800">
-                              Novo Horário Sugerido: <strong className="text-amber-900">{format(parseISO(event.data_sugerida_inicio), "dd/MM/yyyy 'às' HH:mm")} até {format(parseISO(event.data_sugerida_fim), "HH:mm")}</strong>
+                              Novo Horário Sugerido: <strong className="text-amber-900">{format(agendaDisplayDate(event.data_sugerida_inicio), "dd/MM/yyyy 'às' HH:mm")} até {format(agendaDisplayDate(event.data_sugerida_fim), "HH:mm")}</strong>
                             </p>
+                            {event.necessita_administrador_sugerido !== null && event.necessita_administrador_sugerido !== undefined && <p>Presença do administrador solicitada: {event.necessita_administrador_sugerido ? 'Sim' : 'Não'}</p>}
                             {event.motivo_alteracao && (
                               <p className="text-slate-600 italic">
                                 Motivo: {event.motivo_alteracao}

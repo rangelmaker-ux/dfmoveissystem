@@ -48,6 +48,8 @@ export type Database = {
           data_sugerida_inicio?: string | null;
           data_sugerida_fim?: string | null;
           motivo_alteracao?: string | null;
+          necessita_administrador?: boolean;
+          necessita_administrador_sugerido?: boolean | null;
         };
         Insert: {
           cliente_id?: string | null;
@@ -64,6 +66,8 @@ export type Database = {
           data_sugerida_inicio?: string | null;
           data_sugerida_fim?: string | null;
           motivo_alteracao?: string | null;
+          necessita_administrador?: boolean;
+          necessita_administrador_sugerido?: boolean | null;
         };
         Update: {
           cliente_id?: string | null;
@@ -80,6 +84,8 @@ export type Database = {
           data_sugerida_inicio?: string | null;
           data_sugerida_fim?: string | null;
           motivo_alteracao?: string | null;
+          necessita_administrador?: boolean;
+          necessita_administrador_sugerido?: boolean | null;
         };
         Relationships: [
           {

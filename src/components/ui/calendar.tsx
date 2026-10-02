@@ -184,7 +184,7 @@ function CalendarDayButton({
     />
   );
 
-  const dayKey = day.date.toISOString().split('T')[0];
+  const dayKey = `${day.date.getFullYear()}-${String(day.date.getMonth() + 1).padStart(2, '0')}-${String(day.date.getDate()).padStart(2, '0')}`;
   const tooltipContent = dayTooltips?.[dayKey];
 
   if (tooltipContent) {

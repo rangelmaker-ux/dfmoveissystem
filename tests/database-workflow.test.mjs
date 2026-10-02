@@ -249,6 +249,20 @@ test("migrações, aprovação, orçamento e financeiro no PostgreSQL", async (t
       ),
     );
   });
+  await t.test("bloqueio do administrador permite reunião sem presença e mantém a sala única", async () => {
+    await actor(adminId);
+    await db.query("INSERT INTO public.agendamentos(titulo,tipo,criado_por,data_inicio,data_fim) VALUES('Ausente','BLOQUEIO',$1,'2026-10-09T03:00:00Z','2026-10-10T03:00:00Z')", [adminId]);
+    await actor(designerId);
+    await assert.rejects(db.query("INSERT INTO public.agendamentos(titulo,tipo,criado_por,data_inicio,data_fim,necessita_administrador) VALUES('Com admin','REUNIAO',$1,'2026-10-09T12:00:00Z','2026-10-09T13:00:00Z',true)", [designerId]), /travada pelo administrador/i);
+    const meeting = await db.query("INSERT INTO public.agendamentos(titulo,tipo,criado_por,data_inicio,data_fim,necessita_administrador) VALUES('Sem admin','REUNIAO',$1,'2026-10-09T12:00:00Z','2026-10-09T13:00:00Z',false) RETURNING id", [designerId]);
+    await assert.rejects(db.query("UPDATE public.agendamentos SET necessita_administrador=true WHERE id=$1", [meeting.rows[0].id]), /Solicite alteração/i);
+    await actor(otherId);
+    await assert.rejects(db.query("INSERT INTO public.agendamentos(titulo,tipo,criado_por,data_inicio,data_fim,necessita_administrador) VALUES('Sala ocupada','REUNIAO',$1,'2026-10-09T12:30:00Z','2026-10-09T13:30:00Z',false)", [otherId]), /reunião|conflicting/i);
+    await db.query("INSERT INTO public.agendamentos(titulo,tipo,criado_por,data_inicio,data_fim,necessita_administrador) VALUES('Sala livre','REUNIAO',$1,'2026-10-09T13:00:00Z','2026-10-09T14:00:00Z',false)", [otherId]);
+    await actor(adminId);
+    await assert.rejects(db.query("UPDATE public.agendamentos SET necessita_administrador=true WHERE id=$1", [meeting.rows[0].id]), /travada pelo administrador/i);
+  });
+
   await t.test("sala única bloqueia reunião de outro projetista e permite horários consecutivos", async () => {
     await actor(designerId);
     await db.query("INSERT INTO public.agendamentos(titulo,tipo,criado_por,data_inicio,data_fim) VALUES('Sala ocupada','REUNIAO',$1,'2026-10-08T12:00:00Z','2026-10-08T13:00:00Z')", [designerId]);
