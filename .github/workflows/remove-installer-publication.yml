@@ -1,0 +1,19 @@
+name: Remover publicação indevida do instalador
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/remove-installer-publication.yml']
+permissions:
+  contents: write
+  actions: write
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remover cópia pública e artefato temporário após entrega local
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --method DELETE repos/rangelmaker-ux/dfmoveissystem/releases/401536038
+          gh api --method DELETE repos/rangelmaker-ux/dfmoveissystem/git/refs/tags/v1.0.0
+          gh api --method DELETE repos/rangelmaker-ux/dfmoveissystem/actions/artifacts/11208638165
