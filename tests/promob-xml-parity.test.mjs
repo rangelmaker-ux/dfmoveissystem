@@ -6,6 +6,12 @@ const source = ['default-materials', 'chapas-catalog', 'calculator', 'parsers'].
   stripTypeScriptTypes(fs.readFileSync(`src/lib/orcamento/${name}.ts`, 'utf8'))).join('\n').replace(/^import .*;$/mg, '');
 const m = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 
+test('technical cost metadata never shadows the physical panel finish or price',()=>{
+ const xml='<ITEM REFERENCE="1.0484.18.Greenplac.Carmel.MDF" DESCRIPTION="Painel Porta Reta" UNIT="M2" QUANTITY=".26" WIDTH="344" HEIGHT="18" DEPTH="736.5"><COSTCOMPONENTS><COMPONENT TABLE_PRICE="999"><REFERENCES><MODEL REFERENCE="Wrong child color"/></REFERENCES></COMPONENT></COSTCOMPONENTS><REFERENCES><MODEL REFERENCE="Greenplac.Carmel"/></REFERENCES></ITEM>';
+ const {items}=m.parsePromobXML(xml);
+ assert.equal(items.length,1);assert.equal(items[0].external_model,'Greenplac.Carmel');assert.equal(items[0].table_price,0);
+});
+
 test('native Plus prices and totals are read without importing diagnostic copies', () => {
  const xml = `<LISTING><TOTALPRICES TABLE="3559.46"><MARGINS><BUDGET VALUE="9854.38"/></MARGINS></TOTALPRICES>
  <AMBIENTS><AMBIENT><CATEGORIES><ITEMS><ITEM GUID="hinge" REFERENCE="HINGE" DESCRIPTION="Dobradiça" UNIT="UN" REPETITION="26" QUANTITY="1">

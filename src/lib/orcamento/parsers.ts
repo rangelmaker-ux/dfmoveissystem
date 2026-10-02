@@ -366,7 +366,10 @@ export function parsePromobXML(
   while ((match = tagStartRegex.exec(cleanXml)) !== null) {
     const attrs = parseXmlAttributes(match[2] || '');
     const own = itemBodies.get(match.index);
-    const innerContent = own?.body || '';
+    const innerContent = (own?.body || '').replace(
+      /<(COSTCOMPONENTS|METADATAS|ADDITIONAL_INFORMATIONS_BUILDER)\b(?![^>]*\/\s*>)[^>]*>[\s\S]*?<\/\1>/gi,
+      ''
+    );
     const references = innerContent.match(/<REFERENCES\b[^>]*>([\s\S]*?)<\/REFERENCES>/i)?.[1] || '';
     const referenceValue = (name: string): string => {
       const tag = references.match(new RegExp(`<${name}\\b([^>]*)>`, 'i'));
