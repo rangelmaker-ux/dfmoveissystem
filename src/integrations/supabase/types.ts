@@ -334,6 +334,7 @@ export type Database = {
           id: string;
           nome: string;
           password: string | null;
+          is_hidden?: boolean;
           role: Database["public"]["Enums"]["user_role"];
           status: string;
         };
@@ -348,6 +349,7 @@ export type Database = {
           id?: string;
           nome: string;
           password?: string | null;
+          is_hidden?: boolean;
           role?: Database["public"]["Enums"]["user_role"];
           status?: string;
         };
@@ -362,6 +364,7 @@ export type Database = {
           id?: string;
           nome?: string;
           password?: string | null;
+          is_hidden?: boolean;
           role?: Database["public"]["Enums"]["user_role"];
           status?: string;
         };

@@ -371,6 +371,20 @@ test("migrações, aprovação, orçamento e financeiro no PostgreSQL", async (t
     assert.equal((await db.query("SELECT revision FROM public.orcamento_catalog WHERE id=1")).rows[0].revision, saved.revision);
     await db.exec("ROLLBACK");
   });
+  await t.test("administrador oculto autentica sem aparecer para a equipe", async () => {
+    await root();
+    await db.query("UPDATE public.users SET is_hidden=true WHERE id=$1", [adminId]);
+    await actor(designerId);
+    assert.equal((await db.query("SELECT id FROM public.users WHERE id=$1", [adminId])).rows.length,0);
+    await assert.rejects(db.query("UPDATE public.users SET is_hidden=false WHERE id=$1", [adminId]), /permission denied/i);
+    await actor(adminId);
+    assert.equal((await db.query("SELECT public.staff_admin() AS admin")).rows[0].admin,true);
+    assert.equal((await db.query("SELECT id FROM public.users WHERE id=$1", [adminId])).rows.length,1);
+    assert.equal((await db.query("SELECT id FROM public.users WHERE is_hidden=false AND id=$1", [adminId])).rows.length,0);
+    await root();
+    await db.query("UPDATE public.users SET is_hidden=false WHERE id=$1", [adminId]);
+  });
+
   await t.test("conta bloqueada perde acesso sem depender do menu", async () => {
     await actor(adminId);
     await db.query("UPDATE public.users SET status='BLOQUEADO' WHERE id=$1", [designerId]);

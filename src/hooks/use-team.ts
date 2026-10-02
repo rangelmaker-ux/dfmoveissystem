@@ -29,6 +29,7 @@ export function useTeam(includeAdministrators = false) {
       let teamQuery = supabase
         .from("users")
         .select("id, nome, email, role, status, avatar_url, created_at")
+        .eq("is_hidden", false)
         .order("status", { ascending: false })
         .order("created_at", { ascending: true });
 
