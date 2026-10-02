@@ -1,0 +1,37 @@
+name: Windows - DF Móveis
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['desktop/**', '.github/workflows/windows-desktop.yml']
+permissions:
+  contents: write
+concurrency:
+  group: df-windows-release
+  cancel-in-progress: false
+jobs:
+  installer:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - name: Compilar e publicar instalador e atualização Windows
+        run: npx electron-builder --win nsis --x64 --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DF-Moveis-Windows
+          path: |
+            desktop/release/*.exe
+            desktop/release/*.yml
+            desktop/release/*.blockmap

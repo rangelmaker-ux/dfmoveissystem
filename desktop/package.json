@@ -1,0 +1,81 @@
+{
+  "name": "df-moveis-desktop",
+  "version": "1.0.0",
+  "description": "Aplicativo interno da DF Móveis Planejados",
+  "author": "DF Móveis Planejados · Criador: Rangel Marques",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win nsis --x64 --publish never",
+    "test": "node --test tests/*.test.cjs"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3",
+    "resedit": "3.1.0"
+  },
+  "build": {
+    "appId": "br.com.dfmoveis.sistema",
+    "productName": "DF Móveis Planejados",
+    "copyright": "Copyright © 2026 DF Móveis Planejados. Criador: Rangel Marques.",
+    "asar": true,
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "afterPack": "build/brand-executable.cjs",
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "installerLanguages": [
+        "pt_BR"
+      ],
+      "language": "1046",
+      "artifactName": "DF-Moveis-Instalador-${version}-${arch}.exe",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerSidebar": "build/sidebar.bmp",
+      "uninstallerSidebar": "build/sidebar.bmp",
+      "include": "build/installer.nsh",
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "rangelmaker-ux",
+        "repo": "dfmoveissystem",
+        "releaseType": "release",
+        "vPrefixedTagName": true
+      }
+    ],
+    "toolsets": {
+      "wine": "1.0.1"
+    }
+  }
+}

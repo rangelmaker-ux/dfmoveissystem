@@ -8,5 +8,16 @@
       "source": "/(.*)",
       "destination": "/_shell.html"
     }
+  ],
+  "headers": [
+    {
+      "source": "/desktop-release.json",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, max-age=0"
+        }
+      ]
+    }
   ]
 }

@@ -12,7 +12,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit",
-    "migrate:auth": "node scripts/migrate-auth.mjs"
+    "migrate:auth": "node scripts/migrate-auth.mjs",
+    "postbuild": "node scripts/write-desktop-release.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
