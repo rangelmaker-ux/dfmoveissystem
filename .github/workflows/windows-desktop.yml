@@ -24,10 +24,8 @@ jobs:
           cache-dependency-path: desktop/package-lock.json
       - run: npm ci
       - run: npm test
-      - name: Compilar e publicar instalador e atualização Windows
-        run: npx electron-builder --win nsis --x64 --publish always
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compilar instalador Windows
+        run: npm run dist:win
       - uses: actions/upload-artifact@v4
         with:
           name: DF-Moveis-Windows

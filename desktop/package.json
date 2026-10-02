@@ -67,11 +67,8 @@
     },
     "publish": [
       {
-        "provider": "github",
-        "owner": "rangelmaker-ux",
-        "repo": "dfmoveissystem",
-        "releaseType": "release",
-        "vPrefixedTagName": true
+        "provider": "generic",
+        "url": "https://dfmoveis-system.vercel.app/desktop-native/"
       }
     ],
     "toolsets": {
