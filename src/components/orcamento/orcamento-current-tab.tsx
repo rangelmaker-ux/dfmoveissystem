@@ -303,6 +303,12 @@ export function OrcamentoCurrentTab({
       const newBudgetItems: BudgetItem[] = allRawItems.map((raw, idx) => {
         const calculated = calculateItemPrice(
           {
+            id: raw.id,
+            parentId: raw.parentId,
+            promob_xml: raw.promob_xml,
+            promob_structure: raw.promob_structure,
+            promob_description: raw.promob_xml ? raw.description : undefined,
+            price_origin: (raw.table_price || 0) > 0 || (raw.final_price || 0) > 0 ? 'imported' : 'calculated',
             code: raw.code,
             description: raw.description,
             quantity: raw.quantity,
@@ -329,10 +335,13 @@ export function OrcamentoCurrentTab({
         };
       });
 
-      setItems(newBudgetItems);
+      const priced = recalculateBudget(newBudgetItems, database, settings, catalog);
+      setItems(priced.items);
+      setItemsViewFilter('grouped');
+      setExpandedModules({});
       onStartNewBudget();
 
-      toast.success(`${parsedCount} itens importados do Promob com sucesso!`, {
+      toast.success(`${groupItemsByModule(priced.items).length} móveis e itens agrupados importados!`, {
         description: `Componentes separados conforme o arquivo exportado, com suas unidades e quantidades.`,
       });
       const pending = missingPriceItems(newBudgetItems);
@@ -765,7 +774,7 @@ export function OrcamentoCurrentTab({
         if (match.matched && match.code) {
           setSelectedAcessorioId(match.code);
         } else if (acessoriosList.length > 0) {
-          setSelectedAcessorioId(acessoriosList[0].id);
+          setSelectedAcessorioId('');
         }
       } else {
         // É uma Chapa de MDF / MDP
@@ -777,7 +786,7 @@ export function OrcamentoCurrentTab({
 
         const b = catalog[targetBrand] as BrandCatalog;
         if (b && b.lines) {
-          setSelectedLine(smart.line || b.lines[0]?.name || '');
+          setSelectedLine(smart.line || '');
         }
       }
     }
@@ -1258,8 +1267,8 @@ export function OrcamentoCurrentTab({
 
   // Agrupamento hierárquico por Móvel / Módulo
   const moduleGroups = useMemo(() => {
-    return groupItemsByModule(items);
-  }, [items]);
+    return groupItemsByModule(recalculateBudget(items, database, settings, catalog).items);
+  }, [items, database, settings, catalog]);
 
   const filteredModuleGroups = useMemo(() => {
     if (!filterSearch.trim()) return moduleGroups;
@@ -1291,7 +1300,7 @@ export function OrcamentoCurrentTab({
   const handleToggleModuleExpand = (groupId: string) => {
     setExpandedModules(prev => ({
       ...prev,
-      [groupId]: prev[groupId] === false ? true : false,
+      [groupId]: !(prev[groupId] ?? !items.some(item => item.promob_xml)),
     }));
   };
 
@@ -1375,6 +1384,9 @@ export function OrcamentoCurrentTab({
             </div>
 
             <div className="flex flex-wrap items-center gap-2 text-[10px] text-stone-500">
+              {item.catalog_match && <span title="Correspondência usada para calcular o preço">
+                Base: {item.catalog_match.code}{item.catalog_match.brand ? ` · ${item.catalog_match.brand} · ${item.catalog_match.line || ''}` : ' · marca/linha não informadas no cadastro'}
+              </span>}
               {item.dimensions && (
                 <span 
                   className="font-mono text-stone-700 bg-stone-100 border border-stone-200/60 px-1.5 py-0.5 rounded-sm"
@@ -1860,8 +1872,9 @@ export function OrcamentoCurrentTab({
                   }`}
                 >
                   <Box className="h-3.5 w-3.5 text-[#886e35]" />
-                  <span>Por Móvel ({moduleGroups.length})</span>
+                  <span>Listagem agrupada ({moduleGroups.length})</span>
                 </button>
+                {!items.some(item => item.promob_xml) && <>
                 <button
                   type="button"
                   onClick={() => setItemsViewFilter('leaves')}
@@ -1884,6 +1897,7 @@ export function OrcamentoCurrentTab({
                 >
                   <span>Todas ({items.length})</span>
                 </button>
+                </>}
               </div>
 
               {itemsViewFilter === 'grouped' && (
@@ -2011,7 +2025,7 @@ export function OrcamentoCurrentTab({
             </div>
           ) : (
             filteredModuleGroups.map(group => {
-              const isExpanded = expandedModules[group.id] !== false;
+              const isExpanded = items.some(item => item.promob_xml) ? expandedModules[group.id] === true : expandedModules[group.id] !== false;
               return (
                 <div
                   key={group.id}
@@ -2068,7 +2082,7 @@ export function OrcamentoCurrentTab({
                             </span>
                           )}
                           <span className="text-xs text-stone-500 font-normal">
-                            ({group.items.length} {group.items.length === 1 ? 'peça' : 'peças'})
+                            ({group.piecesCount} {items.some(item => item.promob_xml) ? 'unidades' : 'peças'})
                           </span>
                         </div>
                         {group.parent_item && (
@@ -2125,7 +2139,7 @@ export function OrcamentoCurrentTab({
                         </table>
                       </div>
                       <div className="flex items-center justify-between border-t border-stone-100 bg-stone-50/70 px-4 py-2 text-[11px] text-stone-600">
-                        <span>Subtotal deste móvel: {group.items.length} itens</span>
+                        <span>Subtotal deste móvel: {group.items.length} componentes internos</span>
                         <div className="flex items-center gap-3 font-mono">
                           <span>
                             Custo Total: {hideFinancialValues ? '••••••' : group.subtotal_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
@@ -2145,7 +2159,7 @@ export function OrcamentoCurrentTab({
 
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-stone-200/90 bg-white/95 px-4 py-3 text-xs text-stone-600 shadow-2xs">
             <span>
-              {moduleGroups.length} móveis / módulos ({items.length} peças totais, {items.filter(it => it.found && !it.price_unlinked).length} vinculados à tabela de preços)
+              {moduleGroups.length} móveis e itens agrupados. Abra um grupo para consultar os componentes e seus vínculos de preço.
             </span>
             <span className="text-stone-500">
               Margem de cálculo aplicada: <strong className="font-semibold text-slate-800">{settings.margin}%</strong> (definida em Parâmetros)

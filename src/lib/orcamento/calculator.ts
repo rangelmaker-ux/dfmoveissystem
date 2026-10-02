@@ -182,6 +182,11 @@ export function smartMatchPromobChapa(
     detectedBrand = 'Arauco';
   }
 
+  const explicitMm = description.match(/espessura\s+(\d+(?:[.,]\d+)?)\s*mm/i)?.[1];
+  if (explicitMm && ![6,15,18,25].includes(Number(explicitMm.replace(',', '.')))) {
+    return { matched: false, brand: detectedBrand, line: null, thickness: '15mm', m2Cost: 0, boardPrice: 0 };
+  }
+
   const requiresWhiteTx = /branc[oa][\s._-]*(?:\(?tx\)?|texturizad[oa])/i.test(rawText);
 
   // 2. Detecta Espessura (6, 15, 18, 25)
@@ -242,6 +247,7 @@ export function smartMatchPromobChapa(
 
     let topScore = 0;
     let topLine: ChapaLineItem | null = null;
+    let ambiguous = false;
 
     for (const line of bCat.lines) {
       const normLine = normalizeText(line.name);
@@ -296,10 +302,14 @@ export function smartMatchPromobChapa(
       if (score > topScore) {
         topScore = score;
         topLine = line;
+        ambiguous = false;
+      } else if (score > 0 && score === topScore && topLine &&
+        line.prices[thickness] !== topLine.prices[thickness]) {
+        ambiguous = true;
       }
     }
 
-    return { bestLine: topLine, bestScore: topScore };
+    return { bestLine: ambiguous ? null : topLine, bestScore: topScore };
   };
 
   let winningBrand: string | null = detectedBrand;
@@ -331,7 +341,7 @@ export function smartMatchPromobChapa(
   }
 
   // Se o item contém "branco" ou "caixa" e não encontrou score alto, busca linha com "branco"
-  if (!requiresWhiteTx && !bestLine && (normText.includes('branco') || normText.includes('branca') || normText.includes('caixa'))) {
+  if (!requiresWhiteTx && bestScore === 0 && !bestLine && (normText.includes('branco') || normText.includes('branca') || normText.includes('caixa'))) {
     const findWhiteInBrand = (bName: string) => {
       const bCat = catalog && catalog[bName];
       if (!bCat || bCat.type !== 'brand' || !Array.isArray(bCat.lines)) return null;
@@ -776,16 +786,16 @@ export function matchProduct(
     if (found) return { product: found, isSubcodeMatch: false };
 
     // 2. Busca por subcódigos / apelidos
-    found = database.find(p =>
-      p.subcodes && p.subcodes.some(sub => normalizeCode(sub) === cleanCode)
-    );
+    const aliases = database.filter(p => p.subcodes?.some(sub => normalizeCode(sub) === cleanCode));
+    if (aliases.length > 1) return { product: undefined, isSubcodeMatch: false };
+    found = aliases[0];
     if (found) return { product: found, isSubcodeMatch: true };
 
     // 3. Busca por descrição contendo o código
-    found = database.find(p =>
-      normalizeText(p.description).includes(cleanCode) ||
-      cleanCode.includes(normalizeCode(p.code))
-    );
+    found = database.find(p => {
+      const candidate = normalizeCode(p.code);
+      return cleanCode.length >= 4 && candidate.length >= 4 && (normalizeText(p.description).includes(cleanCode) || cleanCode.includes(candidate));
+    });
     if (found) return { product: found, isSubcodeMatch: false };
   }
 
@@ -965,6 +975,10 @@ export function resolveItemPrice(
     category?: string;
     is_parent_module?: boolean;
     has_children?: boolean;
+    promob_xml?: boolean;
+    promob_structure?: boolean;
+    promob_description?: string;
+    parentId?: string;
     is_chapa?: boolean;
     is_fita?: boolean;
     fita_metros?: number;
@@ -1000,7 +1014,8 @@ export function resolveItemPrice(
   }
 
   // Pula apenas módulos pais agrupadores que não tenham preço definido
-  if (item.is_parent_module || item.has_children) {
+  const hardwareAssembly = /dobradica|corredica|pistao|parafuso/.test(normalizeText(item.description));
+  if (item.is_parent_module || (item.has_children && !hardwareAssembly)) {
     return {
       matched: false,
       source: 'database',
@@ -1025,6 +1040,19 @@ export function resolveItemPrice(
     };
   }
 
+  const direct = database.filter(p => normalizeCode(p.code) === normalizeCode(item.code) ||
+    p.subcodes?.some(alias => normalizeCode(alias) === normalizeCode(item.code)));
+  if (direct.length === 1 && !(direct[0].unit_price > 0)) return { matched: false, source: 'database', unit_cost: 0, code: direct[0].code, description: item.description, unit: item.unit || direct[0].unit };
+  if (direct.length === 1 && direct[0].unit_price > 0) {
+    const p = direct[0];
+    const meterTape = isFitaBorda(item.code, item.description) && item.unit === 'M';
+    const meters = p.fita_metros || extractFitaMetros(p.description);
+    const cost = meterTape && p.unit !== 'M' && meters ? round2(p.unit_price / meters) : p.unit_price;
+    return { matched: true, source: 'database', unit_cost: cost, code: p.code, description: item.description,
+      unit: meterTape ? 'M' : p.unit, matched_name: p.description };
+  }
+  if (direct.length > 1) return { matched: false, source: 'database', unit_cost: 0, code: item.code, description: item.description, unit: item.unit || 'UN' };
+
   const isChapaItem = isChapa(item.code, item.description) || (item.unit || '').toUpperCase() === 'M2';
 
   if (isChapaItem) {
@@ -1043,6 +1071,19 @@ export function resolveItemPrice(
         thickness: smart.thickness,
         board_price: smart.boardPrice,
         matched_name: `${smart.brand} - ${smart.line} (${smart.thickness})`,
+      };
+    }
+
+    const finishText = normalizeText(`${item.code} ${item.description}`);
+    if (/branc[oa]\s*tx/.test(finishText)) {
+      const explicit = finishText.match(/espessura\s+(\d+(?:[.,]\d+)?)\s*mm/)?.[1];
+      const thickness = explicit || finishText.match(/(?:\.|\b)(6|15|18|25)(?:\.|\s*mm\b)/)?.[1];
+      const white = database.filter(p => /branc[oa]\s*tx/.test(normalizeText(p.description)) &&
+        (p.unit || '').toUpperCase() === 'M2' && thickness &&
+        new RegExp(`\\b${thickness}\\s*mm\\b`).test(normalizeText(p.description)));
+      if (white.length === 1 && white[0].unit_price > 0) return {
+        matched: true, source: 'database', unit_cost: white[0].unit_price, code: white[0].code,
+        description: item.description, unit: 'M2', matched_name: white[0].description,
       };
     }
 
@@ -1150,6 +1191,10 @@ export function calculateItemPrice(
     is_mao_de_obra?: boolean;
     is_parent_module?: boolean;
     has_children?: boolean;
+    promob_xml?: boolean;
+    promob_structure?: boolean;
+    promob_description?: string;
+    parentId?: string;
     is_chapa?: boolean;
     is_fita?: boolean;
     fita_metros?: number;
@@ -1315,6 +1360,11 @@ export function calculateItemPrice(
     price_origin: item.price_origin || (item.final_price !== undefined ? 'imported' : 'calculated'),
     is_parent_module: item.is_parent_module,
     has_children: item.has_children,
+    promob_xml: item.promob_xml,
+    promob_structure: item.promob_structure,
+    promob_description: item.promob_description,
+    parentId: item.parentId,
+    catalog_match: resolved?.matched ? { source: resolved.source, code: resolved.code, brand: resolved.brand, line: resolved.line } : undefined,
   };
 }
 
@@ -1412,6 +1462,94 @@ export function classifyPromobItem(
   return 'CUT_PART';
 }
 
+// Structured XML quantities already describe the exported consumption. Aggregate
+// recursively by actual IDs, never by whichever row happened to precede a part.
+function calculateStructuredXml(items: BudgetItem[], database: ProductItem[], settings: BudgetSettings, catalog: CatalogByBrand) {
+  const ids = new Set(items.map(item => item.id));
+  if (ids.size !== items.length) throw new Error('O XML contém identificadores de peças duplicados.');
+  const nodes = items.map(original => {
+    const automatic = original.price_origin === 'calculated' && original.found && !original.price_unlinked;
+    const updated = calculateItemPrice({ ...original,
+      description: original.promob_description || original.description,
+      unit: original.original_unit || original.unit,
+      ...(automatic ? { unit_cost: undefined, table_price: undefined, final_price: undefined } : {}),
+    }, database, settings, catalog);
+    return { ...updated, parentId: original.parentId, promob_xml: original.promob_xml,
+      promob_structure: original.promob_structure, promob_description: original.promob_description,
+      itemCategory: classifyPromobItem(updated), saleIncluded: !original.parentId || !ids.has(original.parentId),
+      productionCost: updated.total_cost, salePrice: updated.total_price };
+  });
+  const children = new Map<string, typeof nodes>();
+  for (const node of nodes) if (node.parentId && ids.has(node.parentId)) {
+    const list = children.get(node.parentId) || []; list.push(node); children.set(node.parentId, list);
+  }
+  const visiting = new Set<string>(), completed = new Set<string>();
+  const visit = (node: typeof nodes[number]) => {
+    if (completed.has(node.id)) return;
+    if (visiting.has(node.id)) throw new Error('O XML contém uma relação circular entre móveis e peças.');
+    visiting.add(node.id);
+    const descendants = children.get(node.id) || [];
+    descendants.forEach(visit);
+    if (descendants.length) {
+      const childCost = round2(descendants.reduce((sum, child) => sum + child.productionCost, 0));
+      const childSale = round2(descendants.reduce((sum, child) => sum + child.salePrice, 0));
+      const ownPrice = (node.price_origin !== 'calculated' && ((node.final_price || 0) > 0 || (node.table_price || 0) > 0 || (node.price_origin === 'manual' && node.unit_cost > 0))) ||
+        (classifyPromobItem(node) === 'ACCESSORY' && Boolean(node.catalog_match) && node.total_price > 0);
+      node.productionCost = ownPrice ? node.total_cost : childCost || node.total_cost;
+      node.salePrice = ownPrice ? node.total_price : childSale;
+      node.total_cost = node.productionCost;
+      node.total_price = node.salePrice;
+      node.unit_cost = node.quantity > 0 ? round2(node.total_cost / node.quantity) : 0;
+      node.unit_price = node.quantity > 0 ? round2(node.total_price / node.quantity) : 0;
+      node.has_children = true;
+    }
+    visiting.delete(node.id); completed.add(node.id);
+  };
+  nodes.forEach(visit);
+  const roots = nodes.filter(node => node.saleIncluded);
+  const total_cost = round2(roots.reduce((sum, node) => sum + node.total_cost, 0));
+  const total_price = round2(roots.reduce((sum, node) => sum + node.total_price, 0));
+  const gross_profit = round2(total_price - total_cost);
+  return { items: nodes, totals: { total_cost, total_price, gross_profit,
+    profit_margin_percent: total_price > 0 ? round2(gross_profit / total_price * 100) : 0,
+    items_count: structuredModuleGroups(nodes).length } };
+}
+
+function structuredModuleGroups(items: BudgetItem[]): ModuleGroup[] {
+  const byId = new Map(items.map(item => [item.id, item]));
+  const groups = new Map<string, ModuleGroup>();
+  const rootGroups = new Map<string, string>();
+  for (const root of items.filter(item => !item.parentId || !byId.has(item.parentId))) {
+    const key = JSON.stringify([root.environment_id, root.code, root.promob_description || root.description,
+      root.dimensions?.replace(/\s+/g, ''), root.external_model, root.unit, root.category]);
+    let group = groups.get(key);
+    if (!group) {
+      group = { id: `xml-group-${root.id}`, name: root.promob_description || root.description, category: root.category,
+        dimensions: root.dimensions, piecesCount: 0, totalCost: 0, totalPrice: 0, subtotal_cost: 0,
+        subtotal_price: 0, total_pieces: 0, items: [], parent_item: { ...root, quantity: 0 },
+        is_hardware_only: classifyPromobItem(root) === 'ACCESSORY' };
+      groups.set(key, group);
+    }
+    rootGroups.set(root.id, key);
+    group.parent_item!.quantity += root.quantity;
+    group.totalCost = round2(group.totalCost + root.total_cost);
+    group.totalPrice = round2(group.totalPrice + root.total_price);
+    group.subtotal_cost = group.totalCost; group.subtotal_price = group.totalPrice;
+    group.piecesCount += root.quantity;
+  }
+  for (const item of items) {
+    let root = item;
+    const visited = new Set<string>();
+    while (root.parentId && byId.has(root.parentId)) {
+      if (visited.has(root.id)) throw new Error('Hierarquia circular no orçamento.');
+      visited.add(root.id); root = byId.get(root.parentId)!;
+    }
+    const group = groups.get(rootGroups.get(root.id)!);
+    if (group) { group.items.push(item); group.total_pieces++; }
+  }
+  return [...groups.values()];
+}
+
 // MOTOR CENTRAL DE PRECIFICAÇÃO HIERÁRQUICA DO PROMOB
 export function calculatePricingTree(
   items: BudgetItem[],
@@ -1428,6 +1566,8 @@ export function calculatePricingTree(
     items_count: number;
   };
 } {
+  if (items.some(item => item.promob_xml)) return calculateStructuredXml(items, database, settings, catalog);
+
   const additionsFactor = calculateAdditionsFactor(settings);
   const marginPercent = Math.max(0, Number(settings.margin !== undefined ? settings.margin : 200));
 
@@ -1773,6 +1913,7 @@ export function recalculateBudget(
 
 // Agrupa as peças e processos por Móvel / Módulo para visualização executiva
 export function groupItemsByModule(items: BudgetItem[]): ModuleGroup[] {
+  if (items.some(item => item.promob_xml)) return structuredModuleGroups(items);
   const groups: ModuleGroup[] = [];
   let eletroGroup: ModuleGroup | null = null;
   let currentGroup: ModuleGroup | null = null;
@@ -1977,7 +2118,28 @@ export function groupItemsByModule(items: BudgetItem[]): ModuleGroup[] {
 
 // Zero-priced structural containers are intentional; purchasable leaves are not.
 export function missingPriceItems(items: BudgetItem[]): BudgetItem[] {
-  return items.filter(item => !item.has_children && !item.is_parent_module &&
-    item.itemCategory !== 'INFORMATIONAL' && !isEletrodomestico(item.code, item.description, item.category) &&
-    !(item.unit_cost > 0) && !(item.total_price > 0));
+  const byId = new Map(items.map(item => [item.id, item]));
+  const missing = items.filter(item => {
+    if (isEletrodomestico(item.code, item.description, item.category)) return false;
+    let ancestor = item.parentId ? byId.get(item.parentId) : undefined;
+    const visited = new Set<string>();
+    while (ancestor && !visited.has(ancestor.id)) {
+      visited.add(ancestor.id);
+      if ((ancestor.catalog_match || (ancestor.price_origin !== 'calculated' && ((ancestor.final_price || 0) > 0 || (ancestor.table_price || 0) > 0 || ancestor.price_origin === 'manual'))) && ancestor.total_price > 0) return false;
+      ancestor = ancestor.parentId ? byId.get(ancestor.parentId) : undefined;
+    }
+    const hardwareContainer = item.has_children && /dobradica|corredica|pistao/.test(normalizeText(item.description));
+    if ((item.has_children || item.is_parent_module) && !hardwareContainer) return false;
+    if (hardwareContainer) return !item.catalog_match && !(item.price_origin === 'manual' && item.unit_cost > 0) && !(item.price_unlinked && item.unit_cost > 0);
+    return !(item.unit_cost > 0) && !(item.total_price > 0);
+  });
+  return [...new Map(missing.map(item => [`${item.code}:${item.unit}`, item])).values()];
+}
+
+export function budgetPresentationItems(items: BudgetItem[]): BudgetItem[] {
+  if (!items.some(item => item.promob_xml)) return items;
+  return structuredModuleGroups(items).map((group, index) => ({ ...group.parent_item!,
+    item_number: index + 1, description: group.name, total_cost: group.totalCost, total_price: group.totalPrice,
+    unit_cost: group.piecesCount > 0 ? round2(group.totalCost / group.piecesCount) : 0,
+    unit_price: group.piecesCount > 0 ? round2(group.totalPrice / group.piecesCount) : 0 }));
 }

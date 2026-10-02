@@ -7,7 +7,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
   {
     id: 'mat-1',
     code: 'MDF-BRANCO-15',
-    subcodes: ['MDF15BR', 'BRANCO15', '15BRANCO', 'MDF_BRANCO_15MM', 'CHAPA_MDF_15_BRANCO'],
+    subcodes: ['MDF.COR.15.100', 'MDF15BR', 'BRANCO15', '15BRANCO', 'MDF_BRANCO_15MM', 'CHAPA_MDF_15_BRANCO'],
     description: 'MDF Branco TX 15mm (2 Faces)',
     unit: 'M2',
     unit_price: 36.50,
@@ -16,7 +16,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
   {
     id: 'mat-2',
     code: 'MDF-BRANCO-18',
-    subcodes: ['MDF18BR', 'BRANCO18', '18BRANCO', 'MDF_BRANCO_18MM'],
+    subcodes: ['MDF.COR.18.100', 'MDF18BR', 'BRANCO18', '18BRANCO', 'MDF_BRANCO_18MM'],
     description: 'MDF Branco TX 18mm (2 Faces)',
     unit: 'M2',
     unit_price: 43.80,
@@ -25,7 +25,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
   {
     id: 'mat-3',
     code: 'MDF-BRANCO-06',
-    subcodes: ['MDF06BR', 'BRANCO06', 'MDF_BRANCO_6MM', 'FUNDO_06'],
+    subcodes: ['MDF.COR.6.100', 'MDF06BR', 'BRANCO06', 'MDF_BRANCO_6MM', 'FUNDO_06'],
     description: 'MDF Branco TX 6mm (Fundo)',
     unit: 'M2',
     unit_price: 22.00,
@@ -118,7 +118,7 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
   {
     id: 'mat-12',
     code: 'DOBRADICA-AMORT-35',
-    subcodes: ['DOBR_CURVA_AMORT', 'DOBRADICA_PISTAO_35', 'DOBR_RETA_AMORT'],
+    subcodes: ['DOBR_CURVA_AMORT', 'DOBRADICA_PISTAO_35'],
     description: 'Dobradiça Curva 35mm com Amortecedor Clip-on',
     unit: 'UN',
     unit_price: 0,
@@ -516,3 +516,25 @@ export const DEFAULT_MATERIALS: ProductItem[] = [
     category: 'MAO_DE_OBRA',
   },
 ];
+
+// References present in the supplied Promob Start export without an equivalent
+// price in the shop's existing base. Keep identity, unit and zero pending price.
+DEFAULT_MATERIALS.push(...[
+  ['FTPVC.1.22.100', 'Fita de Borda PVC Branco TX 1x22mm', 'M', 'FITA'],
+  ['FTPVC.1.35.100', 'Fita de Borda PVC Branco TX 1x35mm', 'M', 'FITA'],
+  ['FTPVC.1.22.Carmel', 'Fita de Borda PVC Greenplac Carmel 1x22mm', 'M', 'FITA'],
+  ['MDF.COR.18.5.100', 'MDF Branco TX 18,5mm', 'M2', 'MDF'],
+  ['1210.58.1.7.100', 'Moldura Engrossamento 580x18x70mm', 'M2', 'OUTROS'],
+  ['1210.146.1.7.100', 'Moldura Engrossamento 1462x18x70mm', 'M2', 'OUTROS'],
+  ['AGCCTT500', 'Conjunto Corrediça Telescópica Total 500mm (agrupador)', 'UN', 'FERRAGEM'],
+  ['CCTT500', 'Conjunto Corrediça Telescópica Total 500mm', 'UN', 'FERRAGEM'],
+  ['CDOBT', 'Conjunto Dobradiça Padrão Reta', 'UN', 'FERRAGEM'],
+  ['CDOBP', 'Conjunto Dobradiça Padrão Reta (Porta)', 'UN', 'FERRAGEM'],
+  ['PAR.COR.0440', 'Parafuso para Corrediça 3x12mm', 'UN', 'FERRAGEM'],
+  ['PAR.FRE.FAL.440', 'Parafuso para Frente Falsa 4x25mm', 'UN', 'FERRAGEM'],
+  ['PAR.DOB.0440', 'Parafuso para Dobradiça (dimensão exportada 3x3mm — conferir)', 'UN', 'FERRAGEM'],
+  ['PIST', 'Pistão (força não informada no XML)', 'UN', 'FERRAGEM'],
+].map(([code, description, unit, category]) => ({
+  id: `promob-start:${code}`, code, subcodes: [], description, unit, category,
+  unit_price: 0, notes: 'Referência Promob Start. Cadastre o preço real e confirme as especificações.',
+})));

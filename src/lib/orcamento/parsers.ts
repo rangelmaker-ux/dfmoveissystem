@@ -71,6 +71,9 @@ function safeClassifyPromobItem(item: {
 }
 
 export interface ParsedItemRow {
+  id?: string;
+  promob_xml?: boolean;
+  promob_structure?: boolean;
   item_number?: number;
   code: string;
   description: string;
@@ -281,9 +284,9 @@ function parseXmlAttributes(attrString: string): Record<string, string> {
 
 // Balance nested tags before reading an item's own fields. Descendant prices and
 // REFERENCES belong to the child, never to the enclosing cabinet or cut piece.
-function xmlItemBodies(xml: string): Map<number, { body: string; hasChildren: boolean }> {
-  const result = new Map<number, { body: string; hasChildren: boolean }>();
-  const stack: Array<{ start: number; name: string; chunks: string[]; cursor: number; hasChildren: boolean }> = [];
+function xmlItemBodies(xml: string): Map<number, { body: string; hasChildren: boolean; parentStart?: number }> {
+  const result = new Map<number, { body: string; hasChildren: boolean; parentStart?: number }>();
+  const stack: Array<{ start: number; name: string; chunks: string[]; cursor: number; hasChildren: boolean; parentStart?: number }> = [];
   const tags = /<\/?(ITEM|PECA|PART)\b[^>]*>/gi;
   let token: RegExpExecArray | null;
   while ((token = tags.exec(xml))) {
@@ -292,7 +295,7 @@ function xmlItemBodies(xml: string): Map<number, { body: string; hasChildren: bo
       const node = stack.pop();
       if (!node || node.name !== token[1].toLowerCase()) throw new Error('XML inválido: item sem fechamento correspondente.');
       node.chunks.push(xml.slice(node.cursor, token.index));
-      result.set(node.start, { body: node.chunks.join(''), hasChildren: node.hasChildren });
+      result.set(node.start, { body: node.chunks.join(''), hasChildren: node.hasChildren, parentStart: node.parentStart });
       if (stack.length) stack[stack.length - 1].cursor = tags.lastIndex;
     } else {
       const parent = stack[stack.length - 1];
@@ -301,8 +304,8 @@ function xmlItemBodies(xml: string): Map<number, { body: string; hasChildren: bo
         parent.hasChildren = true;
         parent.cursor = tags.lastIndex;
       }
-      if (/\/\s*>$/.test(token[0])) result.set(token.index, { body: '', hasChildren: false });
-      else stack.push({ start: token.index, name: token[1].toLowerCase(), chunks: [], cursor: tags.lastIndex, hasChildren: false });
+      if (/\/\s*>$/.test(token[0])) result.set(token.index, { body: '', hasChildren: false, parentStart: parent?.start });
+      else stack.push({ start: token.index, name: token[1].toLowerCase(), chunks: [], cursor: tags.lastIndex, hasChildren: false, parentStart: parent?.start });
     }
   }
   if (stack.length) throw new Error('XML inválido: item sem fechamento.');
@@ -337,6 +340,11 @@ export function parsePromobXML(
   // Extração precisa de tags de itens (<ITEM>, <PECA>, <PART>, <Item>, <Peca>, <Part>), incluindo subitens aninhados
   const tagStartRegex = /<(ITEM|PECA|PART|Item|Peca|Part)\b([^>]*?)(\/?)>/gi;
   const itemBodies = xmlItemBodies(cleanXml);
+  const prefix = `xml-${Math.random().toString(36).slice(2)}`;
+  const itemIds = new Map<number, string>();
+  for (const entry of cleanXml.matchAll(new RegExp(tagStartRegex.source, 'gi'))) {
+    itemIds.set(entry.index!, parseXmlAttributes(entry[2]).guid || `${prefix}-${entry.index}`);
+  }
   let match;
   let itemCounter = 1;
 
@@ -382,9 +390,9 @@ export function parsePromobXML(
     const isCaixa = normDesc.includes('caixa');
     const isAppliance = checkIsAppliance(code, description, category);
     const hasChildren = Boolean(own?.hasChildren);
+    const isHardwareAssembly = /dobradica|dobradiça|corredica|corrediça|pistao|pistão|parafuso/.test(normDesc);
     const is_parent_module = Boolean(
-      !isCaixa && !isAppliance && (
-        hasChildren ||
+      !isCaixa && !isAppliance && !isHardwareAssembly && (
         (['armário', 'armario', 'balcão', 'balcao', 'torre'].some(k => normDesc.includes(k)))
       )
     );
@@ -448,6 +456,10 @@ export function parsePromobXML(
     const totalQuantity = Math.round((rep * unit_quantity + Number.EPSILON) * 10000) / 10000;
 
     items.push({
+      id: itemIds.get(match.index),
+      parentId: own?.parentStart !== undefined ? itemIds.get(own.parentStart) : undefined,
+      promob_xml: true,
+      promob_structure: attrs.structure?.toUpperCase() === 'Y',
       item_number: itemCounter++,
       code: code || `ITEM-${itemCounter}`,
       description: description || code,

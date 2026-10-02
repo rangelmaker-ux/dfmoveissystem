@@ -1,4 +1,4 @@
-import { missingPriceItems } from './calculator';
+import { missingPriceItems, budgetPresentationItems } from './calculator';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { BudgetItem, BudgetSettings } from './types';
@@ -101,7 +101,7 @@ export function generateBudgetPdf(opts: GenerateBudgetPdfOptions): void {
 
   // Items Table (Lista completa e integral de todos os itens do projeto)
   const tableStartY = clientCardY + 28;
-  const itemsToPrint = opts.items;
+  const itemsToPrint = budgetPresentationItems(opts.items);
 
   const tableRows = itemsToPrint.map((it, idx) => {
     let desc = it.description;
@@ -201,7 +201,7 @@ export function generateBudgetPdf(opts: GenerateBudgetPdfOptions): void {
 
   doc.setFontSize(7);
   doc.setFont('helvetica', 'normal');
-  doc.text(`Qtd de Itens: ${opts.items.length}`, pageWidth - 76, finalY + 23);
+  doc.text(`Qtd de Itens: ${itemsToPrint.length}`, pageWidth - 76, finalY + 23);
 
   // Footer
   doc.setFontSize(7);

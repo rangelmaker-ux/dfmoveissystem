@@ -22,6 +22,7 @@ export async function loadOrcamentoWorkspace(userId: string): Promise<OrcamentoW
     supabase.from("orcamento_budgets").select("*").order("updated_at", { ascending: false }),
   ]);
   for (const response of [workspace, catalog, budgets]) if (response.error) throw response.error;
+  if (!catalog.data) throw new Error("A base de preços da loja não foi encontrada no servidor.");
   return {
     currentItems: (workspace.data?.current_items || []) as unknown as BudgetItem[],
     savedBudgets: (budgets.data || []).map((row) => ({

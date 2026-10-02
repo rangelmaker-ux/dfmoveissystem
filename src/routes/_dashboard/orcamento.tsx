@@ -169,11 +169,9 @@ function OrcamentoPage() {
         revision.current = remote.revision;
         catalogRevision.current = remote.catalogRevision;
         const nextSettings = { ...DEFAULT_SETTINGS, ...remote.settings };
-        const nextDatabase = remote.database.length ? remote.database : DEFAULT_MATERIALS;
-        const nextCatalog = Object.keys(remote.catalog).length
-          ? sanitizeAndMergeCatalog(remote.catalog)
-          : INITIAL_CHAPAS_CATALOG;
-        setItems(remote.currentItems);
+        const nextDatabase = remote.database;
+        const nextCatalog = Object.keys(remote.catalog).length ? sanitizeAndMergeCatalog(remote.catalog) : {};
+        setItems(recalculateBudget(remote.currentItems, nextDatabase, nextSettings, nextCatalog).items);
         setSettings(nextSettings);
         setSavedBudgets(remote.savedBudgets);
         setLoadedBudgetId(remote.currentBudgetId);
@@ -298,6 +296,17 @@ function OrcamentoPage() {
       void supabase.removeChannel(channel);
     };
   }, [workspaceLoaded, userId]);
+
+  // Linked XML materials use the current shared catalogue; stored costs are not
+  // an independent price table that can silently diverge from the server.
+  useEffect(() => {
+    if (!workspaceLoaded) return;
+    setItems(current => {
+      if (!current.some(item => item.promob_xml)) return current;
+      const recalculated = recalculateBudget(current, database, settings, catalog).items;
+      return JSON.stringify(current) === JSON.stringify(recalculated) ? current : recalculated;
+    });
+  }, [workspaceLoaded, database, settings, catalog]);
 
   // Totals calculation
   const { totals } = recalculateBudget(items, database, settings, catalog);
@@ -424,6 +433,9 @@ function OrcamentoPage() {
           Recuperar rascunho local
         </Button>
       )}
+      {workspaceLoaded && <p className="text-xs text-stone-500">
+        Base compartilhada carregada do servidor · {database.length} materiais · {Object.values(catalog).filter(value => value.type === 'brand').length} marcas
+      </p>}
       {!workspaceLoaded ? (
         <Button onClick={() => window.location.reload()}>Recarregar orçamentos</Button>
       ) : (
@@ -444,7 +456,7 @@ function OrcamentoPage() {
                 Calculadora de Orçamentos
               </h2>
               <p className="text-xs text-stone-500 max-w-2xl">
-                Importação precisa de arquivos Promob XML/PDF, decomposição de módulos e ferragens,
+                Importação de arquivos Promob XML/PDF, agrupamento de móveis e ferragens,
                 vinculação instantânea com a tabela de chapas e geração de propostas comerciais.
               </p>
             </div>

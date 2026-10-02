@@ -3132,7 +3132,7 @@ export function sanitizeAndMergeCatalog(savedCat: unknown): CatalogByBrand {
     return JSON.parse(JSON.stringify(INITIAL_CHAPAS_CATALOG));
   }
 
-  const raw = savedCat as Record<string, any>;
+  const raw = { ...(savedCat as Record<string, any>) };
   const result: CatalogByBrand = JSON.parse(JSON.stringify(INITIAL_CHAPAS_CATALOG));
 
   // Remove Acessórios e aliases legados
@@ -3159,16 +3159,16 @@ export function sanitizeAndMergeCatalog(savedCat: unknown): CatalogByBrand {
         );
 
         const prices = {
-          '6mm': (matchSaved?.prices && typeof matchSaved.prices['6mm'] === 'number')
+          '6mm': (matchSaved?.prices && (typeof matchSaved.prices['6mm'] === 'number' || matchSaved.prices['6mm'] === null))
             ? matchSaved.prices['6mm']
             : initLine.prices['6mm'],
-          '15mm': (matchSaved?.prices && typeof matchSaved.prices['15mm'] === 'number')
+          '15mm': (matchSaved?.prices && (typeof matchSaved.prices['15mm'] === 'number' || matchSaved.prices['15mm'] === null))
             ? matchSaved.prices['15mm']
             : initLine.prices['15mm'],
-          '18mm': (matchSaved?.prices && typeof matchSaved.prices['18mm'] === 'number')
+          '18mm': (matchSaved?.prices && (typeof matchSaved.prices['18mm'] === 'number' || matchSaved.prices['18mm'] === null))
             ? matchSaved.prices['18mm']
             : initLine.prices['18mm'],
-          '25mm': (matchSaved?.prices && typeof matchSaved.prices['25mm'] === 'number')
+          '25mm': (matchSaved?.prices && (typeof matchSaved.prices['25mm'] === 'number' || matchSaved.prices['25mm'] === null))
             ? matchSaved.prices['25mm']
             : initLine.prices['25mm'],
         };
@@ -3180,7 +3180,8 @@ export function sanitizeAndMergeCatalog(savedCat: unknown): CatalogByBrand {
 
         return {
           ...initLine,
-          colors: Array.from(colorSet),
+          name: typeof matchSaved?.name === 'string' ? matchSaved.name : initLine.name,
+          colors: Array.isArray(matchSaved?.colors) ? savedColors : Array.from(colorSet),
           prices,
           width: typeof matchSaved?.width === 'number' ? matchSaved.width : initLine.width,
           height: typeof matchSaved?.height === 'number' ? matchSaved.height : initLine.height,
@@ -3254,6 +3255,12 @@ export function sanitizeAndMergeCatalog(savedCat: unknown): CatalogByBrand {
     }
   }
 
+  for (const [brand, value] of Object.entries(raw)) {
+    if (!result[brand] && value?.type === 'brand' && Array.isArray(value.lines)) {
+      result[brand] = { brandName: brand, type: 'brand', lines: value.lines.filter((line: any) =>
+        line && typeof line.name === 'string' && line.prices && Array.isArray(line.colors)) };
+    }
+  }
   delete result['Acessórios'];
   delete (result as any)['Bernek'];
 

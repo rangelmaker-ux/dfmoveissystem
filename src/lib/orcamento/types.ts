@@ -38,6 +38,10 @@ export interface BudgetItem {
   found: boolean;
   price_unlinked?: boolean;
   has_children?: boolean;
+  promob_xml?: boolean;
+  promob_structure?: boolean;
+  promob_description?: string;
+  catalog_match?: { source: string; code: string; brand?: string; line?: string };
   is_parent_module?: boolean;
   is_chapa?: boolean;
   is_fita?: boolean;
