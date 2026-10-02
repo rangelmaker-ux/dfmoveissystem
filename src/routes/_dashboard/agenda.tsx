@@ -755,7 +755,7 @@ function AgendaPage() {
                   <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
                   <span>
                     {formData.tipo === 'REUNIAO'
-                      ? 'A reunião pode coincidir com a agenda de outro projetista, mas não com outra reunião sua.'
+                      ? 'A loja possui uma única sala de reunião. O horário não pode coincidir com nenhuma outra reunião, de qualquer projetista.'
                       : 'Este compromisso pode coincidir com outros horários, pois cada projetista possui sua própria agenda.'}
                   </span>
                 </div>

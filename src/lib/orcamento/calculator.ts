@@ -980,6 +980,8 @@ export function resolveItemPrice(
     code: string;
     description: string;
     dimensions?: string;
+    external_model?: string;
+    catalog_override?: BudgetItem['catalog_override'];
     unit?: string;
     category?: string;
     is_parent_module?: boolean;
@@ -1024,7 +1026,7 @@ export function resolveItemPrice(
 
   // Pula apenas módulos pais agrupadores que não tenham preço definido
   const hardwareAssembly = /dobradica|corredica|pistao|parafuso/.test(normalizeText(item.description));
-  if (item.is_parent_module || (item.has_children && !hardwareAssembly)) {
+  if (item.is_parent_module || (item.has_children && !hardwareAssembly) || (item.promob_xml && classifyPromobItem(item) === 'MODULE')) {
     return {
       matched: false,
       source: 'database',
@@ -1033,6 +1035,31 @@ export function resolveItemPrice(
       description: item.description,
       unit: item.unit || 'UN',
     };
+  }
+
+  if (item.catalog_override) {
+    const selected = item.catalog_override;
+    const brand = catalog[selected.brand];
+    const line = brand?.type === 'brand' ? brand.lines.find(line => line.id === selected.line_id) : undefined;
+    const price = line?.prices[selected.thickness];
+    if (line && price && price > 0) return { matched: true, source: 'catalog_chapa', unit_cost: chapaSalePrice(price,line.width*line.height), code: item.code, description: item.description, unit: 'M2', brand: selected.brand, line: line.name, thickness: selected.thickness };
+    return { matched: false, source: 'database', unit_cost: 0, code: item.code, description: item.description, unit: 'M2' };
+  }
+
+  const panel = xmlPanelDimensions(item);
+  if (panel && item.external_model) {
+    const thickness = panel[0];
+    // An unlisted thickness is pending; never silently substitute 15mm or 18mm.
+    if (![6,15,18,25,30].includes(thickness)) return { matched: false, source: 'database', unit_cost: 0, code: item.code, description: item.description, unit: 'M2' };
+    const finish = /^(?:arauco[ .\\/_-]*)?branco(?:[ ._-]*tx)?$/.test(normalizeText(item.external_model)) ? 'Arauco Branco TX' : item.external_model;
+    const match = smartMatchPromobChapa('', `MDF ${finish} espessura ${thickness}mm`, catalog, item.dimensions);
+    if (match.matched && match.m2Cost > 0) return {
+      matched: true, source: 'catalog_chapa', unit_cost: match.m2Cost, code: item.code,
+      description: item.description, unit: 'M2', brand: match.brand || undefined,
+      line: match.line || undefined, thickness: match.thickness, board_price: match.boardPrice,
+      matched_name: `${match.brand} - ${match.line} (${match.thickness})`,
+    };
+    return { matched: false, source: 'database', unit_cost: 0, code: item.code, description: item.description, unit: 'M2' };
   }
 
   // 0. Verifica se é Processo de Fabricação / Mão de Obra Fixa (Porta Reta, Porta Cava, Frente Cava, etc.)
@@ -1190,6 +1217,15 @@ export function resolveItemPrice(
   };
 }
 
+// Promob panels may arrive in UN with the finish only in MODEL/REFERENCE.
+// Convert pieces to m² once, preserving the original export consumption for recalculation.
+function xmlPanelDimensions(item: { dimensions?: string; description?: string; category?: string; promob_xml?: boolean }): number[] | null {
+  if (!item.promob_xml || /processo|mao de obra|fabrica/.test(normalizeText(`${item.description || ''} ${item.category || ''}`))) return null;
+  if (/dobradica|corredica|parafuso|pistao|puxador|ponteira|fita/.test(normalizeText(item.description || ''))) return null;
+  const dims = (item.dimensions || '').split(/\s*[x×]\s*/i).map(n => Number(n.trim().replace(',', '.'))).sort((a,b) => a-b);
+  return dims.length === 3 && dims.every(n => Number.isFinite(n) && n > 0) && dims[0] <= 30 && dims[1] > 30 ? dims : null;
+}
+
 // Calcula preços e totais de um item individual
 export function calculateItemPrice(
   item: {
@@ -1199,6 +1235,8 @@ export function calculateItemPrice(
     description: string;
     quantity: number;
     unit?: string;
+    original_unit?: string;
+    catalog_override?: BudgetItem['catalog_override'];
     unit_cost?: number;
     margin?: number;
     margin_override?: boolean;
@@ -1236,6 +1274,9 @@ export function calculateItemPrice(
           code: item.code,
           description: item.description,
           dimensions: item.dimensions,
+          external_model: item.external_model,
+          catalog_override: item.catalog_override,
+          promob_xml: item.promob_xml,
           unit: item.unit,
           category: item.category,
           is_parent_module: item.is_parent_module,
@@ -1255,9 +1296,9 @@ export function calculateItemPrice(
     (item.table_price !== undefined && item.table_price > 0)
   ));
 
-  const isItemChapa = !isAppliance && (item.is_chapa !== undefined
+  const isItemChapa = !isAppliance && (resolved?.source === 'catalog_chapa' || (item.is_chapa !== undefined
     ? item.is_chapa
-    : (resolved?.source === 'catalog_chapa' || resolved?.source === 'mdf_padrao' || isChapa(item.code, item.description)));
+    : (resolved?.source === 'mdf_padrao' || isChapa(item.code, item.description))));
   const isItemFita = !isAppliance && (item.is_fita !== undefined
     ? item.is_fita
     : isFitaBorda(item.code, item.description));
@@ -1272,6 +1313,11 @@ export function calculateItemPrice(
   effectiveQuantity = round4(effectiveQuantity);
 
   let displayUnit = resolved?.unit || item.unit || 'UN';
+  const panelDims = xmlPanelDimensions(item);
+  if (panelDims && resolved?.unit === 'M2' && (item.original_unit || item.unit || 'UN').toUpperCase() === 'UN') {
+    effectiveQuantity = round4(effectiveQuantity * panelDims[1] * panelDims[2] / 1_000_000);
+  }
+
 
   // Importante: NÃO converte peças de corte Promob (com m² quebrado, rep ou dimensões) para chapa inteira!
   const isPromobCutPiece = !!item.dimensions || (item.rep !== undefined && item.rep > 0) || (displayUnit.toUpperCase() === 'M2' && effectiveQuantity < CHAPA_AREA_M2);
@@ -1372,7 +1418,7 @@ export function calculateItemPrice(
     fita_metros: isItemFita ? fitaMetros : undefined,
     original_code: item.code,
     original_quantity: item.quantity,
-    original_unit: item.unit,
+    original_unit: item.original_unit || item.unit,
     resolved_from_subcode: resolved ? resolved.matched : false,
     rep: item.rep,
     unit_quantity: item.unit_quantity,
@@ -1388,6 +1434,7 @@ export function calculateItemPrice(
     promob_structure: item.promob_structure,
     promob_description: item.promob_description,
     parentId: item.parentId,
+    catalog_override: item.catalog_override,
     catalog_match: resolved?.matched ? { source: resolved.source, code: resolved.code, brand: resolved.brand, line: resolved.line } : undefined,
   };
 }
@@ -1399,6 +1446,7 @@ export function classifyPromobItem(
     description?: string;
     dimensions?: string;
     unit?: string;
+    promob_xml?: boolean;
     category?: string;
     is_parent_module?: boolean;
     has_children?: boolean;
@@ -1478,7 +1526,7 @@ export function classifyPromobItem(
     }
   }
 
-  if (item.is_parent_module || ((hasModuleKeyword || hasModuleRef || is3DAssembly) && isUnitUN && !isSub)) {
+  if (item.is_parent_module || ((hasModuleKeyword || hasModuleRef || is3DAssembly) && (isUnitUN || item.promob_xml) && !isSub)) {
     return 'MODULE';
   }
 
@@ -1492,14 +1540,18 @@ function calculateStructuredXml(items: BudgetItem[], database: ProductItem[], se
   const ids = new Set(items.map(item => item.id));
   if (ids.size !== items.length) throw new Error('O XML contém identificadores de peças duplicados.');
   const nodes = items.map(original => {
-    const automatic = original.price_origin === 'calculated' && original.found && !original.price_unlinked;
+    const automatic = original.price_origin === 'calculated' && !original.price_unlinked;
+    const xml = original.promob_xml || Boolean(original.external_model && original.original_code && original.price_origin === 'calculated');
+    const description = original.promob_description || original.description.replace(/\s*\[[^\]]+\]|\s*\(Tabela Promob \(.*?\)\)/g, '').trim();
     const updated = calculateItemPrice({ ...original,
-      description: original.promob_description || original.description,
+      promob_xml: xml,
+      promob_description: description,
+      description,
       unit: original.original_unit || original.unit,
       ...(automatic ? { unit_cost: undefined, table_price: undefined, final_price: undefined } : {}),
     }, database, settings, catalog);
-    return { ...updated, parentId: original.parentId, promob_xml: original.promob_xml,
-      promob_structure: original.promob_structure, promob_description: original.promob_description,
+    return { ...updated, parentId: original.parentId, promob_xml: xml,
+      promob_structure: original.promob_structure, promob_description: description,
       itemCategory: classifyPromobItem(updated), saleIncluded: !original.parentId || !ids.has(original.parentId),
       productionCost: updated.total_cost, salePrice: updated.total_price };
   });
@@ -2145,6 +2197,7 @@ export function missingPriceItems(items: BudgetItem[]): BudgetItem[] {
   const byId = new Map(items.map(item => [item.id, item]));
   const missing = items.filter(item => {
     if (isEletrodomestico(item.code, item.description, item.category)) return false;
+    if (item.promob_xml && classifyPromobItem(item) === 'MODULE') return false;
     let ancestor = item.parentId ? byId.get(item.parentId) : undefined;
     const visited = new Set<string>();
     while (ancestor && !visited.has(ancestor.id)) {

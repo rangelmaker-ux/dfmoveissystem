@@ -249,6 +249,15 @@ test("migrações, aprovação, orçamento e financeiro no PostgreSQL", async (t
       ),
     );
   });
+  await t.test("sala única bloqueia reunião de outro projetista e permite horários consecutivos", async () => {
+    await actor(designerId);
+    await db.query("INSERT INTO public.agendamentos(titulo,tipo,criado_por,data_inicio,data_fim) VALUES('Sala ocupada','REUNIAO',$1,'2026-10-08T12:00:00Z','2026-10-08T13:00:00Z')", [designerId]);
+    await actor(otherId);
+    await assert.rejects(db.query("INSERT INTO public.agendamentos(titulo,tipo,criado_por,data_inicio,data_fim) VALUES('Conflito outro projetista','REUNIAO',$1,'2026-10-08T12:30:00Z','2026-10-08T13:30:00Z')", [otherId]), /reunião|conflicting|indisponível/i);
+    await db.query("INSERT INTO public.agendamentos(titulo,tipo,criado_por,data_inicio,data_fim) VALUES('Próxima reunião','REUNIAO',$1,'2026-10-08T13:00:00Z','2026-10-08T14:00:00Z')", [otherId]);
+    await actor(adminId);
+    await assert.rejects(db.query("INSERT INTO public.agendamentos(titulo,tipo,criado_por,data_inicio,data_fim) VALUES('Conflito admin','REUNIAO',$1,'2026-10-08T12:00:00Z','2026-10-08T13:00:00Z')", [adminId]), /reunião|conflicting|indisponível/i);
+  });
   await t.test("documentos comerciais validam valores e exigem proposta fechada", async () => {
     await actor(designerId);
     const id = "00000000-0000-0000-0000-000000000088";

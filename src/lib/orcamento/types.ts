@@ -41,6 +41,7 @@ export interface BudgetItem {
   promob_xml?: boolean;
   promob_structure?: boolean;
   promob_description?: string;
+  catalog_override?: { brand: string; line_id: string; thickness: '6mm' | '15mm' | '18mm' | '25mm' | '30mm' };
   catalog_match?: { source: string; code: string; brand?: string; line?: string };
   is_parent_module?: boolean;
   is_chapa?: boolean;

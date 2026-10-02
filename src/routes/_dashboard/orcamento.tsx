@@ -374,8 +374,9 @@ function OrcamentoPage() {
 
   // Load a saved budget into current workspace
   const handleLoadBudget = (budget: SavedBudget) => {
-    setItems(budget.items);
-    setSettings({ ...DEFAULT_SETTINGS, ...budget.settings });
+    const restoredSettings = { ...DEFAULT_SETTINGS, ...budget.settings };
+    setItems(recalculateBudget(budget.items, database, restoredSettings, catalog).items);
+    setSettings(restoredSettings);
     setLoadedBudgetId(budget.id);
     setActiveTab("current");
     toast.info(`Orçamento "${budget.name}" carregado para a tela de trabalho.`);

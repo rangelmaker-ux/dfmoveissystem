@@ -344,7 +344,7 @@ export function OrcamentoCurrentTab({
       toast.success(`${groupItemsByModule(priced.items).length} móveis e itens agrupados importados!`, {
         description: `Componentes separados conforme o arquivo exportado, com suas unidades e quantidades.`,
       });
-      const pending = missingPriceItems(newBudgetItems);
+      const pending = missingPriceItems(priced.items);
       if (pending.length) toast.warning(`${pending.length} materiais sem preço cadastrado`, {
         description: 'O total está incompleto. Vincule os acabamentos e ferragens corretos no catálogo antes de finalizar o orçamento.', duration: 12000,
       });
@@ -461,26 +461,28 @@ export function OrcamentoCurrentTab({
       if (it.id === itemId) {
         return { ...it, ...calculateItemPrice(
           {
+            ...it,
             code: it.code,
             description: it.description,
-            quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
-            unit: it.original_unit || it.unit,
+            quantity: it.quantity,
+            unit: it.unit,
+            original_unit: it.unit,
             unit_cost: safeCost,
             table_price: safeCost,
             rep: it.rep,
-            unit_quantity: it.unit_quantity,
+            unit_quantity: it.quantity / (it.rep || 1),
             dimensions: it.dimensions,
             category: it.category,
             is_parent_module: it.is_parent_module,
             margin: it.margin,
             margin_override: it.margin_override,
-            price_origin: it.price_origin,
-            price_unlinked: it.price_unlinked,
+            price_origin: 'manual',
+            price_unlinked: true,
           },
           database,
           settings,
           catalog
-        ), id: it.id, price_unlinked: it.price_unlinked };
+        ), id: it.id, price_unlinked: true };
       }
       return it;
     });
@@ -496,6 +498,7 @@ export function OrcamentoCurrentTab({
       if (it.id === itemId) {
         return { ...it, ...calculateItemPrice(
           {
+            ...it,
             code: it.code,
             description: it.description,
             quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
@@ -531,6 +534,7 @@ export function OrcamentoCurrentTab({
         const newTotalQty = Math.round((safeRep * unitQty + Number.EPSILON) * 10000) / 10000;
         const calculated = calculateItemPrice(
           {
+            ...it,
             code: it.code,
             description: it.description,
             quantity: newTotalQty,
@@ -581,6 +585,7 @@ export function OrcamentoCurrentTab({
         const newTotalQty = Math.round((rep * safeUnitQty + Number.EPSILON) * 10000) / 10000;
         const calculated = calculateItemPrice(
           {
+            ...it,
             code: it.code,
             description: it.description,
             quantity: newTotalQty,
@@ -631,6 +636,7 @@ export function OrcamentoCurrentTab({
         const unitQty = Math.round((safeQty / rep + Number.EPSILON) * 10000) / 10000;
         const calculated = calculateItemPrice(
           {
+            ...it,
             code: it.code,
             description: it.description,
             quantity: safeQty,
@@ -808,7 +814,8 @@ export function OrcamentoCurrentTab({
         if (it.id === item.id) {
           const calculated = calculateItemPrice(
             {
-              code: it.code,
+              ...it,
+            code: it.code,
               description: it.description,
               quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
               unit: res.unit || it.original_unit || it.unit,
@@ -891,6 +898,7 @@ export function OrcamentoCurrentTab({
 
         const calculated = calculateItemPrice(
           {
+            ...it,
             code: it.code,
             description: it.description,
             quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
@@ -977,7 +985,8 @@ export function OrcamentoCurrentTab({
 
           const calculated = calculateItemPrice(
             {
-              code: it.code,
+              ...it,
+            code: it.code,
               description: newDesc,
               quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
               unit: selectedAcessorio.unit || it.original_unit || it.unit || 'UN',
@@ -1050,7 +1059,8 @@ export function OrcamentoCurrentTab({
 
           const calculated = calculateItemPrice(
             {
-              code: it.code,
+              ...it,
+            code: it.code,
               description: newDesc,
               quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
               unit: selectedMaoDeObra.unit || it.original_unit || it.unit || 'UN',
@@ -1137,6 +1147,8 @@ export function OrcamentoCurrentTab({
 
         const calculated = calculateItemPrice(
           {
+            ...it,
+            catalog_override: { brand: selectedBrand, line_id: lineObj.id, thickness: selectedThickness },
             code: it.code,
             description: newDesc,
             quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
@@ -1580,7 +1592,7 @@ export function OrcamentoCurrentTab({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-stone-500" />
-                <span className="text-[11px] font-semibold text-stone-700">Custo Total de Materiais</span>
+                <span className="text-[11px] font-semibold text-stone-700">{pendingPrices.length ? "Custo parcial dos materiais com preço" : "Custo Total de Materiais"}</span>
               </div>
               <span className="font-mono text-[10px] text-stone-400">{totals.items_count} peças</span>
             </div>
@@ -1620,9 +1632,9 @@ export function OrcamentoCurrentTab({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-[#c92031]" />
-                <span className="text-[11px] font-bold text-slate-900">Valor Final de Venda</span>
+                <span className="text-[11px] font-bold text-slate-900">{pendingPrices.length ? "Valor parcial de venda" : "Valor Final de Venda"}</span>
               </div>
-              <span className="font-mono text-[10px] text-stone-400">Total Proposta</span>
+              <span className="font-mono text-[10px] text-stone-400">{pendingPrices.length ? "Total parcial calculado" : "Total Proposta"}</span>
             </div>
             <div className="mt-1 flex items-baseline justify-between">
               <div className="font-mono text-base sm:text-lg font-bold tracking-tight text-slate-900 tabular-nums">
@@ -1790,7 +1802,11 @@ export function OrcamentoCurrentTab({
       </div>
 
       {pendingPrices.length > 0 && <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" role="alert">
-        <strong>Total incompleto: {pendingPrices.length} materiais sem preço.</strong> Vincule os acabamentos e ferragens corretos no catálogo antes de finalizar o orçamento. Os agrupadores do XML não são materiais adicionais.
+        <strong>Total parcial: {pendingPrices.length} referências sem preço.</strong> Os materiais com preço já estão somados no valor exibido. Somente os itens abaixo ficaram fora da soma; não acrescente novamente os materiais já calculados.
+        <details className="mt-2">
+          <summary className="cursor-pointer font-medium">Ver o que falta precificar</summary>
+          <ul className="mt-2 space-y-1 text-xs">{pendingPrices.map(item => <li key={`${item.code}:${item.unit}`}>{item.code} — {item.promob_description || item.description}{item.external_model ? ` · ${item.external_model}` : ''}{item.dimensions ? ` · ${item.dimensions}` : ''}</li>)}</ul>
+        </details>
       </div>}
 
       {/* Workbench Toolbar: Import & Chapa Switch */}
