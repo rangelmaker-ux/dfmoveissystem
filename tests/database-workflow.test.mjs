@@ -210,6 +210,18 @@ test("migrações, aprovação, orçamento e financeiro no PostgreSQL", async (t
     );
     await actor(designerId);
   });
+  await t.test("arquivos do cliente mostram orçamento do administrador ao responsável, sem liberar edição", async () => {
+    await actor(adminId);
+    const snapshot = JSON.stringify({ id: "admin-client-budget", client_id: clientId });
+    await db.query("SELECT public.save_budget_record('admin-client-budget',$1::jsonb,NULL)", [snapshot]);
+    await actor(designerId);
+    assert.equal((await db.query("SELECT id FROM public.orcamento_budgets WHERE client_id=$1 AND id='admin-client-budget'", [clientId])).rows.length, 1);
+    await assert.rejects(db.query("SELECT public.save_budget_record('admin-client-budget',$1::jsonb,1)", [snapshot]));
+    assert.equal((await db.query("DELETE FROM public.orcamento_budgets WHERE id='admin-client-budget' RETURNING id")).rows.length, 0);
+    await actor(otherId);
+    assert.equal((await db.query("SELECT id FROM public.orcamento_budgets WHERE id='admin-client-budget'")).rows.length, 0);
+    await actor(designerId);
+  });
   await t.test("catálogo e rascunho separados, ambos com controle de versão", async () => {
     await db.query("SELECT public.save_company_catalog('[{" + '"code":"teste"' + "}]','{}',0)");
     await db.query("SELECT public.save_budget_workspace('[]','{}',NULL,0)");
@@ -295,6 +307,22 @@ test("migrações, aprovação, orçamento e financeiro no PostgreSQL", async (t
         designerId,
       ]),
     );
+  });
+  await t.test("Branco TX vincula ao Branco Arauco, conserva outros materiais e não inventa preços", async () => {
+    await root();
+    await db.exec("BEGIN");
+    const catalog = { Arauco: { lines: [{ id: "white-source", colors: ["BRANCO"], aliases: [], width: 2.75, height: 1.85, prices: { "6mm": 176, "15mm": 220, "18mm": 270 } }] } };
+    const materials = [{ code: "MDF-BRANCO-06" }, { code: "MDF-BRANCO-15" }, { code: "MDF-BRANCO-18" }, { code: "OUTRO", unit_price: 123 }];
+    await db.query("UPDATE public.orcamento_catalog SET catalog=$1,materials=$2 WHERE id=1", [JSON.stringify(catalog), JSON.stringify(materials)]);
+    const migration = fs.readFileSync("supabase/migrations/20261002145917_client_budget_files_white_tx.sql", "utf8");
+    await db.exec(migration.slice(migration.indexOf("DO $$")));
+    const saved = (await db.query("SELECT materials,catalog,revision FROM public.orcamento_catalog WHERE id=1")).rows[0];
+    assert.deepEqual(saved.materials.slice(0,3).map(m => [m.catalog_brand,m.catalog_line_id,m.unit_price]), [["Arauco","white-source",44.97],["Arauco","white-source",56.22],["Arauco","white-source",68.99]]);
+    assert.deepEqual(saved.materials[3], materials[3]);
+    assert.ok(saved.catalog.Arauco.lines[0].colors.includes("Branco TX"));
+    await db.exec(migration.slice(migration.indexOf("DO $$")));
+    assert.equal((await db.query("SELECT revision FROM public.orcamento_catalog WHERE id=1")).rows[0].revision, saved.revision);
+    await db.exec("ROLLBACK");
   });
   await t.test("conta bloqueada perde acesso sem depender do menu", async () => {
     await actor(adminId);

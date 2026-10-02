@@ -1,3 +1,5 @@
+import { generateBudgetPdf } from "@/lib/orcamento/pdf-generator";
+import type { SavedBudget } from "@/lib/orcamento/types";
 import { ProjectFileThumbnail } from "@/components/project-file-thumbnail";
 import { parseMoney } from "@/lib/finance";
 import { DecimalInput } from "@/components/ui/decimal-input";
@@ -156,6 +158,34 @@ function ClientFilesDialog({
     enabled: Boolean(projectId && open && canAccessFiles),
   });
 
+  const { data: budgets = [], isLoading: budgetsLoading, error: budgetsError } = useQuery({
+    queryKey: ["client-budgets", client?.id],
+    enabled: Boolean(client && open && canAccessFiles),
+    queryFn: async () => {
+      const { data, error } = await supabase.from("orcamento_budgets")
+        .select("id,data,updated_at").eq("client_id", client!.id)
+        .order("updated_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []).map(row => ({ ...(row.data as unknown as SavedBudget), id: row.id, updated_at: row.updated_at }));
+    },
+  });
+
+  const downloadBudget = (budget: SavedBudget) => {
+    try {
+      generateBudgetPdf({
+        clientName: budget.client_name || client?.nome || "Cliente DF Móveis",
+        clientPhone: budget.client_phone,
+        projectName: budget.project_environment || budget.name,
+        dateStr: new Date(budget.updated_at || budget.created_at).toLocaleDateString("pt-BR"),
+        items: budget.items,
+        settings: budget.settings,
+        totals: budget.totals,
+      });
+    } catch (error) {
+      toast.error("Não foi possível gerar o PDF: " + errorMessage(error));
+    }
+  };
+
   const handleUpload = async (file: File) => {
     if (!client) return;
     if (!canAccessFiles) {
@@ -256,6 +286,28 @@ function ClientFilesDialog({
           </div>
         ) : (
           <div className="space-y-4 py-2">
+            <section className="space-y-2" aria-label="Orçamentos internos do cliente">
+              <p className="text-xs font-semibold text-slate-700">Orçamentos internos</p>
+              <p className="text-[11px] text-slate-500">Os orçamentos salvos com este cliente aparecem aqui automaticamente. O PDF contém os custos internos.</p>
+              {budgetsLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : budgetsError ? (
+                <p role="alert" className="text-xs text-destructive">Não foi possível carregar os orçamentos. Feche e abra esta janela para tentar novamente.</p>
+              ) : budgets.length === 0 ? (
+                <p className="text-xs text-slate-500">Nenhum orçamento salvo com este cliente.</p>
+              ) : <div className="max-h-[200px] overflow-y-auto space-y-2">{budgets.map(budget => (
+                <div key={budget.id} className="flex items-center justify-between gap-2 rounded-lg border p-3">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <FileText className="h-5 w-5 shrink-0 text-red-700" />
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-medium" title={budget.name}>{budget.name}</p>
+                      <p className="text-[10px] text-slate-500">Atualizado em {new Date(budget.updated_at || budget.created_at).toLocaleString("pt-BR")}</p>
+                    </div>
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => downloadBudget(budget)}>
+                    <Download className="mr-1 h-3.5 w-3.5" /> Baixar PDF
+                  </Button>
+                </div>
+              ))}</div>}
+            </section>
             <div className="flex items-center justify-between border-b pb-3">
               <div>
                 <p className="text-xs font-semibold text-slate-700">Anexar novo arquivo</p>

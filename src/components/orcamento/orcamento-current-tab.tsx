@@ -441,7 +441,7 @@ export function OrcamentoCurrentTab({
       setIsSaving(false);
       setSaveSuccess(true);
       toast.success('Orçamento salvo com sucesso!', {
-        description: `Vinculado a "${clientName}". Salvo na aba "Meus Orçamentos & Agrupados".`,
+        description: `Vinculado a "${clientName}". Salvo em "Meus Orçamentos & Agrupados" e, ao selecionar um cliente cadastrado, nos arquivos dele.`,
       });
 
       setTimeout(() => {

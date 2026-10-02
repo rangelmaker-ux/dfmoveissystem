@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, Component, ReactNode, ErrorInfo, useRef } from "react";
@@ -123,6 +123,7 @@ const DEFAULT_SETTINGS: BudgetSettings = {
 };
 
 function OrcamentoPage() {
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("current");
   const [items, setItems] = useState<BudgetItem[]>([]);
   const [database, setDatabase] = useState<ProductItem[]>(DEFAULT_MATERIALS);
@@ -340,6 +341,7 @@ function OrcamentoPage() {
     const existing = loadedBudgetId
       ? savedBudgets.find((budget) => budget.id === loadedBudgetId)
       : undefined;
+    const recalculated = recalculateBudget(items, database, settings, catalog);
     const newBudget: SavedBudget = {
       id: existing?.id || crypto.randomUUID(),
       revision: existing?.revision,
@@ -353,9 +355,9 @@ function OrcamentoPage() {
       created_at: existing?.created_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
       status: existing?.status || "RASCUNHO",
-      items: recalculateBudget(items, database, settings, catalog).items,
+      items: recalculated.items,
       settings: { ...settings },
-      totals: { ...totals },
+      totals: { ...recalculated.totals },
     };
 
     const persisted = await saveBudgetRecord(newBudget);
@@ -365,6 +367,8 @@ function OrcamentoPage() {
         : [persisted, ...prev],
     );
     setLoadedBudgetId(newBudget.id);
+    void queryClient.invalidateQueries({ queryKey: ["client-budgets"] });
+    void queryClient.invalidateQueries({ queryKey: ["client-commercial"] });
     toast.success(existing ? "Orçamento atualizado com sucesso!" : "Orçamento salvo com sucesso!");
   };
 
@@ -535,6 +539,8 @@ function OrcamentoPage() {
                   onDeleteBudget={async (budget) => {
                     await deleteBudgetRecord(budget.id, budget.revision || 0);
                     setSavedBudgets((prev) => prev.filter((b) => b.id !== budget.id));
+                    void queryClient.invalidateQueries({ queryKey: ["client-budgets"] });
+                    void queryClient.invalidateQueries({ queryKey: ["client-commercial"] });
                     if (loadedBudgetId === budget.id) setLoadedBudgetId(null);
                   }}
                   onLoadBudget={handleLoadBudget}
