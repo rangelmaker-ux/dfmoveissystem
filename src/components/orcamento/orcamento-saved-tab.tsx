@@ -11,14 +11,14 @@ import { generateBudgetPdf } from '@/lib/orcamento/pdf-generator';
 
 interface SavedTabProps {
   savedBudgets: SavedBudget[];
-  setSavedBudgets: React.Dispatch<React.SetStateAction<SavedBudget[]>>;
+  onDeleteBudget: (budget: SavedBudget) => Promise<void>;
   onLoadBudget: (budget: SavedBudget) => void;
   onMergeBudgets: (selectedBudgets: SavedBudget[]) => void;
 }
 
 export function OrcamentoSavedTab({
   savedBudgets,
-  setSavedBudgets,
+  onDeleteBudget,
   onLoadBudget,
   onMergeBudgets,
 }: SavedTabProps) {
@@ -30,9 +30,12 @@ export function OrcamentoSavedTab({
     );
   };
 
-  const handleDeleteBudget = (id: string) => {
+  const handleDeleteBudget = async (id: string) => {
     if (confirm('Deseja excluir este orçamento salvo?')) {
-      setSavedBudgets(prev => prev.filter(b => b.id !== id));
+      const budget = savedBudgets.find(b => b.id === id);
+      if (!budget) return;
+      try { await onDeleteBudget(budget); }
+      catch (error) { toast.error('Não foi possível excluir: ' + (error as Error).message); return; }
       setSelectedIds(prev => prev.filter(item => item !== id));
       toast.info('Orçamento excluído.');
     }

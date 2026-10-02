@@ -33,7 +33,6 @@ export const Route = createFileRoute("/")({
     }
 
     const { user } = await ensureAuthStoreHydrated();
-    if (!user) return;
 
     const access = await validateStoredAccess();
     if (access.authorized && access.account) {
@@ -67,55 +66,16 @@ export function LoginPage() {
     setErrorMessage(null);
 
     try {
-      const { data: users, error } = await supabase
-        .from("users")
-        .select("id, nome, email, role, status, avatar_url, created_at")
-        .eq("email", email.trim().toLowerCase())
-        .eq("password", password)
-        .maybeSingle();
-
-      if (error) throw error;
-
-      if (users) {
-        const foundUser = users;
-
-        if (foundUser.status === "PENDENTE" || foundUser.status === "BLOQUEADO") {
-          navigate({
-            to: "/aguardando-aprovacao",
-            search: { email: foundUser.email },
-          });
-          return;
-        }
-
-        if (foundUser.status !== "ATIVO") {
-          const msg = "Sua conta ainda não possui autorização da administração.";
-          setErrorMessage(msg);
-          toast.error(msg);
-          return;
-        }
-
-        setRole(foundUser.role);
-        setUser({
-          id: foundUser.id,
-          nome: foundUser.nome,
-          email: foundUser.email,
-          role: foundUser.role,
-          status: foundUser.status as UserStatus,
-          avatar_url: foundUser.avatar_url || undefined,
-          created_at: foundUser.created_at || new Date().toISOString(),
-        });
-        toast.success(`Bem-vindo, ${foundUser.nome}!`);
-
-        if (foundUser.role === "ADMIN") {
-          navigate({ to: "/admin/dashboard" });
-        } else {
-          navigate({ to: "/projetista/dashboard" });
-        }
-      } else {
-        const msg = "E-mail ou senha incorretos.";
-        setErrorMessage(msg);
-        toast.error(msg);
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
+      if (error) throw new Error('E-mail ou senha incorretos.');
+      const access = await validateStoredAccess(true);
+      if (access.account && ['PENDING', 'BLOCKED'].includes(access.reason)) {
+        navigate({ to: '/aguardando-aprovacao', search: { email: access.account.email } });
+        return;
       }
+      if (!access.authorized || !access.account) throw new Error('Não foi possível validar seu acesso. Tente novamente.');
+      toast.success(`Bem-vindo, ${access.account.nome}!`);
+      navigate({ to: access.account.role === 'ADMIN' ? '/admin/dashboard' : '/projetista/dashboard' });
     } catch (error: unknown) {
       const detail = error instanceof Error ? error.message : "tente novamente";
       const msg = "Erro ao conectar com o servidor: " + detail;
@@ -192,6 +152,13 @@ export function LoginPage() {
                       <Label htmlFor="password">Senha</Label>
                       <Button
                         variant="link"
+                        type="button"
+                        onClick={async () => {
+                          if (!email.trim()) { toast.info('Informe seu e-mail para recuperar a senha.'); return; }
+                          const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo: `${window.location.origin}/redefinir-senha` });
+                          if (error) toast.error('Não foi possível solicitar a recuperação.');
+                          else toast.success('Se o e-mail estiver cadastrado, você receberá as instruções.');
+                        }}
                         className="px-0 font-normal text-xs text-muted-foreground h-auto"
                       >
                         Esqueceu a senha?

@@ -146,7 +146,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
     setProdCode(p.code);
     setProdSubcodes((p.subcodes || []).join(', '));
     setProdDescription(p.description);
-    setProdCategory(p.category);
+    setProdCategory(p.category || 'OUTROS');
     setProdUnit(p.unit);
     setProdUnitPrice(p.unit_price.toString());
     setProdFitaMetros(p.fita_metros ? p.fita_metros.toString() : '20');
@@ -179,7 +179,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
           return {
             ...p,
             code: prodCode.trim().toUpperCase(),
-            subcodes: subArr.length > 0 ? subArr : undefined,
+            subcodes: subArr,
             description: prodDescription.trim(),
             category: prodCategory as any,
             unit: prodUnit.trim().toUpperCase(),
@@ -194,7 +194,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
       const newProd: ProductItem = {
         id: `mat-${Date.now()}`,
         code: prodCode.trim().toUpperCase(),
-        subcodes: subArr.length > 0 ? subArr : undefined,
+        subcodes: subArr,
         description: prodDescription.trim(),
         category: prodCategory as any,
         unit: prodUnit.trim().toUpperCase() || 'UN',

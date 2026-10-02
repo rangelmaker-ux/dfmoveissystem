@@ -8,6 +8,30 @@ export type Database = {
   };
   public: {
     Tables: {
+      commercial_documents: {
+        Row: { id: string; user_id: string; client_id: string; data: Json; revision: number; updated_at: string };
+        Insert: { id: string; user_id: string; client_id: string; data: Json; revision?: number };
+        Update: { data?: Json; revision?: number };
+        Relationships: [];
+      };
+      orcamento_workspace: {
+        Row: { user_id: string; current_items: Json; saved_budgets: Json; settings: Json; materials: Json; catalog: Json; current_budget_id: string | null; updated_at: string; revision: number };
+        Insert: { user_id: string; current_items?: Json; settings?: Json; current_budget_id?: string | null; revision?: number };
+        Update: { current_items?: Json; settings?: Json; current_budget_id?: string | null; revision?: number };
+        Relationships: [];
+      };
+      orcamento_catalog: {
+        Row: { id: number; materials: Json; catalog: Json; revision: number; updated_at: string };
+        Insert: { id?: number; materials: Json; catalog: Json; revision?: number };
+        Update: { materials?: Json; catalog?: Json; revision?: number };
+        Relationships: [];
+      };
+      orcamento_budgets: {
+        Row: { id: string; user_id: string; client_id: string | null; projeto_id: string | null; data: Json; revision: number; updated_at: string };
+        Insert: { id: string; user_id: string; client_id?: string | null; projeto_id?: string | null; data: Json; revision?: number };
+        Update: { data?: Json; revision?: number };
+        Relationships: [];
+      };
       agendamentos: {
         Row: {
           cliente_id: string | null;
@@ -294,6 +318,8 @@ export type Database = {
       };
       users: {
         Row: {
+          auth_user_id: string | null;
+          bio: string;
           approved_at: string | null;
           approved_by: string | null;
           avatar_url: string | null;
@@ -306,6 +332,8 @@ export type Database = {
           status: string;
         };
         Insert: {
+          auth_user_id?: string | null;
+          bio?: string;
           approved_at?: string | null;
           approved_by?: string | null;
           avatar_url?: string | null;
@@ -318,6 +346,8 @@ export type Database = {
           status?: string;
         };
         Update: {
+          auth_user_id?: string | null;
+          bio?: string;
           approved_at?: string | null;
           approved_by?: string | null;
           avatar_url?: string | null;
@@ -344,6 +374,12 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      save_commercial_document: { Args: { p_id: string; p_client_id: string; p_data: Json; p_revision: number | null }; Returns: number };
+      save_budget_record: { Args: { p_id: string; p_data: Json; p_revision: number | null }; Returns: number };
+      save_budget_workspace: { Args: { p_items: Json; p_settings: Json; p_budget_id: string | null; p_revision: number }; Returns: number };
+      save_company_catalog: { Args: { p_materials: Json; p_catalog: Json; p_revision: number }; Returns: number };
+      create_client_with_project: { Args: { p_client: Json; p_project: Json }; Returns: Json };
+      assign_project: { Args: { p_project_id: string; p_designer_id: string; p_deadline: string }; Returns: undefined };
       admin_create_designer: {
         Args: {
           p_admin_id: string;

@@ -30,15 +30,10 @@ function CadastroPage() {
 
     try {
       const normalizedEmail = email.trim().toLowerCase();
-      const { error } = await supabase.from("users").insert([
-        {
-          nome: nome.trim(),
-          email: normalizedEmail,
-          password,
-          role: "PROJETISTA" as const,
-          status: "PENDENTE",
-        },
-      ]);
+      const { error } = await supabase.auth.signUp({
+        email: normalizedEmail, password,
+        options: { data: { nome: nome.trim() } },
+      });
 
       if (error) throw error;
 

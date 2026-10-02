@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { User, Mail, Calendar, Shield, Camera, Loader2, Download, Smartphone } from "lucide-react";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { UserAvatar } from "@/components/user-avatar";
@@ -24,19 +24,31 @@ function PerfilPage() {
   const { isInstallable, isAppInstalled, handleInstallClick } = usePWAInstall();
   const [isUpdating, setIsUpdating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [bio, setBio] = useState('');
+  const [savedBio, setSavedBio] = useState('');
   const [nome, setNome] = useState(user?.nome || "");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    supabase.from('users').select('bio').eq('id', user.id).single().then(({ data, error }) => {
+      if (!cancelled && !error && data) { setBio(data.bio); setSavedBio(data.bio); }
+    });
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   const handleUpdateProfile = async () => {
     if (!user) return;
     setIsUpdating(true);
 
     try {
-      const { error } = await supabase.from("users").update({ nome }).eq("id", user.id);
+      const { error } = await supabase.from("users").update({ nome: nome.trim(), bio }).eq("id", user.id);
 
       if (error) throw error;
 
-      setUser({ ...user, nome });
+      setUser({ ...user, nome: nome.trim() });
+      setSavedBio(bio);
       toast.success("Perfil atualizado com sucesso!");
     } catch (error: unknown) {
       toast.error("Erro ao atualizar perfil: " + errorMessage(error));
@@ -49,28 +61,35 @@ function PerfilPage() {
     const file = event.target.files?.[0];
     if (!file || !user) return;
 
+    if (!['image/jpeg','image/png','image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+      toast.error('Use uma imagem JPG, PNG ou WebP de até 5 MB.'); return;
+    }
     setIsUploading(true);
     try {
       // Upload to Supabase Storage
       const fileExt = file.name.split(".").pop();
-      const filePath = `${user.id}-${Math.random()}.${fileExt}`;
+      const filePath = `${user.id}/${crypto.randomUUID()}.${fileExt}`;
 
       const { error: uploadError } = await supabase.storage
-        .from("message-attachments") // Using existing bucket for convenience
+        .from("avatars") // Using existing bucket for convenience
         .upload(filePath, file);
 
       if (uploadError) throw uploadError;
 
       const {
         data: { publicUrl },
-      } = supabase.storage.from("message-attachments").getPublicUrl(filePath);
+      } = supabase.storage.from("avatars").getPublicUrl(filePath);
 
       const { error: updateError } = await supabase
         .from("users")
         .update({ avatar_url: publicUrl })
         .eq("id", user.id);
 
-      if (updateError) throw updateError;
+      if (updateError) { await supabase.storage.from('avatars').remove([filePath]); throw updateError; }
+      if (user.avatar_url?.includes('/object/public/avatars/')) {
+        const oldPath = user.avatar_url.split('/object/public/avatars/')[1];
+        if (oldPath.startsWith(`${user.id}/`)) await supabase.storage.from('avatars').remove([oldPath]);
+      }
 
       setUser({ ...user, avatar_url: publicUrl });
       toast.success("Foto de perfil atualizada!");
@@ -192,13 +211,15 @@ function PerfilPage() {
               <Label htmlFor="bio">Biografia / Especialidades</Label>
               <textarea
                 id="bio"
+                value={bio}
+                onChange={e => setBio(e.target.value)}
                 className="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 placeholder="Conte um pouco sobre suas especialidades em móveis planejados..."
               />
             </div>
 
             <div className="flex justify-end gap-3 pt-4 border-t">
-              <Button onClick={handleUpdateProfile} disabled={isUpdating || nome === user?.nome}>
+              <Button onClick={handleUpdateProfile} disabled={isUpdating || !nome.trim() || (nome === user?.nome && bio === savedBio)}>
                 {isUpdating ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />

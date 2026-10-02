@@ -58,64 +58,38 @@ export interface AccessValidationResult {
   reason: AccessValidationReason;
 }
 
-let lastValidatedTime = 0;
-let lastValidationResult: AccessValidationResult | null = null;
-
-export async function validateStoredAccess(force = false): Promise<AccessValidationResult> {
+export async function validateStoredAccess(_force = false): Promise<AccessValidationResult> {
   const state = await ensureAuthStoreHydrated();
-  if (!state.user?.id) {
-    lastValidationResult = null;
+  const { data: identity, error: authError } = await supabase.auth.getUser();
+  if (authError || !identity.user) {
+    state.logout();
     return { account: null, authorized: false, reason: "NO_SESSION" };
   }
-
-  const now = Date.now();
-  if (!force && lastValidationResult && now - lastValidatedTime < 30_000) {
-    return lastValidationResult;
-  }
-
   const { data, error } = await supabase
     .from("users")
-    .select("id, nome, email, role, status, avatar_url, created_at")
-    .eq("id", state.user.id)
+    .select("id,nome,email,role,status,avatar_url,created_at")
+    .eq("auth_user_id", identity.user.id)
     .maybeSingle();
-
-  if (error) {
-    if (lastValidationResult?.authorized) {
-      return lastValidationResult;
-    }
-    state.logout();
-    return { account: null, authorized: false, reason: "CONNECTION_ERROR" };
-  }
-
+  if (error) return { account: null, authorized: false, reason: "CONNECTION_ERROR" };
   if (!data) {
     state.logout();
-    lastValidationResult = null;
     return { account: null, authorized: false, reason: "REMOVED" };
   }
-
   const account: User = {
-    id: data.id,
-    nome: data.nome,
-    email: data.email,
-    role: data.role,
+    ...data,
     status: data.status as UserStatus,
-    avatar_url: data.avatar_url ?? undefined,
-    created_at: data.created_at ?? new Date().toISOString(),
+    avatar_url: data.avatar_url || undefined,
+    created_at: data.created_at || new Date().toISOString(),
   };
-
   if (account.status !== "ATIVO") {
     state.logout();
-    lastValidationResult = null;
     return {
       account,
       authorized: false,
       reason: account.status === "BLOQUEADO" ? "BLOCKED" : "PENDING",
     };
   }
-
   state.setUser(account);
   state.setRole(account.role);
-  lastValidatedTime = now;
-  lastValidationResult = { account, authorized: true, reason: "AUTHORIZED" };
-  return lastValidationResult;
+  return { account, authorized: true, reason: "AUTHORIZED" };
 }

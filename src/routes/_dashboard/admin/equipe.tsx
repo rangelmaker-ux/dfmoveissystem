@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { ensureAuthStoreHydrated } from "@/hooks/use-auth";
+import { validateStoredAccess } from "@/hooks/use-auth";
 import { useTeam, type MemberStatus } from "@/hooks/use-team";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,7 +35,8 @@ import { Label } from "@/components/ui/label";
 
 export const Route = createFileRoute("/_dashboard/admin/equipe")({
   beforeLoad: async () => {
-    const { role } = await ensureAuthStoreHydrated();
+    const access = await validateStoredAccess();
+    const role = access.authorized ? access.account?.role : undefined;
     if (role !== "ADMIN") throw redirect({ to: "/projetista/dashboard" });
   },
   component: EquipePage,
@@ -93,7 +94,7 @@ function EquipePage() {
   };
 
   const handleDeleteMember = async () => {
-    if (!deleteTarget || deleteConfirmation !== "EXCLUIR") return;
+    if (!deleteTarget || deleteConfirmation !== "BLOQUEAR") return;
     try {
       await deleteMember.mutateAsync({
         id: deleteTarget.id,
@@ -262,7 +263,7 @@ function EquipePage() {
                           size="icon"
                           className="text-destructive hover:bg-destructive/10"
                           aria-label={`Excluir ${member.nome}`}
-                          title="Excluir projetista e dados"
+                          title="Bloquear acesso preservando histórico"
                           onClick={() => {
                             setDeleteConfirmation("");
                             setDeleteAdminPassword("");
@@ -473,25 +474,20 @@ function EquipePage() {
             <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-full bg-red-100 text-red-700">
               <AlertTriangle className="h-5 w-5" />
             </div>
-            <DialogTitle>Excluir {deleteTarget?.nome} permanentemente?</DialogTitle>
+            <DialogTitle>Bloquear acesso de {deleteTarget?.nome}?</DialogTitle>
             <DialogDescription>
-              Depois da exclusão, este e-mail poderá fazer um cadastro totalmente novo.
+              O acesso será bloqueado. O administrador poderá reativá-lo na lista da equipe.
             </DialogDescription>
           </DialogHeader>
 
           <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
-            <p className="font-semibold">Esta ação apaga definitivamente:</p>
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-red-800">
-              <li>o cadastro e o acesso da projetista;</li>
-              <li>os clientes vinculados ao perfil;</li>
-              <li>os projetos, prazos, comissões e anotações;</li>
-              <li>as reuniões e os compromissos ligados ao perfil.</li>
-            </ul>
+            <p className="font-semibold">Projetos, clientes, comissões e documentos serão preservados.</p>
+            <p className="mt-2">O bloqueio impede novas operações desta conta no sistema.</p>
           </div>
 
           <div className="grid gap-2">
             <Label htmlFor="delete-confirmation">
-              Digite <strong>EXCLUIR</strong> para confirmar
+              Digite <strong>BLOQUEAR</strong> para confirmar
             </Label>
             <Input
               id="delete-confirmation"
@@ -525,7 +521,7 @@ function EquipePage() {
               variant="destructive"
               disabled={
                 deleteMember.isPending ||
-                deleteConfirmation !== "EXCLUIR" ||
+                deleteConfirmation !== "BLOQUEAR" ||
                 !deleteAdminPassword
               }
               onClick={handleDeleteMember}
@@ -535,7 +531,7 @@ function EquipePage() {
               ) : (
                 <Trash2 className="mr-2 h-4 w-4" />
               )}
-              Excluir tudo permanentemente
+              Bloquear acesso
             </Button>
           </DialogFooter>
         </DialogContent>

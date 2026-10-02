@@ -1,1 +1,4 @@
 project_id = "rcwilkmovlrdxhfviemo"
+
+[functions.team-auth]
+verify_jwt = false

@@ -72,11 +72,10 @@ export function useTeam() {
         throw new Error("Somente o superusuário pode remover usuários.");
       }
 
-      const { data, error } = await supabase.rpc("admin_delete_designer", {
-        p_admin_id: administrator.id,
-        p_admin_password: adminPassword,
-        p_designer_id: id,
+      const { data, error } = await supabase.functions.invoke("team-auth", {
+        body: { action: "archive", id, adminPassword },
       });
+      if (data?.error) throw new Error(data.error);
       if (error) throw error;
       return data;
     },
@@ -88,7 +87,7 @@ export function useTeam() {
       queryClient.invalidateQueries({ queryKey: ["clientes-agenda"] });
       queryClient.invalidateQueries({ queryKey: ["agendamentos"] });
       queryClient.invalidateQueries({ queryKey: ["distribution-projects"] });
-      toast.success("Projetista e todos os dados vinculados foram removidos.");
+      toast.success("Acesso da projetista bloqueado; projetos e histórico preservados.");
     },
     onError: (error: Error) => toast.error("Erro ao remover usuário: " + error.message),
   });
@@ -99,13 +98,10 @@ export function useTeam() {
         throw new Error("Somente o superusuário pode adicionar projetistas.");
       }
 
-      const { data, error } = await supabase.rpc("admin_create_designer", {
-        p_admin_id: administrator.id,
-        p_admin_password: adminPassword,
-        p_nome: nome,
-        p_email: email,
-        p_password: password,
+      const { data, error } = await supabase.functions.invoke("team-auth", {
+        body: { action: "create", nome, email, password, adminPassword },
       });
+      if (data?.error) throw new Error(data.error);
       if (error) throw error;
       return data;
     },
