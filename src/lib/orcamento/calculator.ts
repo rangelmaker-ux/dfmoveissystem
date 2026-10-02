@@ -2139,7 +2139,7 @@ export function missingPriceItems(items: BudgetItem[]): BudgetItem[] {
 export function budgetPresentationItems(items: BudgetItem[]): BudgetItem[] {
   if (!items.some(item => item.promob_xml)) return items;
   return structuredModuleGroups(items).map((group, index) => ({ ...group.parent_item!,
-    item_number: index + 1, description: group.name, total_cost: group.totalCost, total_price: group.totalPrice,
+    item_number: index + 1, description: group.name + (group.parent_item?.external_model ? ` — ${group.parent_item.external_model}` : ''), total_cost: group.totalCost, total_price: group.totalPrice,
     unit_cost: group.piecesCount > 0 ? round2(group.totalCost / group.piecesCount) : 0,
     unit_price: group.piecesCount > 0 ? round2(group.totalPrice / group.piecesCount) : 0 }));
 }

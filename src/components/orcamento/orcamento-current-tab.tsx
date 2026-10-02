@@ -2085,6 +2085,11 @@ export function OrcamentoCurrentTab({
                             ({group.piecesCount} {items.some(item => item.promob_xml) ? 'unidades' : 'peças'})
                           </span>
                         </div>
+                        {group.parent_item?.external_model && <span className="text-[11px] text-emerald-800 block mt-0.5">
+                          Acabamento: {group.parent_item.external_model}
+                        </span>}
+                        {[...new Set(group.items.map(item => item.catalog_match?.brand ? `${item.catalog_match.brand} · ${item.catalog_match.line || ''}` : '').filter(Boolean))].map(label =>
+                          <span key={label} className="text-[11px] text-stone-600 block">Base de preços: {label}</span>)}
                         {group.parent_item && (
                           <span className="text-[11px] text-stone-500 block truncate mt-0.5">
                             Módulo Promob: <span className="font-mono text-stone-700 font-medium">{group.parent_item.code}</span> {group.parent_item.dimensions ? `(${group.parent_item.dimensions})` : ''}
