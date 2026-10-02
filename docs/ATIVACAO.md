@@ -1,5 +1,9 @@
 # Ativação da atualização
 
+A checagem do Supabase real confirmou que o site usa o projeto `rcwilkmovlrdxhfviemo`. Foram encontrados campos e tabelas ausentes, uma estrutura legada diferente para `orcamento_budgets` e um administrador já existente no Auth com o mesmo ID do perfil. A atualização inclui compatibilidade para esses casos: preserva a tabela legada como cópia administrativa, importa seus registros, vincula a identidade já existente e substitui o trigger antigo de cadastro. O banco de produção não foi alterado durante essa conferência.
+
+O preview inicial no Vercel foi bloqueado por `BLOCKED_PACKAGE`. O TanStack Start foi atualizado para `1.168.60`, com `start-server-core 1.169.39`, versões corrigidas do aviso GHSA-qx66-fv34-fjm8. Não usar a variável de bypass do bloqueio.
+
 Esta versão altera autenticação e regras do banco. Não publique somente o frontend novo sobre o banco antigo.
 
 ## Ordem de ativação
@@ -27,7 +31,7 @@ Migrations de segurança e migração de credenciais devem ocorrer em manutenç�
 
 ## Verificação
 
-Validação local: 48 testes aprovados; TypeScript sem erros; lint sem erros (6 avisos já existentes em componentes de UI); build de produção concluído.
+Validação local: 49 testes aprovados; TypeScript sem erros; lint sem erros (6 avisos já existentes em componentes de UI); build de produção concluído.
 
 A verificação visual automatizada não foi concluída: o download do Chromium neste ambiente retornou arquivos inválidos. Conferir a interface no navegador em homologação, inclusive em celular, antes de ativar produção.
 

@@ -1,6 +1,35 @@
+-- Bring manually maintained databases up to the schema used by this application.
+ALTER TYPE public.project_status ADD VALUE IF NOT EXISTS 'EM_ACOMPANHAMENTO';
+ALTER TABLE public.projetos
+  ADD COLUMN IF NOT EXISTS arquivo_url TEXT,
+  ADD COLUMN IF NOT EXISTS nome_arquiteto TEXT,
+  ADD COLUMN IF NOT EXISTS percentual_comissao NUMERIC,
+  ADD COLUMN IF NOT EXISTS valor_entrada NUMERIC,
+  ADD COLUMN IF NOT EXISTS forma_pagamento_entrada TEXT,
+  ADD COLUMN IF NOT EXISTS numero_parcelas INTEGER,
+  ADD COLUMN IF NOT EXISTS valor_parcela NUMERIC;
+CREATE TABLE IF NOT EXISTS public.anotacoes_projeto (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),projeto_id UUID NOT NULL REFERENCES public.projetos(id) ON DELETE CASCADE,
+  autor_id UUID NOT NULL REFERENCES public.users(id),autor_nome TEXT NOT NULL,conteudo TEXT NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE public.anotacoes_projeto ENABLE ROW LEVEL SECURITY;
+CREATE TABLE IF NOT EXISTS public.orcamento_workspace (
+  user_id UUID PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,current_items JSONB NOT NULL DEFAULT '[]',
+  saved_budgets JSONB NOT NULL DEFAULT '[]',settings JSONB NOT NULL DEFAULT '{}',materials JSONB NOT NULL DEFAULT '[]',
+  catalog JSONB NOT NULL DEFAULT '{}',current_budget_id TEXT,created_at TIMESTAMPTZ NOT NULL DEFAULT now(),updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE public.orcamento_workspace ENABLE ROW LEVEL SECURITY;
+INSERT INTO storage.buckets(id,name,public) VALUES('projetos_arquivos','projetos_arquivos',false),('message-attachments','message-attachments',false) ON CONFLICT(id) DO NOTHING;
+-- The old Auth trigger inserts a second profile; the linking trigger replaces it.
+DO $$ DECLARE r RECORD; BEGIN
+  FOR r IN SELECT t.tgname FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid WHERE t.tgrelid='auth.users'::regclass AND NOT t.tgisinternal AND p.proname='handle_new_user'
+  LOOP EXECUTE format('DROP TRIGGER %I ON auth.users',r.tgname); END LOOP;
+END $$;
+
 -- Deploy this together with team-auth and migrate existing credentials before switching the UI.
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS password TEXT;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS auth_user_id UUID UNIQUE REFERENCES auth.users(id) ON DELETE SET NULL;
+UPDATE public.users u SET auth_user_id=a.id,password=NULL FROM auth.users a WHERE u.id=a.id AND lower(u.email)=lower(a.email) AND u.auth_user_id IS NULL;
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS bio TEXT NOT NULL DEFAULT '';
 ALTER TABLE public.projetos ADD COLUMN IF NOT EXISTS parcelas JSONB NOT NULL DEFAULT '[]';
 
@@ -372,3 +401,15 @@ LANGUAGE plpgsql SET search_path=public AS $$ BEGIN
   RETURN NEW;
 END $$;
 CREATE TRIGGER protect_project_assignment_trigger BEFORE UPDATE ON public.projetos FOR EACH ROW EXECUTE FUNCTION public.protect_project_assignment();
+
+DO $$ DECLARE r RECORD; BEGIN
+  FOR r IN SELECT tablename FROM pg_tables WHERE schemaname='public' AND tablename IN ('orcamentos_cliente','orcamento_settings','orcamento_products','orcamento_chapas')
+  LOOP EXECUTE format('REVOKE ALL ON public.%I FROM anon,authenticated',r.tablename); END LOOP;
+END $$;
+
+DO $$ DECLARE r RECORD; BEGIN
+  FOR r IN SELECT p.oid::regprocedure AS signature FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname='public' AND p.proname IN ('get_user_role','handle_new_user','prepare_new_designer_account','link_auth_profile','sync_sale_commission','validate_store_agenda')
+  LOOP EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC,anon,authenticated',r.signature); END LOOP;
+  IF to_regprocedure('public.get_user_role()') IS NOT NULL THEN ALTER FUNCTION public.get_user_role() SET search_path=public; END IF;
+END $$;

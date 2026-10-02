@@ -293,3 +293,73 @@ test("migrações, aprovação, orçamento e financeiro no PostgreSQL", async (t
   });
   await root();
 });
+
+test("compatibilidade com o esquema real e preservação de orçamento legado", async (t) => {
+  db = new PGlite();
+  t.after(() => db.close());
+  await db.exec(`
+    CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;
+    CREATE SCHEMA auth; CREATE SCHEMA storage;
+    CREATE TABLE auth.users(id UUID PRIMARY KEY,email TEXT,raw_user_meta_data JSONB DEFAULT '{}',raw_app_meta_data JSONB DEFAULT '{}');
+    CREATE FUNCTION auth.uid() RETURNS UUID LANGUAGE SQL STABLE AS $$ SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::UUID $$;
+    CREATE FUNCTION auth.role() RETURNS TEXT LANGUAGE SQL STABLE AS $$ SELECT current_setting('request.jwt.claim.role',true) $$;
+    CREATE TABLE storage.buckets(id TEXT PRIMARY KEY,name TEXT,public BOOLEAN);
+    CREATE TABLE storage.objects(id UUID DEFAULT gen_random_uuid(),bucket_id TEXT,name TEXT);
+    ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+    CREATE FUNCTION storage.foldername(name TEXT) RETURNS TEXT[] LANGUAGE SQL AS $$ SELECT (string_to_array(name,'/'))[1:array_length(string_to_array(name,'/'),1)-1] $$;
+    GRANT USAGE ON SCHEMA public,auth,storage TO anon,authenticated;
+    GRANT ALL ON storage.objects,storage.buckets TO authenticated;
+  `);
+  for (const file of fs
+    .readdirSync("supabase/migrations")
+    .sort()
+    .filter((f) => f < "202610")) {
+    await db.exec(
+      fs
+        .readFileSync("supabase/migrations/" + file, "utf8")
+        .replace(/CREATE EXTENSION IF NOT EXISTS btree_gist;/g, ""),
+    );
+  }
+  await db.exec(`
+    ALTER TABLE public.users ADD COLUMN IF NOT EXISTS password TEXT;
+    DROP TABLE public.orcamento_workspace;
+    DROP TABLE public.anotacoes_projeto;
+    ALTER TABLE public.projetos DROP COLUMN arquivo_url,DROP COLUMN nome_arquiteto,DROP COLUMN percentual_comissao,DROP COLUMN valor_entrada,DROP COLUMN forma_pagamento_entrada,DROP COLUMN numero_parcelas,DROP COLUMN valor_parcela;
+    INSERT INTO public.users(id,nome,email,role,status,password) VALUES('${adminId}','Admin','admin@teste.local','ADMIN','ATIVO','legacy-credential');
+    UPDATE public.users SET role='ADMIN',status='ATIVO' WHERE id='${adminId}';
+    INSERT INTO auth.users(id,email) VALUES('${adminId}','admin@teste.local');
+    CREATE OR REPLACE FUNCTION public.handle_new_user() RETURNS TRIGGER LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Old trigger must be replaced'; END $$;
+    CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+    CREATE TABLE public.orcamento_budgets(id TEXT PRIMARY KEY,user_id UUID NOT NULL,name TEXT NOT NULL,client_id UUID,projeto_id TEXT,items JSONB,settings JSONB,totals JSONB);
+    INSERT INTO public.orcamento_budgets VALUES('legacy-budget','${adminId}','Cozinha',NULL,NULL,'[]','{}','{"total_price":2500}');
+  `);
+  for (const file of fs
+    .readdirSync("supabase/migrations")
+    .sort()
+    .filter((f) => f >= "202610")) {
+    await db.exec(fs.readFileSync("supabase/migrations/" + file, "utf8"));
+  }
+  const profile = (
+    await db.query("SELECT auth_user_id,password FROM public.users WHERE id=$1", [adminId])
+  ).rows[0];
+  assert.equal(profile.auth_user_id, adminId);
+  assert.equal(profile.password, null);
+  assert.equal(
+    (
+      await db.query(
+        "SELECT data->>'name' AS name FROM public.orcamento_budgets WHERE id='legacy-budget'",
+      )
+    ).rows[0].name,
+    "Cozinha",
+  );
+  assert.equal(
+    (await db.query("SELECT count(*)::int AS n FROM public.orcamento_budgets_legacy")).rows[0].n,
+    1,
+  );
+  await db.query(
+    "INSERT INTO auth.users(id,email) VALUES(gen_random_uuid(),'novo-real@teste.local')",
+  );
+  await actor(adminId);
+  assert.equal((await db.query("SELECT id FROM public.orcamento_budgets")).rows.length, 1);
+  await assert.rejects(db.query("SELECT id FROM public.orcamento_budgets_legacy"));
+});
