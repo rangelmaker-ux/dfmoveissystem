@@ -232,6 +232,30 @@ test("migrações, aprovação, orçamento e financeiro no PostgreSQL", async (t
     await assert.rejects(db.query("SELECT public.save_company_catalog('[]','{}',0)"));
     await assert.rejects(db.query("SELECT public.save_budget_workspace('[]','{}',NULL,0)"));
   });
+  await t.test("somente admin concede administração na aprovação ou depois e pode revogar", async () => {
+    await actor(designerId);
+    await assert.rejects(db.query("SELECT public.set_team_access($1,'ADMIN',false)", [designerId]), /Somente o administrador/i);
+    await root();
+    await db.exec("BEGIN");
+    await actor(adminId);
+    await db.query("SELECT public.set_team_access($1,'ADMIN',true)", [pendingId]);
+    let promoted = await db.query("SELECT role,status,approved_by FROM public.users WHERE id=$1", [pendingId]);
+    assert.equal(promoted.rows[0].role,'ADMIN');
+    assert.equal(promoted.rows[0].status,'ATIVO');
+    assert.equal(promoted.rows[0].approved_by,adminId);
+    await actor(pendingId);
+    await db.query("SELECT public.set_team_access($1,'ADMIN',false)", [designerId]);
+    await actor(adminId);
+    await db.query("SELECT public.set_team_access($1,'PROJETISTA',false)", [designerId]);
+    await db.query("SELECT public.set_team_access($1,'PROJETISTA',false)", [pendingId]);
+    await db.query("UPDATE public.users SET status='PENDENTE' WHERE id=$1", [pendingId]);
+    await root();
+    await db.query("UPDATE public.users SET status='BLOQUEADO' WHERE role='ADMIN' AND id<>$1", [adminId]);
+    await actor(adminId);
+    await assert.rejects(db.query("UPDATE public.users SET status='BLOQUEADO' WHERE id=$1", [adminId]), /pelo menos um administrador/i);
+    await db.exec("ROLLBACK");
+  });
+
   await t.test("bloqueio da agenda é conferido também na aprovação", async () => {
     await actor(adminId);
     await db.query(

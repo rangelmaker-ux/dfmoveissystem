@@ -20,6 +20,8 @@ import {
   Eye,
   EyeOff,
 } from "lucide-react";
+import { useAuthStore } from "@/hooks/use-auth";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState } from "react";
 import type { User } from "@/types/database";
 import {
@@ -63,7 +65,10 @@ const EMPTY_DESIGNER_FORM = {
 };
 
 function EquipePage() {
-  const { data: team, isLoading, updateStatus, deleteMember, createMember } = useTeam();
+  const { data: team, isLoading, updateStatus, updateAccess, deleteMember, createMember } = useTeam(true);
+  const currentUser = useAuthStore(state => state.user);
+  const [accessTarget, setAccessTarget] = useState<User | null>(null);
+  const [accessRole, setAccessRole] = useState<"ADMIN" | "PROJETISTA">("PROJETISTA");
   const [selectedMember, setSelectedMember] = useState<User | null>(null);
   const [isStatsOpen, setIsStatsOpen] = useState(false);
   const [memberStats, setMemberStats] = useState<MemberStats | null>(null);
@@ -194,6 +199,22 @@ function EquipePage() {
         ))}
       </section>
 
+      <Dialog open={!!accessTarget} onOpenChange={open => { if (!open) setAccessTarget(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{accessTarget?.status === 'ATIVO' ? 'Permissões do membro' : 'Aprovar cadastro'}</DialogTitle><DialogDescription>{accessTarget?.nome}: escolha o nível de acesso.</DialogDescription></DialogHeader>
+          <Label htmlFor="team-access-role">Nível de acesso</Label>
+          <Select value={accessRole} onValueChange={value => setAccessRole(value as 'ADMIN' | 'PROJETISTA')}>
+            <SelectTrigger id="team-access-role"><SelectValue /></SelectTrigger>
+            <SelectContent><SelectItem value="PROJETISTA">Projetista</SelectItem><SelectItem value="ADMIN">Administrador — acesso completo</SelectItem></SelectContent>
+          </Select>
+          {accessRole === 'ADMIN' && <p className="text-sm text-amber-900">Essa pessoa terá as mesmas permissões de administrador que você, inclusive para gerenciar acessos da equipe.</p>}
+          <DialogFooter><Button disabled={updateAccess.isPending} onClick={async () => {
+            if (!accessTarget) return;
+            try { await updateAccess.mutateAsync({ id: accessTarget.id, role: accessRole, approve: accessTarget.status !== 'ATIVO' }); setAccessTarget(null); } catch { /* The mutation displays the error. */ }
+          }}>{updateAccess.isPending ? 'Salvando…' : accessTarget?.status === 'ATIVO' ? 'Salvar permissões' : 'Aprovar e liberar acesso'}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {isLoading
           ? Array.from({ length: 3 }).map((_, i) => (
@@ -227,6 +248,7 @@ function EquipePage() {
                           {meta.label}
                         </Badge>
                       </div>
+                      <p className="text-xs font-medium">{member.role === "ADMIN" ? "Administrador · acesso completo" : "Projetista"}</p>
                       <div className="flex items-center text-sm text-muted-foreground truncate">
                         <Mail className="mr-1 h-3 w-3" />
                         {member.email}
@@ -240,12 +262,13 @@ function EquipePage() {
                           size="sm"
                           className="bg-green-600 hover:bg-green-700 text-white"
                           disabled={updateStatus.isPending}
-                          onClick={() => updateStatus.mutate({ id: member.id, status: "ATIVO" })}
+                          onClick={() => { setAccessRole(member.role); setAccessTarget(member); }}
                         >
                           <Check className="mr-1 h-4 w-4" /> Aprovar Acesso
                         </Button>
                       )}
-                      {status !== "BLOQUEADO" && (
+                      {status === "ATIVO" && member.id !== currentUser?.id && <Button size="sm" variant="outline" onClick={() => { setAccessRole(member.role); setAccessTarget(member); }}><ShieldCheck className="mr-1 h-4 w-4" /> Permissões</Button>}
+                      {status !== "BLOQUEADO" && member.role !== "ADMIN" && (
                         <Button
                           size="sm"
                           variant="destructive"
@@ -257,7 +280,7 @@ function EquipePage() {
                           <Ban className="mr-1 h-4 w-4" /> Bloquear Acesso
                         </Button>
                       )}
-                      <div className="ml-auto">
+                      {member.role !== "ADMIN" && <div className="ml-auto">
                         <Button
                           variant="ghost"
                           size="icon"
@@ -272,7 +295,7 @@ function EquipePage() {
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
-                      </div>
+                      </div>}
                     </div>
                   </CardContent>
                 </Card>

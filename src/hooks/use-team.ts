@@ -19,20 +19,21 @@ export interface DeleteDesignerInput {
   adminPassword: string;
 }
 
-export function useTeam() {
+export function useTeam(includeAdministrators = false) {
   const queryClient = useQueryClient();
   const administrator = useAuthStore((state) => state.user);
 
   const query = useQuery({
-    queryKey: ["team"],
+    queryKey: ["team", includeAdministrators],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let teamQuery = supabase
         .from("users")
         .select("id, nome, email, role, status, avatar_url, created_at")
-        .eq("role", "PROJETISTA")
         .order("status", { ascending: false })
         .order("created_at", { ascending: true });
 
+      if (!includeAdministrators) teamQuery = teamQuery.eq("role", "PROJETISTA");
+      const { data, error } = await teamQuery;
       if (error) throw error;
       return data as unknown as User[];
     },
@@ -64,6 +65,19 @@ export function useTeam() {
       toast.success(`Projetista ${label} com sucesso!`);
     },
     onError: (error: Error) => toast.error("Erro ao atualizar status: " + error.message),
+  });
+
+  const updateAccess = useMutation({
+    mutationFn: async ({ id, role, approve }: { id: string; role: 'ADMIN' | 'PROJETISTA'; approve: boolean }) => {
+      const { error } = await supabase.rpc('set_team_access', { p_member_id: id, p_role: role, p_approve: approve });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['team'] });
+      queryClient.invalidateQueries({ queryKey: ADMIN_APPROVALS_QUERY_KEY });
+      toast.success('Permissões da equipe atualizadas!');
+    },
+    onError: (error: Error) => toast.error('Erro ao atualizar permissões: ' + error.message),
   });
 
   const deleteMember = useMutation({
@@ -113,5 +127,5 @@ export function useTeam() {
     onError: (error: Error) => toast.error("Erro ao adicionar projetista: " + error.message),
   });
 
-  return { ...query, updateStatus, deleteMember, createMember };
+  return { ...query, updateAccess, updateStatus, deleteMember, createMember };
 }

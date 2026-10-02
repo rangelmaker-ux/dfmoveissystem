@@ -380,6 +380,7 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      set_team_access: { Args: { p_member_id: string; p_role: string; p_approve: boolean }; Returns: undefined };
       save_commercial_document: { Args: { p_id: string; p_client_id: string; p_data: Json; p_revision: number | null }; Returns: number };
       save_budget_record: { Args: { p_id: string; p_data: Json; p_revision: number | null }; Returns: number };
       save_budget_workspace: { Args: { p_items: Json; p_settings: Json; p_budget_id: string | null; p_revision: number }; Returns: number };
