@@ -18,6 +18,8 @@ O binário inicial não possui certificado Authenticode, pois nenhum certificado
 
 Testes de origem, documentos, comparação e validação de versões; compilação NSIS e inspeção do executável e recursos. O teste de instalar, autenticar e atualizar na máquina real Windows deve ser feito pelo usuário. Criador: Rangel Marques. © 2026 DF Móveis Planejados.
 
-## Abertura da marca
+## Login e atualizações
 
-A animação aprovada dura 2 segundos e usa o vídeo original aprovado, sem som. Aparece uma vez por instalação/versão nativa e uma vez após instalar uma atualização web. A preferência fica no perfil local; aberturas seguintes entram direto. O sistema carrega em paralelo, e o prazo não depende de eventos do vídeo nem da conexão.
+A animação aprovada dura 2 segundos, sem som, e pertence ao sistema web: aparece depois de validar as credenciais e a aprovação do administrador, antes do painel. Não aparece ao abrir o executável nem ao restaurar uma sessão.
+
+O sistema ocupa toda a janela. A faixa superior só aparece quando há uma atualização disponível ou em instalação, com o botão “Instalar atualizações”. Falhas de conexão não criam uma faixa permanente; se a página não carregar, a tela de recuperação oferece tentar novamente.

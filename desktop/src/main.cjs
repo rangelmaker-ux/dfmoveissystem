@@ -4,23 +4,17 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { SITE_ORIGIN, isAppUrl, isDocumentUrl, parseRelease, needsUpdate } = require('./update-policy.cjs');
-const { shouldShowIntro } = require('./startup-policy.cjs');
 const SHELL_FILE = path.join(__dirname, 'shell.html');
 const SHELL_URL = pathToFileURL(SHELL_FILE).href;
 const PARTITION = 'persist:df-moveis';
 let win, view, installed, latest, checking = false, interval;
-let introTimer, startup = {};
+let layout = () => {};
 let nativeAvailable = false, nativeDownloaded = false;
-const state = { message: 'Conectando à loja…', update: false, busy: false, offline: false, nativeVersion: app.getVersion(), intro: false };
+const state = { message: 'Conectando à loja…', update: false, busy: false, offline: false, nativeVersion: app.getVersion(), loadFailed: false };
 const statePath = () => path.join(app.getPath('userData'), 'system-version.json');
-const startupPath = () => path.join(app.getPath('userData'), 'startup-state.json');
-function rememberStartup(patch) {
-  startup = { ...startup, ...patch };
-  try { fs.writeFileSync(startupPath(), JSON.stringify(startup), { mode: 0o600 }); }
-  catch { /* A read-only profile must not prevent opening the system. */ }
-}
 function emit(patch = {}) {
   Object.assign(state, patch);
+  layout();
   if (win && !win.isDestroyed()) win.webContents.send('df:status', state);
 }
 function remember(revision) {
@@ -69,9 +63,9 @@ function restrict(contents, allowDocuments = false) {
   contents.on('did-create-window', child => restrict(child.webContents, true));
 }
 async function loadSite() {
-  emit({ message: 'Conectando à loja…', offline: false });
+  emit({ message: 'Conectando à loja…', offline: false, loadFailed: false });
   try { await view.webContents.loadURL(SITE_ORIGIN); }
-  catch { emit({ offline: true, message: 'Não foi possível abrir a loja. Verifique a internet.' }); }
+  catch { emit({ offline: true, loadFailed: true, message: 'Não foi possível abrir a loja. Verifique a internet.' }); }
 }
 function validateSender(event) {
   if (!win || event.sender !== win.webContents || event.senderFrame?.url !== SHELL_URL) throw new Error('Ação não autorizada.');
@@ -106,7 +100,6 @@ async function installUpdate() {
       await view.webContents.session.clearCache();
       await view.webContents.session.clearStorageData({ origin: SITE_ORIGIN, storages: ['serviceworkers', 'cachestorage'] });
       if (latest) remember(latest.revision);
-      rememberStartup({ pendingUpdate: true });
       app.relaunch(); app.exit(0);
     }
   } catch { emit({ busy: false, message: 'Atualização não concluída. Tente novamente.' }); }
@@ -114,8 +107,6 @@ async function installUpdate() {
 }
 function createWindow() {
   try { installed = JSON.parse(fs.readFileSync(statePath(), 'utf8')).revision; } catch { installed = null; }
-  try { startup = JSON.parse(fs.readFileSync(startupPath(), 'utf8')) || {}; } catch { startup = {}; }
-  state.intro = shouldShowIntro(startup, app.getVersion());
   win = new BrowserWindow({ width: 1360, height: 900, minWidth: 900, minHeight: 600,
     title: 'DF Móveis Planejados', icon: path.join(__dirname, '../build/icon.png'), backgroundColor: '#191c21',
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true },
@@ -125,29 +116,26 @@ function createWindow() {
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   view = new WebContentsView({ webPreferences: { partition: PARTITION, nodeIntegration: false, contextIsolation: true, sandbox: true, spellcheck: false } });
   win.contentView.addChildView(view);
-  view.setVisible(!state.intro);
-  const layout = () => { const [width, height] = win.getContentSize(); view.setBounds({ x: 0, y: 64, width, height: Math.max(0, height - 64) }); };
+  layout = () => {
+    if (!win || win.isDestroyed()) return;
+    const [width, height] = win.getContentSize();
+    const headerHeight = state.update || state.busy ? 48 : 0;
+    view.setBounds({ x: 0, y: headerHeight, width, height: Math.max(0, height - headerHeight) });
+    view.setVisible(!state.loadFailed);
+  };
   win.on('resize', layout); layout();
   restrict(view.webContents);
   view.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   view.webContents.on('did-finish-load', () => {
     if (!installed && latest && isAppUrl(view.webContents.getURL())) remember(latest.revision);
-    emit({ offline: false });
+    emit({ offline: false, loadFailed: false });
     void checkUpdates();
   });
   view.webContents.on('did-fail-load', (_event, code, _description, _url, mainFrame) => {
-    if (mainFrame && code !== -3) emit({ offline: true, message: 'Não foi possível abrir a loja. Clique em Tentar novamente.' });
+    if (mainFrame && code !== -3) emit({ offline: true, loadFailed: true, message: 'Não foi possível abrir a loja. Clique em Tentar novamente.' });
   });
-  win.on('closed', () => { clearInterval(interval); clearTimeout(introTimer); if (!view.webContents.isDestroyed()) view.webContents.close(); win = null; });
-  void win.loadFile(SHELL_FILE).then(() => {
-    emit();
-    if (state.intro) introTimer = setTimeout(() => {
-      if (!win || win.isDestroyed()) return;
-      rememberStartup({ version: app.getVersion(), pendingUpdate: false });
-      emit({ intro: false });
-      view.setVisible(true);
-    }, 2000);
-  });
+  win.on('closed', () => { clearInterval(interval); if (!view.webContents.isDestroyed()) view.webContents.close(); win = null; });
+  void win.loadFile(SHELL_FILE).then(() => emit());
   void loadSite();
   void checkUpdates();
   if (app.isPackaged) void autoUpdater.checkForUpdates().catch(() => {});
