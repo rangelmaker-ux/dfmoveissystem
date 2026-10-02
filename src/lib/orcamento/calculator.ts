@@ -51,6 +51,8 @@ const KNOWN_BRANDS = [
 export function isEletrodomestico(code?: string, description?: string, category?: string): boolean {
   const text = normalizeText(`${code || ''} ${description || ''} ${category || ''}`);
   if (!text) return false;
+  // A cabinet for an appliance is still furniture, not the appliance itself.
+  if (/\b(armario|balcao|torre|nicho|painel|modulo)\b/.test(normalizeText(description || ''))) return false;
   const applianceKeywords = [
     'forno',
     'fogao',
@@ -180,6 +182,8 @@ export function smartMatchPromobChapa(
     detectedBrand = 'Arauco';
   }
 
+  const requiresWhiteTx = /branc[oa][\s._-]*(?:\(?tx\)?|texturizad[oa])/i.test(rawText);
+
   // 2. Detecta Espessura (6, 15, 18, 25)
   let thickness: '6mm' | '15mm' | '18mm' | '25mm' = '15mm';
   if (
@@ -242,6 +246,12 @@ export function smartMatchPromobChapa(
     for (const line of bCat.lines) {
       const normLine = normalizeText(line.name);
       let score = 0;
+      if (requiresWhiteTx) {
+        const exactFinish = [line.name, ...(line.colors || [])].some(value =>
+          /branc[oa][\s._-]*(?:\(?tx\)?|texturizad[oa])/i.test(value));
+        if (!exactFinish) continue;
+        score = 100;
+      }
 
       // 1. Cores e padrões oficiais
       if (Array.isArray(line.colors) && line.colors.length > 0) {
@@ -305,7 +315,7 @@ export function smartMatchPromobChapa(
   // Se não detectou marca explícita OU a marca detectada não encontrou linha com score >= 20:
   // Varre as marcas do catálogo na ordem oficial para encontrar o padrão/cor correspondente (ex: Carmel -> Greenplac)
   const BRAND_SCAN_ORDER = ['Arauco', 'Duratex', 'Guararapes', 'Greenplac', 'Berneck', 'Eucatex', 'Fórmica', 'Sudati'];
-  if ((!detectedBrand || bestScore < 20) && catalog) {
+  if (!requiresWhiteTx && (!detectedBrand || bestScore < 20) && catalog) {
     const brandsToScan = [
       ...BRAND_SCAN_ORDER.filter(b => catalog[b] && catalog[b]?.type === 'brand'),
       ...Object.keys(catalog).filter(b => !BRAND_SCAN_ORDER.includes(b) && b !== 'Acessórios' && b !== 'Bernek' && catalog[b]?.type === 'brand')
@@ -321,7 +331,7 @@ export function smartMatchPromobChapa(
   }
 
   // Se o item contém "branco" ou "caixa" e não encontrou score alto, busca linha com "branco"
-  if (!bestLine && (normText.includes('branco') || normText.includes('branca') || normText.includes('caixa'))) {
+  if (!requiresWhiteTx && !bestLine && (normText.includes('branco') || normText.includes('branca') || normText.includes('caixa'))) {
     const findWhiteInBrand = (bName: string) => {
       const bCat = catalog && catalog[bName];
       if (!bCat || bCat.type !== 'brand' || !Array.isArray(bCat.lines)) return null;
@@ -339,14 +349,6 @@ export function smartMatchPromobChapa(
     bestLine = findWhiteInBrand(targetB) || findWhiteInBrand('Arauco') || findWhiteInBrand('Duratex') || null;
     if (bestLine) {
       winningBrand = targetB;
-    }
-  }
-
-  // Se não encontrou por tokens específicos mas é da marca, usa a linha padrão/intermediária
-  if (!bestLine && winningBrand && catalog && catalog[winningBrand]?.type === 'brand') {
-    const brandData = catalog[winningBrand] as BrandCatalog;
-    if (Array.isArray(brandData.lines) && brandData.lines.length > 0) {
-      bestLine = brandData.lines[0];
     }
   }
 
@@ -613,18 +615,23 @@ export function smartMatchAccessory(
     }
   }
 
-  // 12. Fitas de Borda
+  // Tape color and width are part of its identity. A Carmel tape must not
+  // silently inherit the price of the first white tape in the database.
   if (isFitaBorda(code, description)) {
-    if (normText.includes('35')) {
-      const dbFita = findDbProduct(p => p.code === 'FITA-BRANCA-35');
-      if (dbFita) return { matched: true, name: dbFita.description, price: dbFita.unit_price, unit: dbFita.unit || 'UN', source: 'database', code: dbFita.code };
-    }
-    if (normText.includes('freijo')) {
-      const dbFita = findDbProduct(p => p.code === 'FITA-FREIJO-22');
-      if (dbFita) return { matched: true, name: dbFita.description, price: dbFita.unit_price, unit: dbFita.unit || 'UN', source: 'database', code: dbFita.code };
-    }
-    const dbFita = findDbProduct(p => p.code === 'FITA-BRANCA-22') || findDbProduct(p => normalizeText(p.category || '').includes('fita'));
-    if (dbFita) return { matched: true, name: dbFita.description, price: dbFita.unit_price, unit: dbFita.unit || 'UN', source: 'database', code: dbFita.code };
+    const width = normText.match(/\d+(?:[.,]\d+)?\s*x\s*(\d+)\s*mm/)?.[1] ||
+      normText.match(/\b(22|35|45|64)\s*mm/)?.[1];
+    const finish = /branc[oa][\s._-]*tx/.test(normText) ? 'branco tx' :
+      normText.includes('carmel') ? 'carmel' : normText.includes('freijo') ? 'freijo' :
+      /branc[oa]/.test(normText) ? 'branco' : '';
+    if (!finish) return { matched: false, name: '', price: 0, unit: 'M', source: 'catalog_acessorio' };
+    const match = findAcessorio(name => {
+      const white = finish.startsWith('branco') && /branc[oa]/.test(name);
+      const colorMatches = finish === 'branco tx' ? white && /\btx\b/.test(name) : white || name.includes(finish);
+      const sizeMatches = !width || new RegExp(`(?:^|[^0-9])${width}(?:[^0-9]|$)`).test(name);
+      return name.includes('fita') && colorMatches && sizeMatches;
+    });
+    if (match && match.price > 0) return { matched: true, name: match.name, price: match.price, unit: match.unit || 'ROLO', source: 'catalog_acessorio', code: match.id };
+    return { matched: false, name: '', price: 0, unit: 'M', source: 'catalog_acessorio' };
   }
 
   // 13. Fuzzy Match genérico no database
@@ -957,6 +964,7 @@ export function resolveItemPrice(
     unit?: string;
     category?: string;
     is_parent_module?: boolean;
+    has_children?: boolean;
     is_chapa?: boolean;
     is_fita?: boolean;
     fita_metros?: number;
@@ -992,7 +1000,7 @@ export function resolveItemPrice(
   }
 
   // Pula apenas módulos pais agrupadores que não tenham preço definido
-  if (item.is_parent_module) {
+  if (item.is_parent_module || item.has_children) {
     return {
       matched: false,
       source: 'database',
@@ -1061,7 +1069,7 @@ export function resolveItemPrice(
 
     const dbMdf = database.find(p => p.code === `MDF-BRANCO-${thicknessCode}`) ||
                   database.find(p => p.code === 'MDF-BRANCO-15');
-    if (dbMdf && dbMdf.unit_price > 0) {
+    if (dbMdf && dbMdf.unit_price > 0 && /branc[oa]/i.test(raw) && !/branc[oa][\s._-]*(?:tx|texturizad[oa])/i.test(raw)) {
       return {
         matched: true,
         source: 'mdf_padrao',
@@ -1092,7 +1100,7 @@ export function resolveItemPrice(
   const accessory = smartMatchAccessory(item.code, item.description, item.dimensions, catalog, database);
   if (accessory.matched && accessory.price > 0) {
     let unitCost = accessory.price;
-    if (isFitaBorda(item.code, item.description) && (item.unit || '').toUpperCase() === 'M') {
+    if (isFitaBorda(item.code, item.description) && (item.unit || '').toUpperCase() === 'M' && accessory.unit !== 'M') {
       const fitaMetros = extractFitaMetros(accessory.name) || extractFitaMetros(item.description) || 20;
       if (fitaMetros > 0) unitCost = round2(accessory.price / fitaMetros);
     }
@@ -1102,7 +1110,7 @@ export function resolveItemPrice(
       unit_cost: unitCost,
       code: accessory.code || item.code,
       description: item.description,
-      unit: accessory.unit || item.unit || 'UN',
+      unit: isFitaBorda(item.code, item.description) && (item.unit || '').toUpperCase() === 'M' ? 'M' : accessory.unit || item.unit || 'UN',
       matched_name: accessory.name,
     };
   }
@@ -1141,6 +1149,7 @@ export function calculateItemPrice(
     is_processo?: boolean;
     is_mao_de_obra?: boolean;
     is_parent_module?: boolean;
+    has_children?: boolean;
     is_chapa?: boolean;
     is_fita?: boolean;
     fita_metros?: number;
@@ -1161,6 +1170,7 @@ export function calculateItemPrice(
           unit: item.unit,
           category: item.category,
           is_parent_module: item.is_parent_module,
+          has_children: item.has_children,
           is_chapa: item.is_chapa,
           is_fita: item.is_fita,
           fita_metros: item.fita_metros,
@@ -1226,7 +1236,7 @@ export function calculateItemPrice(
   const fitaMetros = item.fita_metros || extractFitaMetros(item.description) || 20;
 
   // Se for Fita de Borda em rolo e a lista vier em metros lineares (M):
-  if (isItemFita && fitaMetros > 0 && displayUnit.toUpperCase() === 'M' && unit_cost > 0 && (!item.table_price || resolved?.matched)) {
+  if (isItemFita && fitaMetros > 0 && displayUnit.toUpperCase() === 'M' && unit_cost > 0 && !resolved?.matched && !item.table_price) {
     if (unit_cost > 10) {
       unit_cost = round2(unit_cost / fitaMetros);
     }
@@ -1304,6 +1314,7 @@ export function calculateItemPrice(
     final_price: isAppliance ? 0 : (item.price_origin !== 'calculated' ? item.final_price : undefined),
     price_origin: item.price_origin || (item.final_price !== undefined ? 'imported' : 'calculated'),
     is_parent_module: item.is_parent_module,
+    has_children: item.has_children,
   };
 }
 
@@ -1316,6 +1327,7 @@ export function classifyPromobItem(
     unit?: string;
     category?: string;
     is_parent_module?: boolean;
+    has_children?: boolean;
     is_processo?: boolean;
     is_mao_de_obra?: boolean;
   },
@@ -1472,6 +1484,7 @@ export function calculatePricingTree(
         final_price: isAppliance ? 0 : (it.price_unlinked ? undefined : it.final_price),
         price_origin: it.price_origin,
         is_parent_module: it.is_parent_module,
+        has_children: it.has_children,
         is_chapa: it.is_chapa,
         is_fita: it.is_fita,
         fita_metros: it.fita_metros,
@@ -1960,4 +1973,11 @@ export function groupItemsByModule(items: BudgetItem[]): ModuleGroup[] {
   }
 
   return groups;
+}
+
+// Zero-priced structural containers are intentional; purchasable leaves are not.
+export function missingPriceItems(items: BudgetItem[]): BudgetItem[] {
+  return items.filter(item => !item.has_children && !item.is_parent_module &&
+    item.itemCategory !== 'INFORMATIONAL' && !isEletrodomestico(item.code, item.description, item.category) &&
+    !(item.unit_cost > 0) && !(item.total_price > 0));
 }

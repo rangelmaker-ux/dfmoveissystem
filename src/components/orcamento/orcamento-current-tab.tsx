@@ -23,7 +23,7 @@ import { parsePromobXML, parseTXT, parseCSV, parseJSON, parsePromobPDF, parsePro
 import { 
   calculateItemPrice, recalculateBudget, CHAPA_AREA_M2, round2, isChapa,
   smartMatchPromobChapa, matchProduct, chapaSalePrice, resolveItemPrice, smartMatchAccessory,
-  smartMatchMaoDeObra, isSimilarPromobItem, groupItemsByModule, isEletrodomestico
+  smartMatchMaoDeObra, isSimilarPromobItem, groupItemsByModule, isEletrodomestico, missingPriceItems
 } from '@/lib/orcamento/calculator';
 import { generateBudgetPdf } from '@/lib/orcamento/pdf-generator';
 import { BrandCatalog, CatalogByBrand, MaoDeObraCatalog } from '@/lib/orcamento/chapas-catalog';
@@ -317,6 +317,7 @@ export function OrcamentoCurrentTab({
             table_price: raw.table_price,
             final_price: raw.final_price,
             is_parent_module: raw.is_parent_module,
+            has_children: raw.has_children,
           },
           database,
           settings,
@@ -332,7 +333,11 @@ export function OrcamentoCurrentTab({
       onStartNewBudget();
 
       toast.success(`${parsedCount} itens importados do Promob com sucesso!`, {
-        description: `Repetições de peças e consumo em m² lidos e calculados com exatidão matemática.`,
+        description: `Componentes separados conforme o arquivo exportado, com suas unidades e quantidades.`,
+      });
+      const pending = missingPriceItems(newBudgetItems);
+      if (pending.length) toast.warning(`${pending.length} materiais sem preço cadastrado`, {
+        description: 'O total está incompleto. Vincule os acabamentos e ferragens corretos no catálogo antes de finalizar o orçamento.', duration: 12000,
       });
     } catch (err: any) {
       console.error('Erro ao processar arquivo:', err);
@@ -378,6 +383,7 @@ export function OrcamentoCurrentTab({
             table_price: raw.table_price,
             final_price: raw.final_price,
             is_parent_module: raw.is_parent_module,
+            has_children: raw.has_children,
           },
           database,
           settings,
@@ -689,6 +695,8 @@ export function OrcamentoCurrentTab({
       setProjectName(foundProj.nome);
     }
   };
+
+  const pendingPrices = missingPriceItems(items);
 
   // Direct PDF Export
   const handleDirectExportPDF = () => {
@@ -1768,6 +1776,10 @@ export function OrcamentoCurrentTab({
           </div>
         )}
       </div>
+
+      {pendingPrices.length > 0 && <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900" role="alert">
+        <strong>Total incompleto: {pendingPrices.length} materiais sem preço.</strong> Vincule os acabamentos e ferragens corretos no catálogo antes de finalizar o orçamento. Os agrupadores do XML não são materiais adicionais.
+      </div>}
 
       {/* Workbench Toolbar: Import & Chapa Switch */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-stone-200/90 bg-white/95 p-3 shadow-2xs">

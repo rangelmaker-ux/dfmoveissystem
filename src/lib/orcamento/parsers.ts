@@ -14,6 +14,8 @@ function checkIsAppliance(code?: string, description?: string, category?: string
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
   if (!text) return false;
+  const furniture = (description || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (/\b(armario|balcao|torre|nicho|painel|modulo)\b/.test(furniture)) return false;
   const keywords = [
     'forno', 'fogao', 'cooktop', 'coifa', 'depurador', 'geladeira',
     'refrigerador', 'freezer', 'microondas', 'micro-ondas', 'lava loucas',
@@ -277,6 +279,36 @@ function parseXmlAttributes(attrString: string): Record<string, string> {
   return attrs;
 }
 
+// Balance nested tags before reading an item's own fields. Descendant prices and
+// REFERENCES belong to the child, never to the enclosing cabinet or cut piece.
+function xmlItemBodies(xml: string): Map<number, { body: string; hasChildren: boolean }> {
+  const result = new Map<number, { body: string; hasChildren: boolean }>();
+  const stack: Array<{ start: number; name: string; chunks: string[]; cursor: number; hasChildren: boolean }> = [];
+  const tags = /<\/?(ITEM|PECA|PART)\b[^>]*>/gi;
+  let token: RegExpExecArray | null;
+  while ((token = tags.exec(xml))) {
+    const closing = token[0].startsWith('</');
+    if (closing) {
+      const node = stack.pop();
+      if (!node || node.name !== token[1].toLowerCase()) throw new Error('XML inválido: item sem fechamento correspondente.');
+      node.chunks.push(xml.slice(node.cursor, token.index));
+      result.set(node.start, { body: node.chunks.join(''), hasChildren: node.hasChildren });
+      if (stack.length) stack[stack.length - 1].cursor = tags.lastIndex;
+    } else {
+      const parent = stack[stack.length - 1];
+      if (parent) {
+        parent.chunks.push(xml.slice(parent.cursor, token.index));
+        parent.hasChildren = true;
+        parent.cursor = tags.lastIndex;
+      }
+      if (/\/\s*>$/.test(token[0])) result.set(token.index, { body: '', hasChildren: false });
+      else stack.push({ start: token.index, name: token[1].toLowerCase(), chunks: [], cursor: tags.lastIndex, hasChildren: false });
+    }
+  }
+  if (stack.length) throw new Error('XML inválido: item sem fechamento.');
+  return result;
+}
+
 // 1. Promob XML Parser (Supports Promob Plus / Start <ITEM>, <Item>, <PECA>, cut lists and client metadata)
 export function parsePromobXML(
   xmlContent: string
@@ -304,24 +336,19 @@ export function parsePromobXML(
 
   // Extração precisa de tags de itens (<ITEM>, <PECA>, <PART>, <Item>, <Peca>, <Part>), incluindo subitens aninhados
   const tagStartRegex = /<(ITEM|PECA|PART|Item|Peca|Part)\b([^>]*?)(\/?)>/gi;
+  const itemBodies = xmlItemBodies(cleanXml);
   let match;
   let itemCounter = 1;
 
   while ((match = tagStartRegex.exec(cleanXml)) !== null) {
-    const tagName = match[1];
-    const attrStr = match[2] || '';
-    const isSelfClosing = match[3] === '/';
-    const attrs = parseXmlAttributes(attrStr);
-
-    let innerContent = '';
-    if (!isSelfClosing) {
-      const startIdx = match.index + match[0].length;
-      const closingTag = `</${tagName}>`;
-      const closeIdx = cleanXml.indexOf(closingTag, startIdx);
-      if (closeIdx !== -1) {
-        innerContent = cleanXml.slice(startIdx, closeIdx);
-      }
-    }
+    const attrs = parseXmlAttributes(match[2] || '');
+    const own = itemBodies.get(match.index);
+    const innerContent = own?.body || '';
+    const references = innerContent.match(/<REFERENCES\b[^>]*>([\s\S]*?)<\/REFERENCES>/i)?.[1] || '';
+    const referenceValue = (name: string): string => {
+      const tag = references.match(new RegExp(`<${name}\\b([^>]*)>`, 'i'));
+      return tag ? (parseXmlAttributes(tag[1]).reference || '') : '';
+    };
 
     const getVal = (keys: string[]): string => {
       for (const k of keys) {
@@ -346,15 +373,15 @@ export function parsePromobXML(
     const description = getVal(['description', 'name', 'descricao', 'nome', 'desc']);
     if (!code && !description) continue;
 
-    const category = getVal(['category', 'categoria', 'grupo']);
-    const externalModel = getVal(['external_model', 'modelo_externo', 'model', 'modelo']);
+    const category = getVal(['category', 'categoria', 'grupo', 'family']);
+    const externalModel = getVal(['external_model', 'modelo_externo', 'model', 'modelo']) || referenceValue('MODEL');
 
     // Detecta se é módulo pai/móvel agrupador (ex: Armário, Balcão, Torre)
     // ATENÇÃO: Caixarias (Caixa Armário, Caixa Gaveta, Balcões) e Eletrodomésticos NUNCA são módulos agrupadores pais!
     const normDesc = description.toLowerCase();
     const isCaixa = normDesc.includes('caixa');
     const isAppliance = checkIsAppliance(code, description, category);
-    const hasChildren = innerContent && /<(?:ITEM|PECA|PART|Item|Peca|Part)\b/i.test(innerContent);
+    const hasChildren = Boolean(own?.hasChildren);
     const is_parent_module = Boolean(
       !isCaixa && !isAppliance && (
         hasChildren ||
@@ -365,7 +392,7 @@ export function parsePromobXML(
     const rawRep = getVal(['repetition', 'repeticao', 'rep', 'quantidade_repeticao', 'qtd_pecas', 'quantidade_pecas']);
     const rawQty = getVal(['quantity', 'quantidade', 'qtd', 'qtdtotal', 'quant', 'quantidade_total', 'qtd_total']);
     const rawUnit = getVal(['unit', 'unidade', 'un']);
-    const rawDim = getVal(['dimension', 'dimensions', 'dimensao', 'dimensoes', 'dimensoes_formatada']);
+    const rawDim = getVal(['dimension', 'dimensions', 'textdimension', 'dimensao', 'dimensoes', 'dimensoes_formatada']);
     const w = getVal(['width', 'largura', 'comprimento', 'comp']);
     const h = getVal(['height', 'altura', 'alt']);
     const d = getVal(['depth', 'profundidade', 'prof']);
@@ -393,7 +420,10 @@ export function parsePromobXML(
 
     let unit_quantity = 1;
 
-    if (isCutPiecePlate) {
+    if (rawUnit && parsedQtyNum > 0) {
+      // An explicit export unit/consumption is authoritative (including M < 1).
+      unit_quantity = parsedQtyNum;
+    } else if (isCutPiecePlate) {
       unit = 'M2';
       // Se o Promob já calculou a área em m² no XML (ex: 0.39 M2):
       if (parsedQtyNum > 0 && parsedQtyNum < 15 && Math.abs(parsedQtyNum - dimInfo.unitArea) < 0.05) {
@@ -432,6 +462,7 @@ export function parsePromobXML(
       table_price: isAppliance ? 0 : tablePrice,
       final_price: isAppliance ? 0 : finalPrice,
       is_parent_module,
+      has_children: hasChildren,
     });
   }
 

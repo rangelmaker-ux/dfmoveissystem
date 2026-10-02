@@ -1,3 +1,4 @@
+import { missingPriceItems } from './calculator';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { BudgetItem, BudgetSettings } from './types';
@@ -60,7 +61,8 @@ export function generateBudgetPdf(opts: GenerateBudgetPdfOptions): void {
   doc.setFontSize(8.5);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(203, 178, 122); // #cbb27a Gold
-  doc.text('ORÇAMENTO INTERNO — MATERIAIS E CUSTOS', textStartX, 20);
+  const pending = missingPriceItems(opts.items);
+  doc.text(pending.length ? `ORÇAMENTO INCOMPLETO — ${pending.length} MATERIAIS SEM PREÇO` : 'ORÇAMENTO INTERNO — MATERIAIS E CUSTOS', textStartX, 20);
 
   // CNPJ & Contato da Empresa se informados
   const companyDetails = [

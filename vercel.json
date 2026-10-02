@@ -5,6 +5,10 @@
   "framework": null,
   "rewrites": [
     {
+      "source": "/desktop-native/:path*",
+      "destination": "https://rcwilkmovlrdxhfviemo.supabase.co/functions/v1/desktop-updates?asset=:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/_shell.html"
     }
@@ -12,6 +16,15 @@
   "headers": [
     {
       "source": "/desktop-release.json",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, max-age=0"
+        }
+      ]
+    },
+    {
+      "source": "/desktop-native/:path*",
       "headers": [
         {
           "key": "Cache-Control",

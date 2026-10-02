@@ -16,7 +16,9 @@ test('atualização web pede confirmação, preserva login e reinicia; IPC remot
   const updater = new EventEmitter();
   updater.checkForUpdates = async () => null;
   updater.downloadUpdate = async () => null;
-  updater.quitAndInstall = () => {};
+  let nativeInstall;
+  updater.quitAndInstall = (...args) => { nativeInstall = args; };
+  updater.downloadUpdate = async () => { updater.emit('update-downloaded'); };
   class Contents extends EventEmitter {
     constructor() {
       super(); this.url = '';
@@ -89,4 +91,10 @@ test('atualização web pede confirmação, preserva login e reinicia; IPC remot
   assert.equal(clearCalls[1].origin, policy.SITE_ORIGIN);
   assert.equal(JSON.parse(fs.readFileSync(path.join(directory, 'system-version.json'))).revision, revision);
   assert.equal(statuses.some(state => state.message === 'Nova atualização disponível'), true);
+  updater.emit('error', new Error('Simulated restart boundary'));
+  updater.emit('update-available', { version: '1.0.3' });
+  await handlers.get('df:install')(event);
+  assert.deepEqual(nativeInstall, [true, true]);
+  assert.equal(updater.autoRunAppAfterInstall, true);
+  assert.equal(updater.disableDifferentialDownload, true);
 });

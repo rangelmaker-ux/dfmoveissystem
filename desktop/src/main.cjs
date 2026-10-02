@@ -74,12 +74,14 @@ function configureNativeUpdates() {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.allowPrerelease = false;
+  autoUpdater.autoRunAppAfterInstall = true;
+  autoUpdater.disableDifferentialDownload = true;
   autoUpdater.on('update-available', info => {
     nativeAvailable = true;
     emit({ update: true, message: `Nova versão Windows ${info.version} disponível` });
   });
   autoUpdater.on('download-progress', info => emit({ busy: true, message: `Instalando atualização: ${Math.round(info.percent)}%` }));
-  autoUpdater.on('update-downloaded', () => { nativeDownloaded = true; autoUpdater.quitAndInstall(false, true); });
+  autoUpdater.on('update-downloaded', () => { nativeDownloaded = true; autoUpdater.quitAndInstall(true, true); });
   autoUpdater.on('error', () => {
     if (state.busy) emit({ busy: false, message: 'Não foi possível baixar a atualização. Tente novamente.' });
   });
@@ -93,7 +95,7 @@ async function installUpdate() {
   if (result.response !== 0) return state;
   emit({ busy: true, message: 'Instalando atualização…' });
   try {
-    if (nativeDownloaded) autoUpdater.quitAndInstall(false, true);
+    if (nativeDownloaded) autoUpdater.quitAndInstall(true, true);
     else if (nativeAvailable) await autoUpdater.downloadUpdate();
     else {
       // Clear cached application files while preserving the user's login and data.

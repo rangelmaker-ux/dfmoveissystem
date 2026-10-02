@@ -3,9 +3,10 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['desktop/**', '.github/workflows/windows-desktop.yml']
+    paths: ['desktop/**', 'supabase/functions/desktop-updates/**', '.github/workflows/windows-desktop.yml']
 permissions:
-  contents: write
+  contents: read
+  id-token: write
 concurrency:
   group: df-windows-release
   cancel-in-progress: false
@@ -23,9 +24,15 @@ jobs:
           cache: npm
           cache-dependency-path: desktop/package-lock.json
       - run: npm ci
+      - name: Definir próxima versão
+        run: node scripts/native-release.mjs version
       - run: npm test
       - name: Compilar instalador Windows
         run: npm run dist:win
+      - name: Publicar canal de atualização automática
+        run: node scripts/native-release.mjs publish
+      - name: Verificar download de uma versão anterior
+        run: node scripts/verify-native-update.cjs
       - uses: actions/upload-artifact@v4
         with:
           name: DF-Moveis-Windows
