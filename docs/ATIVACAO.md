@@ -1,6 +1,6 @@
 # Ativação da atualização
 
-A checagem do Supabase real confirmou que o site usa o projeto `rcwilkmovlrdxhfviemo`. Foram encontrados campos e tabelas ausentes, uma estrutura legada diferente para `orcamento_budgets` e um administrador já existente no Auth com o mesmo ID do perfil. A atualização inclui compatibilidade para esses casos: preserva a tabela legada como cópia administrativa, importa seus registros, vincula a identidade já existente e substitui o trigger antigo de cadastro. O banco de produção não foi alterado durante essa conferência.
+A checagem do Supabase real confirmou que o site usa o projeto `rcwilkmovlrdxhfviemo`. Foram encontrados campos e tabelas ausentes, uma estrutura legada diferente para `orcamento_budgets` e um administrador já existente no Auth com o mesmo ID do perfil. A atualização inclui compatibilidade para esses casos: preserva a tabela legada como cópia administrativa, importa seus registros, vincula a identidade já existente e substitui o trigger antigo de cadastro. Após essa conferência, Rangel autorizou a publicação e a limpeza dos dados de teste. As três migrations foram aplicadas juntas em uma transação no Supabase. Clientes, projetos, orçamentos e projetistas de teste foram removidos; o administrador existente e as tabelas de preços foram mantidos. Não restaram contas de projetistas para migrar.
 
 O preview inicial no Vercel foi bloqueado por `BLOCKED_PACKAGE`. O TanStack Start foi atualizado para `1.168.60`, com `start-server-core 1.169.39`, versões corrigidas do aviso GHSA-qx66-fv34-fjm8. Não usar a variável de bypass do bloqueio.
 
@@ -11,11 +11,18 @@ Esta versão altera autenticação e regras do banco. Não publique somente o fr
 1. Gerar backup do banco e testar a atualização em um projeto de homologação. As migrations antigas não documentam todas as alterações históricas feitas manualmente no banco; comparar o esquema real antes da aplicação. Verificar se já existem contas em Auth com os e-mails legados e comissões duplicadas por projeto. Resolver os conflitos antes de iniciar, sem apagar histórico.
 2. Aplicar as três migrations `20261002010000`, `20261002011000` e `20261002012000` com o aplicativo em manutenção. A primeira revoga o acesso anônimo, cria o vínculo de Auth e mantém as regras de aprovação. Os orçamentos legados em `orcamento_workspace.saved_budgets` ficam preservados como cópia de recuperação e são importados em registros individuais.
 3. Executar `npm run migrate:auth` em ambiente administrativo com `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY`. Não colocar a chave administrativa em variáveis `VITE_*`, no navegador, no repositório ou no chat. O script usa a API oficial de criação de usuários, mantém IDs de perfil, roles e status, e apaga a senha legada ao vincular a conta ao Auth. Se houver conta sem credencial legada, migrar pelo procedimento administrativo de recuperação antes de publicar. Não habilitar acesso por localStorage como fallback.
-4. Publicar a função `team-auth` no Supabase. A função valida o token, papel e status da conta administradora e confirma a senha antes de criar ou bloquear uma conta. Cadastro comum usa Supabase Auth e continua PENDENTE até o administrador liberar. Configurar confirmação de e-mail conforme a política interna e SMTP para recuperação de senha. Adicionar a URL de `/redefinir-senha` à lista de redirects do Auth.
+4. A função `team-auth` já foi publicada no Supabase. Ela verifica o token por `auth.getUser` dentro da função, permitindo JWTs dos tipos de chave atuais sem depender do verificador legado do gateway. A função valida o token, papel e status da conta administradora e confirma a senha antes de criar ou bloquear uma conta. Cadastro comum usa Supabase Auth e continua PENDENTE até o administrador liberar. Configurar confirmação de e-mail conforme a política interna e SMTP para recuperação de senha. Adicionar a URL de `/redefinir-senha` à lista de redirects do Auth.
 5. Publicar esta branch no Vercel, com `VITE_SUPABASE_URL` e `VITE_SUPABASE_PUBLISHABLE_KEY`. O build usa `npm ci` e `package-lock.json`; não instalar com um lockfile de outro gerenciador.
 6. Testar login do administrador migrado, cadastro/aprovação de projetista, bloqueio, orçamento salvo em outro dispositivo, catálogo simultâneo, proposta/contrato por cliente, anexos privados, comissão e agenda. Somente então encerrar manutenção.
 
 Migrations de segurança e migração de credenciais devem ocorrer em manutenção: entre a revogação das políticas antigas e a publicação do frontend, a versão antiga não deve continuar operando.
+
+## Validação no Supabase real
+
+- Administrador ativo vinculado ao Auth e com e-mail confirmado: 1. Projetistas, clientes, projetos e orçamentos: 0 após a limpeza autorizada.
+- RPC de orçamento validada em transação com rollback: revisões 1 e 2; gravação com versão desatualizada rejeitada.
+- Acesso anônimo aos perfis/clientes, leitura da coluna password pelo navegador e RPC administrativa legada: revogados.
+- A senha do administrador é a da conta Auth existente; não foi redefinida. Login com a credencial real será validado pelo administrador. A recuperação de senha depende do e-mail/SMTP configurado no Supabase.
 
 ## Comportamento da atualização
 
