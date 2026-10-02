@@ -273,7 +273,7 @@ function AgendaPage() {
           ? ` por ${conflictingMeeting.criado_por.nome}`
           : '';
         throw new Error(
-          `Já existe uma reunião marcada das ${conflictStart} às ${conflictEnd}${owner}. Escolha outro horário.`,
+          `Já existe um compromisso de reunião marcado nesta data, das ${conflictStart} às ${conflictEnd}${owner}. Escolha outro horário.`,
         );
       }
 
@@ -743,21 +743,6 @@ function AgendaPage() {
                     <Label htmlFor="fim">Hora término</Label>
                     <Input id="fim" type="time" value={formData.hora_fim} onChange={(e) => setFormData({...formData, hora_fim: e.target.value})} />
                   </div>
-                </div>
-                <div
-                  className={cn(
-                    'flex items-start gap-2 rounded-xl border p-3 text-xs leading-5',
-                    formData.tipo === 'REUNIAO'
-                      ? 'border-red-200 bg-red-50 text-red-800'
-                      : 'border-emerald-200 bg-emerald-50 text-emerald-800',
-                  )}
-                >
-                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span>
-                    {formData.tipo === 'REUNIAO'
-                      ? 'A loja possui uma única sala de reunião. O horário não pode coincidir com nenhuma outra reunião, de qualquer projetista.'
-                      : 'Este compromisso pode coincidir com outros horários, pois cada projetista possui sua própria agenda.'}
-                  </span>
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="cliente">Cliente Vinculado (Opcional)</Label>
