@@ -2,7 +2,19 @@ const status = document.querySelector('#status');
 const check = document.querySelector('#check');
 const install = document.querySelector('#install');
 const retry = document.querySelector('#retry');
+const intro = document.querySelector('#intro');
+const introVideo = document.querySelector('#intro-video');
+let playingIntro = false;
 function render(state) {
+  intro.hidden = !state.intro;
+  if (state.intro && !playingIntro) {
+    playingIntro = true;
+    introVideo.currentTime = 0;
+    void introVideo.play().catch(() => {});
+  } else if (!state.intro && playingIntro) {
+    playingIntro = false;
+    introVideo.pause();
+  }
   status.textContent = state.message;
   install.hidden = !state.update;
   retry.hidden = !state.offline;

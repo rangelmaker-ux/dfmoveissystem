@@ -17,3 +17,7 @@ O binário inicial não possui certificado Authenticode, pois nenhum certificado
 ## Verificação
 
 Testes de origem, documentos, comparação e validação de versões; compilação NSIS e inspeção do executável e recursos. O teste de instalar, autenticar e atualizar na máquina real Windows deve ser feito pelo usuário. Criador: Rangel Marques. © 2026 DF Móveis Planejados.
+
+## Abertura da marca
+
+A animação aprovada dura 2 segundos e usa o vídeo original aprovado, sem som. Aparece uma vez por instalação/versão nativa e uma vez após instalar uma atualização web. A preferência fica no perfil local; aberturas seguintes entram direto. O sistema carrega em paralelo, e o prazo não depende de eventos do vídeo nem da conexão.

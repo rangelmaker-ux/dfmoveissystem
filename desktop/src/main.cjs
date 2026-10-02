@@ -4,13 +4,21 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { SITE_ORIGIN, isAppUrl, isDocumentUrl, parseRelease, needsUpdate } = require('./update-policy.cjs');
+const { shouldShowIntro } = require('./startup-policy.cjs');
 const SHELL_FILE = path.join(__dirname, 'shell.html');
 const SHELL_URL = pathToFileURL(SHELL_FILE).href;
 const PARTITION = 'persist:df-moveis';
 let win, view, installed, latest, checking = false, interval;
+let introTimer, startup = {};
 let nativeAvailable = false, nativeDownloaded = false;
-const state = { message: 'Conectando à loja…', update: false, busy: false, offline: false, nativeVersion: app.getVersion() };
+const state = { message: 'Conectando à loja…', update: false, busy: false, offline: false, nativeVersion: app.getVersion(), intro: false };
 const statePath = () => path.join(app.getPath('userData'), 'system-version.json');
+const startupPath = () => path.join(app.getPath('userData'), 'startup-state.json');
+function rememberStartup(patch) {
+  startup = { ...startup, ...patch };
+  try { fs.writeFileSync(startupPath(), JSON.stringify(startup), { mode: 0o600 }); }
+  catch { /* A read-only profile must not prevent opening the system. */ }
+}
 function emit(patch = {}) {
   Object.assign(state, patch);
   if (win && !win.isDestroyed()) win.webContents.send('df:status', state);
@@ -98,6 +106,7 @@ async function installUpdate() {
       await view.webContents.session.clearCache();
       await view.webContents.session.clearStorageData({ origin: SITE_ORIGIN, storages: ['serviceworkers', 'cachestorage'] });
       if (latest) remember(latest.revision);
+      rememberStartup({ pendingUpdate: true });
       app.relaunch(); app.exit(0);
     }
   } catch { emit({ busy: false, message: 'Atualização não concluída. Tente novamente.' }); }
@@ -105,8 +114,10 @@ async function installUpdate() {
 }
 function createWindow() {
   try { installed = JSON.parse(fs.readFileSync(statePath(), 'utf8')).revision; } catch { installed = null; }
+  try { startup = JSON.parse(fs.readFileSync(startupPath(), 'utf8')) || {}; } catch { startup = {}; }
+  state.intro = shouldShowIntro(startup, app.getVersion());
   win = new BrowserWindow({ width: 1360, height: 900, minWidth: 900, minHeight: 600,
-    title: 'DF Móveis Planejados', icon: path.join(__dirname, '../build/icon.png'), backgroundColor: '#f4f1eb',
+    title: 'DF Móveis Planejados', icon: path.join(__dirname, '../build/icon.png'), backgroundColor: '#191c21',
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true },
   });
   Menu.setApplicationMenu(null);
@@ -114,6 +125,7 @@ function createWindow() {
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   view = new WebContentsView({ webPreferences: { partition: PARTITION, nodeIntegration: false, contextIsolation: true, sandbox: true, spellcheck: false } });
   win.contentView.addChildView(view);
+  view.setVisible(!state.intro);
   const layout = () => { const [width, height] = win.getContentSize(); view.setBounds({ x: 0, y: 64, width, height: Math.max(0, height - 64) }); };
   win.on('resize', layout); layout();
   restrict(view.webContents);
@@ -126,8 +138,16 @@ function createWindow() {
   view.webContents.on('did-fail-load', (_event, code, _description, _url, mainFrame) => {
     if (mainFrame && code !== -3) emit({ offline: true, message: 'Não foi possível abrir a loja. Clique em Tentar novamente.' });
   });
-  win.on('closed', () => { clearInterval(interval); if (!view.webContents.isDestroyed()) view.webContents.close(); win = null; });
-  void win.loadFile(SHELL_FILE).then(() => emit());
+  win.on('closed', () => { clearInterval(interval); clearTimeout(introTimer); if (!view.webContents.isDestroyed()) view.webContents.close(); win = null; });
+  void win.loadFile(SHELL_FILE).then(() => {
+    emit();
+    if (state.intro) introTimer = setTimeout(() => {
+      if (!win || win.isDestroyed()) return;
+      rememberStartup({ version: app.getVersion(), pendingUpdate: false });
+      emit({ intro: false });
+      view.setVisible(true);
+    }, 2000);
+  });
   void loadSite();
   void checkUpdates();
   if (app.isPackaged) void autoUpdater.checkForUpdates().catch(() => {});
