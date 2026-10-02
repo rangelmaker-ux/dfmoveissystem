@@ -1,3 +1,4 @@
+import { DecimalInput } from "@/components/ui/decimal-input";
 import { openProjectFile } from '@/lib/project-files';
 import { calculateInstallments, parseMoney } from '@/lib/finance';
 import { invalidateOperation } from '@/lib/invalidate-operation';
@@ -55,6 +56,12 @@ interface ProjetoRow {
   status_venda: string;
   estagio_andamento: string | null;
   valor_venda: number | null;
+  percentual_comissao: number | null;
+  rt_arquiteto: number | null;
+  nome_arquiteto: string | null;
+  valor_entrada: number | null;
+  forma_pagamento_entrada: string | null;
+  numero_parcelas: number | null;
   data_inicio: string;
   prazo_termino: string;
   motivo_perda?: string | null;
@@ -62,7 +69,8 @@ interface ProjetoRow {
 }
 
 function MeusProjetosPage() {
-  const { user } = useAuthStore();
+  const { user, role } = useAuthStore();
+  const isAdmin = role === "ADMIN";
   const queryClient = useQueryClient();
   const [viewingProject, setViewingProject] = useState<ProjetoRow | null>(null);
   const [closingProject, setClosingProject] = useState<ProjetoRow | null>(null);
@@ -71,6 +79,8 @@ function MeusProjetosPage() {
   // Form estados
   const [valorVenda, setValorVenda] = useState('');
   const [percentualComissao, setPercentualComissao] = useState('');
+  const [rtArquiteto, setRtArquiteto] = useState('');
+  const [nomeArquiteto, setNomeArquiteto] = useState('');
   const [valorEntrada, setValorEntrada] = useState('');
   const [formaPagamentoEntrada, setFormaPagamentoEntrada] = useState('Pix');
   const [numParcelas, setNumParcelas] = useState('1');
@@ -79,18 +89,19 @@ function MeusProjetosPage() {
   const [motivoPerda, setMotivoPerda] = useState('');
 
   const { data: projetos, isLoading } = useQuery({
-    queryKey: ['meus-projetos', user?.id],
+    queryKey: ['meus-projetos', user?.id, role],
     queryFn: async () => {
       if (!user?.id) return [];
-      const { data, error } = await supabase
+      let query = supabase
         .from('projetos')
         .select(`
           id, nome, status, status_venda, estagio_andamento, valor_venda, 
-          data_inicio, prazo_termino, motivo_perda,
+          data_inicio, prazo_termino, motivo_perda, percentual_comissao, rt_arquiteto, nome_arquiteto, valor_entrada, forma_pagamento_entrada, numero_parcelas,
           cliente:clientes(id, nome, telefone)
         `)
-        .eq('projetista_id', user.id)
         .order('created_at', { ascending: false });
+      if (!isAdmin) query = query.eq('projetista_id', user.id);
+      const { data, error } = await query;
       if (error) throw error;
       return (data ?? []) as unknown as ProjetoRow[];
     },
@@ -118,6 +129,8 @@ function MeusProjetosPage() {
       const entry = parseMoney(data.valorEntrada || '0');
       const count = Number(data.numParcelas);
       const percentage = parseMoney(data.percentualComissao || '0');
+      const rt = parseMoney(data.rtArquiteto || '0');
+      if (!Number.isFinite(rt) || rt < 0 || rt > 100) throw new Error('RT deve estar entre 0 e 100%.');
       const installments = calculateInstallments(sale, entry, count);
       if (!Number.isFinite(percentage) || percentage < 0 || percentage > 100) throw new Error('Comissão deve estar entre 0 e 100%.');
       const update = { 
@@ -126,6 +139,8 @@ function MeusProjetosPage() {
         status_venda: 'VENDEU' as const,
         valor_venda: sale,
         percentual_comissao: percentage,
+        rt_arquiteto: rt,
+        nome_arquiteto: data.nomeArquiteto.trim() || null,
         valor_entrada: entry,
         forma_pagamento_entrada: data.formaPagamentoEntrada,
         numero_parcelas: count,
@@ -167,9 +182,22 @@ function MeusProjetosPage() {
   const resetFinanceForm = () => {
     setValorVenda('');
     setPercentualComissao('');
+    setRtArquiteto('');
+    setNomeArquiteto('');
     setValorEntrada('');
     setFormaPagamentoEntrada('Pix');
     setNumParcelas('1');
+  };
+
+  const openFinance = (project: ProjetoRow) => {
+    setValorVenda(String(project.valor_venda ?? ''));
+    setPercentualComissao(String(project.percentual_comissao ?? ''));
+    setRtArquiteto(String(project.rt_arquiteto ?? ''));
+    setNomeArquiteto(project.nome_arquiteto ?? '');
+    setValorEntrada(String(project.valor_entrada ?? ''));
+    setFormaPagamentoEntrada(project.forma_pagamento_entrada ?? 'Pix');
+    setNumParcelas(String(project.numero_parcelas ?? 1));
+    setClosingProject(project);
   };
 
   const ativos = (projetos ?? []).filter(p => p.status !== 'FINALIZADO');
@@ -185,7 +213,7 @@ function MeusProjetosPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <Briefcase className="h-6 w-6 text-primary" />
-            Meus Projetos
+            {isAdmin ? "Projetos da Equipe" : "Meus Projetos"}
           </h1>
           <p className="text-muted-foreground">
             Acompanhe e atualize o estágio de cada projeto.
@@ -225,7 +253,7 @@ function MeusProjetosPage() {
                   key={p.id}
                   projeto={p}
                   onStageChange={(s) => updateStage.mutate({ id: p.id, estagio: s })}
-                  onClose={() => setClosingProject(p)}
+                  onClose={() => openFinance(p)}
                   onMarkLost={() => setLostProject(p)}
                   onView={() => setViewingProject(p)}
                   isUpdating={updateStage.isPending}
@@ -266,6 +294,9 @@ function MeusProjetosPage() {
                         {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(p.valor_venda))}
                       </div>
                     )}
+                    {p.status_venda === 'VENDEU' && (
+                      <Button size="sm" variant="outline" onClick={event => { event.stopPropagation(); openFinance(p); }}>Editar comissão / RT e pagamento</Button>
+                    )}
                     {p.status_venda === 'NAO_VENDEU' && p.motivo_perda && (
                       <div className="text-rose-600 text-xs italic line-clamp-1">
                         Motivo: {p.motivo_perda}
@@ -285,9 +316,9 @@ function MeusProjetosPage() {
 
       {/* Modal de Conclusão Financeira */}
       <Dialog open={!!closingProject} onOpenChange={(o) => { if (!o) { setClosingProject(null); resetFinanceForm(); } }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Concluir Venda</DialogTitle>
+            <DialogTitle>{closingProject?.status_venda === 'VENDEU' ? 'Dados da Venda' : 'Concluir Venda'}</DialogTitle>
             <DialogDescription>
               Preencha os dados financeiros obrigatórios para fechar o projeto <strong>{closingProject?.nome}</strong>.
             </DialogDescription>
@@ -296,18 +327,29 @@ function MeusProjetosPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="valor_total">Valor Total (R$)</Label>
-                <Input id="valor_total" type="number" value={valorVenda} onChange={(e) => setValorVenda(e.target.value)} placeholder="0,00" />
+                <DecimalInput id="valor_total" type="number" value={valorVenda} onChange={(e) => setValorVenda(e.target.value)} placeholder="0,00" />
               </div>
               <div className="space-y-1">
                 <Label htmlFor="comissao">% Comissão</Label>
-                <Input id="comissao" type="number" value={percentualComissao} onChange={(e) => setPercentualComissao(e.target.value)} placeholder="5" />
+                <DecimalInput id="comissao" type="number" value={percentualComissao} onChange={(e) => setPercentualComissao(e.target.value)} placeholder="5" />
               </div>
             </div>
             
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
+                <Label htmlFor="sale-architect">Arquiteto / Parceiro</Label>
+                <Input id="sale-architect" value={nomeArquiteto} onChange={e => setNomeArquiteto(e.target.value)} placeholder="Nome (opcional)" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="sale-rt">RT do Arquiteto (%)</Label>
+                <DecimalInput id="sale-rt" value={rtArquiteto} onChange={e => setRtArquiteto(e.target.value)} placeholder="Ex: 2,5" />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">Comissão e RT são calculadas sobre o valor vendido. Contrato e imagens podem ser anexados em Arquivos do projeto.</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
                 <Label htmlFor="entrada">Valor Entrada (R$)</Label>
-                <Input id="entrada" type="number" value={valorEntrada} onChange={(e) => setValorEntrada(e.target.value)} placeholder="0,00" />
+                <DecimalInput id="entrada" type="number" value={valorEntrada} onChange={(e) => setValorEntrada(e.target.value)} placeholder="0,00" />
               </div>
               <div className="space-y-1">
                 <Label>Pagamento Entrada</Label>
@@ -325,11 +367,11 @@ function MeusProjetosPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="parcelas">Nº Parcelas Restante</Label>
-                <Input id="parcelas" type="number" value={numParcelas} onChange={(e) => setNumParcelas(e.target.value)} min="0" max="120" />
+                <DecimalInput id="parcelas" type="number" value={numParcelas} onChange={(e) => setNumParcelas(e.target.value)} min="0" max="120" />
               </div>
               <div className="space-y-1">
                 <Label htmlFor="v_parcela">Valor da Parcela (R$)</Label>
-                <Input id="v_parcela" type="number" value={paymentPlan?.regular ?? ''} readOnly placeholder="0,00" />
+                <DecimalInput id="v_parcela" type="number" value={paymentPlan?.regular ?? ''} readOnly placeholder="0,00" />
               </div>
             </div>
           </div>
@@ -344,13 +386,15 @@ function MeusProjetosPage() {
                   id: closingProject?.id,
                   valorVenda,
                   percentualComissao,
+                  rtArquiteto,
+                  nomeArquiteto,
                   valorEntrada,
                   formaPagamentoEntrada,
                   numParcelas,
                 });
               }}
             >
-              Confirmar e Vender
+              {closingProject?.status_venda === 'VENDEU' ? 'Salvar Dados da Venda' : 'Confirmar e Vender'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -590,6 +634,8 @@ function DetalhesProjeto({ projeto, onBack }: { projeto: ProjetoRow, onBack: () 
                   <span>Vendido por:</span>
                   <span>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(projeto.valor_venda)}</span>
                 </div>
+                <p>Comissão do projetista: {Number(projeto.percentual_comissao ?? 0).toLocaleString('pt-BR')}% · {(Math.round(projeto.valor_venda * Number(projeto.percentual_comissao ?? 0)) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+                <p>RT {projeto.nome_arquiteto || 'do arquiteto'}: {Number(projeto.rt_arquiteto ?? 0).toLocaleString('pt-BR')}% · {(Math.round(projeto.valor_venda * Number(projeto.rt_arquiteto ?? 0)) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
               </div>
             )}
           </CardContent>

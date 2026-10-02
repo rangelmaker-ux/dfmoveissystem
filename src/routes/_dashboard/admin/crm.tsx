@@ -1,4 +1,5 @@
-import { createFileRoute, redirect } from '@tanstack/react-router';
+import { Button } from "@/components/ui/button";
+import { createFileRoute, redirect, Link } from '@tanstack/react-router';
 import { validateStoredAccess } from '@/hooks/use-auth';
 import { useProjects } from '@/hooks/use-projects';
 import { useTeam } from '@/hooks/use-team';
@@ -61,6 +62,7 @@ function CRMPage() {
         <h1 className="text-2xl font-bold tracking-tight">CRM - Pipeline de Vendas</h1>
         
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" asChild><Link to="/projetista/meus-projetos">Vendas, comissões e arquivos</Link></Button>
           <Select value={projetistaId} onValueChange={setProjetistaId}>
             <SelectTrigger className="w-[200px]">
               <SelectValue placeholder="Filtrar por Projetista" />

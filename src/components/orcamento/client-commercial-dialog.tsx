@@ -1,3 +1,4 @@
+import { DecimalInput } from "@/components/ui/decimal-input";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -248,7 +249,7 @@ export function ClientCommercialDialog({
                 </Label>
                 <Label>
                   Valor de venda do ambiente
-                  <Input
+                  <DecimalInput
                     type="number"
                     min="0"
                     step="0.01"
@@ -290,7 +291,7 @@ export function ClientCommercialDialog({
                             })
                           }
                         />
-                        <Input
+                        <DecimalInput
                           aria-label="Valor do custo interno"
                           type="number"
                           min="0"
@@ -368,7 +369,7 @@ export function ClientCommercialDialog({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <Label>
                 Desconto (%)
-                <Input
+                <DecimalInput
                   type="number"
                   min="0"
                   max="100"
@@ -379,17 +380,17 @@ export function ClientCommercialDialog({
               </Label>
               <Label>
                 Entrada (R$)
-                <Input
+                <DecimalInput
                   type="number"
                   min="0"
                   step="0.01"
                   value={document.entry}
-                  onChange={(e) => update({ entry: parseMoney(e.target.value) })}
+                  onChange={(e) => update({ entry: parseMoney(e.target.value || '0') })}
                 />
               </Label>
               <Label>
                 Parcelas
-                <Input
+                <DecimalInput
                   type="number"
                   min="0"
                   max="120"

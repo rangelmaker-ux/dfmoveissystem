@@ -1,3 +1,4 @@
+import { DecimalInput } from "@/components/ui/decimal-input";
 import { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   Upload, Plus, Trash2, Edit2, AlertTriangle, 
@@ -2450,7 +2451,7 @@ export function OrcamentoCurrentTab({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <div>
                 <Label className="text-xs font-semibold text-stone-700">Quantidade</Label>
-                <Input
+                <DecimalInput
                   type="number"
                   step="0.01"
                   value={newItemQty}

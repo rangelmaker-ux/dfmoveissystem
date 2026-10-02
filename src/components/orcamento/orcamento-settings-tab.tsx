@@ -1,3 +1,4 @@
+import { DecimalInput } from "@/components/ui/decimal-input";
 import { useState, useRef } from 'react';
 import { 
   Settings, Plus, Trash2, CheckCircle2, Percent, Loader2, Check, 
@@ -351,7 +352,7 @@ export function OrcamentoSettingsTab({
             <div className="w-48">
               <Label className="text-xs font-semibold text-slate-700">Margem Padrão (%)</Label>
               <div className="relative mt-1">
-                <Input
+                <DecimalInput
                   type="number"
                   value={form.margin}
                   onChange={e => setForm({ ...form, margin: parseFloat(e.target.value) || 0 })}
@@ -384,14 +385,14 @@ export function OrcamentoSettingsTab({
             Acréscimos Operacionais & Comissões
           </CardTitle>
           <CardDescription className="text-xs">
-            Taxas agregadas automaticamente no cálculo final de cada produto do orçamento.
+            Previsão de acréscimos no orçamento. A comissão efetiva do projetista e a RT do arquiteto são informadas nos dados da venda, quando o projeto é vendido.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 pt-5">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <Label className="text-xs font-medium text-slate-700">Frete (%)</Label>
-              <Input
+              <DecimalInput
                 type="number"
                 step="0.1"
                 value={form.frete}
@@ -401,7 +402,7 @@ export function OrcamentoSettingsTab({
             </div>
             <div>
               <Label className="text-xs font-medium text-slate-700">Montagem (%)</Label>
-              <Input
+              <DecimalInput
                 type="number"
                 step="0.1"
                 value={form.montagem}
@@ -411,7 +412,7 @@ export function OrcamentoSettingsTab({
             </div>
             <div>
               <Label className="text-xs font-medium text-slate-700">Comissão de Vendas (%)</Label>
-              <Input
+              <DecimalInput
                 type="number"
                 step="0.1"
                 value={form.comissao_vendas}
@@ -421,7 +422,7 @@ export function OrcamentoSettingsTab({
             </div>
             <div>
               <Label className="text-xs font-medium text-slate-700">Comissão Executivo (%)</Label>
-              <Input
+              <DecimalInput
                 type="number"
                 step="0.1"
                 value={form.comissao_executivo}
@@ -462,7 +463,7 @@ export function OrcamentoSettingsTab({
                   onChange={e => setNewAdditionName(e.target.value)}
                   className="text-xs flex-1"
                 />
-                <Input
+                <DecimalInput
                   type="number"
                   placeholder="Valor (%)"
                   value={newAdditionVal}

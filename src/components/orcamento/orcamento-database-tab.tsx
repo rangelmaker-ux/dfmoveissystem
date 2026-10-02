@@ -1,3 +1,4 @@
+import { DecimalInput } from "@/components/ui/decimal-input";
 import { useState, useRef } from 'react';
 import { 
   Search, Plus, Trash2, Edit2, RotateCcw, Package, Layers, Download, Upload, 
@@ -1551,7 +1552,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                   ? 'Preço Final do Acessório (R$) [Definido pelo Operador]'
                   : 'Preço Custo Base (R$)'}
               </Label>
-              <Input
+              <DecimalInput
                 type="number"
                 step="0.01"
                 value={prodUnitPrice}

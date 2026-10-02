@@ -159,6 +159,9 @@ test("migrações, aprovação, orçamento e financeiro no PostgreSQL", async (t
         ).rows[0].valor_calculado,
         "5.00",
       );
+      await db.query("UPDATE public.projetos SET percentual_comissao=2.5,rt_arquiteto=3.75,nome_arquiteto='Parceiro Teste' WHERE id=$1", [projectId]);
+      assert.equal(Number((await db.query("SELECT valor_calculado FROM public.comissoes WHERE projeto_id=$1", [projectId])).rows[0].valor_calculado), 2.5);
+      assert.equal(Number((await db.query("SELECT rt_arquiteto FROM public.projetos WHERE id=$1", [projectId])).rows[0].rt_arquiteto), 3.75);
       await db.query("UPDATE public.projetos SET valor_venda=200 WHERE id=$1", [projectId]);
       assert.equal(
         (

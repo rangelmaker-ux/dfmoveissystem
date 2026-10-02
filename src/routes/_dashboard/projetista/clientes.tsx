@@ -1,3 +1,5 @@
+import { parseMoney } from "@/lib/finance";
+import { DecimalInput } from "@/components/ui/decimal-input";
 import { openProjectFile } from '@/lib/project-files';
 import { ClientCommercialDialog } from '@/components/orcamento/client-commercial-dialog';
 import { createFileRoute } from "@tanstack/react-router";
@@ -437,7 +439,7 @@ function ProjetistaClientesPage() {
         observacoes: projectObservations("", data.fonte, data.nome_arquiteto),
         rt_arquiteto:
           data.fonte === "ARQUITETO" && data.rt_arquiteto
-            ? parseFloat(data.rt_arquiteto)
+            ? parseMoney(data.rt_arquiteto)
             : null,
       };
       const { data: inserted, error } = await supabase.rpc('create_client_with_project', {
@@ -487,14 +489,14 @@ function ProjetistaClientesPage() {
         status_venda: "EM_NEGOCIACAO" as const,
         data_inicio: data.data_inicio || today,
         prazo_termino: chosenDeadline,
-        valor_venda: data.valor_venda ? parseFloat(data.valor_venda) : null,
+        valor_venda: data.valor_venda ? parseMoney(data.valor_venda) : null,
         observacoes: projectObservations(data.observacoes, data.fonte, data.nome_arquiteto),
         nome: data.nome.trim() || null,
         fonte: data.fonte || null,
         rt_arquiteto:
           data.fonte === "ARQUITETO"
             ? data.rt_arquiteto
-              ? parseFloat(data.rt_arquiteto)
+              ? parseMoney(data.rt_arquiteto)
               : null
             : null,
       };
@@ -702,7 +704,7 @@ function ProjetistaClientesPage() {
                     </div>
                     <div className="grid gap-2">
                       <Label htmlFor="client-commission">% de comissão</Label>
-                      <Input
+                      <DecimalInput
                         id="client-commission"
                         type="number"
                         min="0"
@@ -821,7 +823,7 @@ function ProjetistaClientesPage() {
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="rt-arquiteto">% RT / Comissão</Label>
-                  <Input
+                  <DecimalInput
                     id="rt-arquiteto"
                     type="number"
                     placeholder="Ex: 10"
@@ -894,7 +896,7 @@ function ProjetistaClientesPage() {
             </div>
             <div className="grid gap-2">
               <Label htmlFor="valor">Valor estimado (R$) — opcional</Label>
-              <Input
+              <DecimalInput
                 id="valor"
                 type="number"
                 value={projectForm.valor_venda}
