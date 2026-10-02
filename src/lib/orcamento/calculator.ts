@@ -146,7 +146,7 @@ export function smartMatchPromobChapa(
   matched: boolean;
   brand: string | null;
   line: string | null;
-  thickness: '6mm' | '15mm' | '18mm' | '25mm';
+  thickness: '6mm' | '15mm' | '18mm' | '25mm' | '30mm';
   m2Cost: number;
   boardPrice: number;
 } {
@@ -183,15 +183,17 @@ export function smartMatchPromobChapa(
   }
 
   const explicitMm = description.match(/espessura\s+(\d+(?:[.,]\d+)?)\s*mm/i)?.[1];
-  if (explicitMm && ![6,15,18,25].includes(Number(explicitMm.replace(',', '.')))) {
+  if (explicitMm && ![6,15,18,25,30].includes(Number(explicitMm.replace(',', '.')))) {
     return { matched: false, brand: detectedBrand, line: null, thickness: '15mm', m2Cost: 0, boardPrice: 0 };
   }
 
   const requiresWhiteTx = /branc[oa][\s._-]*(?:\(?tx\)?|texturizad[oa])/i.test(rawText);
 
   // 2. Detecta Espessura (6, 15, 18, 25)
-  let thickness: '6mm' | '15mm' | '18mm' | '25mm' = '15mm';
-  if (
+  let thickness: '6mm' | '15mm' | '18mm' | '25mm' | '30mm' = '15mm';
+  if (/\.30\./.test(code) || /\b30\s*mm\b/i.test(`${code} ${description}`) || description.endsWith(' 30')) {
+    thickness = '30mm';
+  } else if (
     /\.0?6\./.test(code) ||
     /\b6\s*mm\b/i.test(code) ||
     /\b6\s*mm\b/i.test(description) ||
@@ -229,6 +231,7 @@ export function smartMatchPromobChapa(
       if (minD === 6) thickness = '6mm';
       else if (minD === 18) thickness = '18mm';
       else if (minD === 25) thickness = '25mm';
+      else if (minD === 30) thickness = '30mm';
       else if (minD === 15) thickness = '15mm';
     }
   }
@@ -252,6 +255,10 @@ export function smartMatchPromobChapa(
     for (const line of bCat.lines) {
       const normLine = normalizeText(line.name);
       let score = 0;
+      const finishPaths = [line.name, ...(line.aliases || [])].map(value =>
+        normalizeText(value).replace(/[\\>_-]+/g, ' ').replace(/\s+/g, ' ').trim());
+      const searchableText = normText.replace(/[\\>_-]+/g, ' ').replace(/\s+/g, ' ');
+      if (finishPaths.some(value => value.length >= 4 && searchableText.includes(value))) score = 80;
       if (requiresWhiteTx) {
         const exactFinish = [line.name, ...(line.colors || [])].some(value =>
           /branc[oa][\s._-]*(?:\(?tx\)?|texturizad[oa])/i.test(value));
@@ -325,7 +332,7 @@ export function smartMatchPromobChapa(
   // Se não detectou marca explícita OU a marca detectada não encontrou linha com score >= 20:
   // Varre as marcas do catálogo na ordem oficial para encontrar o padrão/cor correspondente (ex: Carmel -> Greenplac)
   const BRAND_SCAN_ORDER = ['Arauco', 'Duratex', 'Guararapes', 'Greenplac', 'Berneck', 'Eucatex', 'Fórmica', 'Sudati'];
-  if (!requiresWhiteTx && (!detectedBrand || bestScore < 20) && catalog) {
+  if (!requiresWhiteTx && !detectedBrand && catalog) {
     const brandsToScan = [
       ...BRAND_SCAN_ORDER.filter(b => catalog[b] && catalog[b]?.type === 'brand'),
       ...Object.keys(catalog).filter(b => !BRAND_SCAN_ORDER.includes(b) && b !== 'Acessórios' && b !== 'Bernek' && catalog[b]?.type === 'brand')
@@ -341,7 +348,7 @@ export function smartMatchPromobChapa(
   }
 
   // Se o item contém "branco" ou "caixa" e não encontrou score alto, busca linha com "branco"
-  if (!requiresWhiteTx && bestScore === 0 && !bestLine && (normText.includes('branco') || normText.includes('branca') || normText.includes('caixa'))) {
+  if (!requiresWhiteTx && bestScore === 0 && !bestLine && !catalog[detectedBrand || '']?.type && (normText.includes('branco') || normText.includes('branca') || normText.includes('caixa'))) {
     const findWhiteInBrand = (bName: string) => {
       const bCat = catalog && catalog[bName];
       if (!bCat || bCat.type !== 'brand' || !Array.isArray(bCat.lines)) return null;
@@ -362,7 +369,9 @@ export function smartMatchPromobChapa(
     }
   }
 
-  if (bestLine && winningBrand) {
+  const strictSource = winningBrand && catalog[winningBrand]?.type === 'brand'
+    ? (catalog[winningBrand] as BrandCatalog).authoritative : false;
+  if (bestLine && winningBrand && (!strictSource || bestScore >= 20)) {
     const boardPrice = (bestLine.prices && typeof bestLine.prices[thickness] === 'number')
       ? bestLine.prices[thickness]
       : 0;
@@ -1042,6 +1051,17 @@ export function resolveItemPrice(
 
   const direct = database.filter(p => normalizeCode(p.code) === normalizeCode(item.code) ||
     p.subcodes?.some(alias => normalizeCode(alias) === normalizeCode(item.code)));
+  if (direct.length === 1 && direct[0].catalog_line_id) {
+    const p = direct[0];
+    const brand = p.catalog_brand ? catalog[p.catalog_brand] : undefined;
+    const line = brand?.type === 'brand' ? brand.lines.find(l => l.id === p.catalog_line_id) : undefined;
+    const boardPrice = p.catalog_thickness ? line?.prices[p.catalog_thickness] : null;
+    if (line && boardPrice && boardPrice > 0) return { matched: true, source: 'catalog_chapa',
+      unit_cost: chapaSalePrice(boardPrice, line.width * line.height), code: p.code,
+      description: item.description, unit: 'M2', matched_name: p.description,
+      brand: p.catalog_brand, line: line.name, thickness: p.catalog_thickness };
+    return { matched: false, source: 'database', unit_cost: 0, code: p.code, description: item.description, unit: item.unit || p.unit };
+  }
   if (direct.length === 1 && !(direct[0].unit_price > 0)) return { matched: false, source: 'database', unit_cost: 0, code: direct[0].code, description: item.description, unit: item.unit || direct[0].unit };
   if (direct.length === 1 && direct[0].unit_price > 0) {
     const p = direct[0];
@@ -1075,6 +1095,10 @@ export function resolveItemPrice(
     }
 
     const finishText = normalizeText(`${item.code} ${item.description}`);
+    const explicitBrand = Object.entries(catalog).find(([brand, data]) =>
+      data.type === 'brand' && data.authoritative && finishText.includes(normalizeText(brand)));
+    if (explicitBrand) return { matched: false, source: 'catalog_chapa', unit_cost: 0,
+      code: item.code, description: item.description, unit: item.unit || 'M2' };
     if (/branc[oa]\s*tx/.test(finishText)) {
       const explicit = finishText.match(/espessura\s+(\d+(?:[.,]\d+)?)\s*mm/)?.[1];
       const thickness = explicit || finishText.match(/(?:\.|\b)(6|15|18|25)(?:\.|\s*mm\b)/)?.[1];

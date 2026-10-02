@@ -143,6 +143,9 @@ export interface ProductItem {
   unit: string;
   unit_cost?: number;
   unit_price: number;
+  catalog_brand?: string;
+  catalog_line_id?: string;
+  catalog_thickness?: '6mm' | '15mm' | '18mm' | '25mm' | '30mm';
   fita_metros?: number;
   category?: 'MDF' | 'FITA' | 'FERRAGEM' | 'OUTROS' | string;
   notes?: string;

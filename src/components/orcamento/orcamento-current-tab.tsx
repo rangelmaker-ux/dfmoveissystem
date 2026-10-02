@@ -144,7 +144,7 @@ export function OrcamentoCurrentTab({
   const [linkingItem, setLinkingItem] = useState<BudgetItem | null>(null);
   const [selectedBrand, setSelectedBrand] = useState('Arauco');
   const [selectedLine, setSelectedLine] = useState('');
-  const [selectedThickness, setSelectedThickness] = useState<'6mm' | '15mm' | '18mm' | '25mm'>('15mm');
+  const [selectedThickness, setSelectedThickness] = useState<'6mm' | '15mm' | '18mm' | '25mm' | '30mm'>('15mm');
   const [selectedAcessorioId, setSelectedAcessorioId] = useState('');
   const [selectedMaoDeObraId, setSelectedMaoDeObraId] = useState('');
 
@@ -2376,7 +2376,7 @@ export function OrcamentoCurrentTab({
                       <Label className="text-xs font-semibold text-stone-700">2. Espessura</Label>
                       <Select
                         value={selectedThickness}
-                        onValueChange={(val: '6mm' | '15mm' | '18mm' | '25mm') => setSelectedThickness(val)}
+                        onValueChange={(val: '6mm' | '15mm' | '18mm' | '25mm' | '30mm') => setSelectedThickness(val)}
                       >
                         <SelectTrigger className="mt-1 text-xs font-bold w-full bg-white border-stone-200 rounded-lg">
                           <SelectValue />
@@ -2386,6 +2386,7 @@ export function OrcamentoCurrentTab({
                           <SelectItem value="15mm">15mm (Padrão)</SelectItem>
                           <SelectItem value="18mm">18mm (Estrutura)</SelectItem>
                           <SelectItem value="25mm">25mm (Engrosso)</SelectItem>
+                          <SelectItem value="30mm">30mm (Engrosso)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

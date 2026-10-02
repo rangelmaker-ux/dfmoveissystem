@@ -5,6 +5,8 @@ export interface ChapaLineItem {
   id: string;
   name: string;
   colors: string[];
+  aliases?: string[];
+  source?: Record<string, unknown>;
   width: number;
   height: number;
   area: number;
@@ -13,6 +15,7 @@ export interface ChapaLineItem {
     '15mm': number | null;
     '18mm': number | null;
     '25mm': number | null;
+    '30mm'?: number | null;
   };
 }
 
@@ -35,6 +38,8 @@ export interface BrandCatalog {
   brandName: string;
   type: 'brand';
   lines: ChapaLineItem[];
+  authoritative?: boolean;
+  price_import?: Record<string, unknown>;
 }
 
 export interface AcessoriosCatalog {
@@ -3150,6 +3155,12 @@ export function sanitizeAndMergeCatalog(savedCat: unknown): CatalogByBrand {
     }
 
     if (initialBrand.type === 'brand') {
+      // An imported company table owns its lines, missing values and provenance.
+      // Restoring seed lines here would reintroduce unrelated prices and colors.
+      if (savedBrand.authoritative === true && Array.isArray(savedBrand.lines)) {
+        result[brand] = JSON.parse(JSON.stringify(savedBrand));
+        continue;
+      }
       const initialLines = initialBrand.lines;
       const savedLines = Array.isArray(savedBrand.lines) ? savedBrand.lines : [];
 
@@ -3171,6 +3182,7 @@ export function sanitizeAndMergeCatalog(savedCat: unknown): CatalogByBrand {
           '25mm': (matchSaved?.prices && (typeof matchSaved.prices['25mm'] === 'number' || matchSaved.prices['25mm'] === null))
             ? matchSaved.prices['25mm']
             : initLine.prices['25mm'],
+          '30mm': typeof matchSaved?.prices?.['30mm'] === 'number' ? matchSaved.prices['30mm'] : null,
         };
 
         const savedColors = Array.isArray(matchSaved?.colors)
@@ -3209,6 +3221,7 @@ export function sanitizeAndMergeCatalog(savedCat: unknown): CatalogByBrand {
               '15mm': sl.prices && typeof sl.prices['15mm'] === 'number' ? sl.prices['15mm'] : null,
               '18mm': sl.prices && typeof sl.prices['18mm'] === 'number' ? sl.prices['18mm'] : null,
               '25mm': sl.prices && typeof sl.prices['25mm'] === 'number' ? sl.prices['25mm'] : null,
+              '30mm': sl.prices && typeof sl.prices['30mm'] === 'number' ? sl.prices['30mm'] : null,
             },
           });
         }

@@ -49,6 +49,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
   const [editPrice15mm, setEditPrice15mm] = useState('');
   const [editPrice18mm, setEditPrice18mm] = useState('');
   const [editPrice25mm, setEditPrice25mm] = useState('');
+  const [editPrice30mm, setEditPrice30mm] = useState('');
 
   // Add line modal
   const [addLineModalOpen, setAddLineModalOpen] = useState(false);
@@ -184,6 +185,9 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
             description: prodDescription.trim(),
             category: prodCategory as any,
             unit: prodUnit.trim().toUpperCase(),
+            catalog_brand: priceNum !== p.unit_price || prodUnit !== p.unit ? undefined : p.catalog_brand,
+            catalog_line_id: priceNum !== p.unit_price || prodUnit !== p.unit ? undefined : p.catalog_line_id,
+            catalog_thickness: priceNum !== p.unit_price || prodUnit !== p.unit ? undefined : p.catalog_thickness,
             unit_price: priceNum,
             fita_metros: prodCategory === 'FITA' ? Number(prodFitaMetros) || 20 : undefined,
           };
@@ -239,6 +243,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
     setEditPrice15mm(line.prices?.['15mm'] ? line.prices['15mm']!.toString() : '');
     setEditPrice18mm(line.prices?.['18mm'] ? line.prices['18mm']!.toString() : '');
     setEditPrice25mm(line.prices?.['25mm'] ? line.prices['25mm']!.toString() : '');
+    setEditPrice30mm(line.prices?.['30mm'] ? line.prices['30mm']!.toString() : '');
     setEditLineModalOpen(true);
   };
 
@@ -251,7 +256,8 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
     const p15 = parsePrice(editPrice15mm);
     const p18 = parsePrice(editPrice18mm);
     const p25 = parsePrice(editPrice25mm);
-    if ([p6, p15, p18, p25].some(price => price !== null && price <= 0)) {
+    const p30 = parsePrice(editPrice30mm);
+    if ([p6, p15, p18, p25, p30].some(price => price !== null && price <= 0)) {
       toast.error('Os preços informados precisam ser maiores que zero.');
       return;
     }
@@ -269,12 +275,13 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
         l.id === editingLine.id
           ? {
               ...l,
-              colors: updatedColors.length > 0 ? updatedColors : l.colors || [],
+              colors: updatedColors,
               prices: {
                 '6mm': p6,
                 '15mm': p15,
                 '18mm': p18,
                 '25mm': p25,
+        '30mm': p30,
               },
             }
           : l
@@ -290,63 +297,26 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
     });
 
     // Also sync into product database for Promob matching
-    syncLineToDatabase(selectedBrand, editingLine.name, { p6, p15, p18, p25 });
+    syncLineToDatabase(selectedBrand, editingLine, { p6, p15, p18, p25, p30 });
 
     setEditLineModalOpen(false);
     toast.success(`Valores da linha "${editingLine.name}" atualizados com sucesso!`);
   };
 
-  // Synchronize board into main product database
+  // Keep linked product views in sync; the catalogue remains the price authority.
   const syncLineToDatabase = (
     brand: string,
-    lineName: string,
-    prices: { p6: number | null; p15: number | null; p18: number | null; p25: number | null }
+    line: ChapaLineItem,
+    prices: { p6: number | null; p15: number | null; p18: number | null; p25: number | null; p30: number | null }
   ) => {
-    setDatabase(prev => {
-      const next = [...prev];
-      const thicknesses = [
-        { th: '15mm', price: prices.p15 },
-        { th: '18mm', price: prices.p18 },
-        { th: '6mm', price: prices.p6 },
-        { th: '25mm', price: prices.p25 },
-      ];
-
-      for (const item of thicknesses) {
-        if (!item.price) continue;
-        const code = `${brand.toUpperCase()}-${lineName.toUpperCase().replace(/\s+/g, '_')}-${item.th.toUpperCase()}`;
-        const m2Price = chapaSalePrice(item.price);
-
-        const existingIdx = next.findIndex(p => p.code === code);
-        const subcodes = [
-          `${brand} ${lineName} ${item.th}`,
-          `${lineName} ${item.th}`,
-          `${brand} ${lineName}`,
-        ];
-
-        if (existingIdx !== -1) {
-          next[existingIdx] = {
-            ...next[existingIdx],
-            unit_price: m2Price,
-            description: `MDF ${brand} ${lineName} ${item.th}`,
-          };
-        } else {
-          next.push({
-            id: `chapa-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-            code,
-            subcodes,
-            description: `MDF ${brand} ${lineName} ${item.th}`,
-            unit: 'M2',
-            unit_price: m2Price,
-            category: 'MDF',
-          });
-        }
-      }
-
-      return next;
-    });
+    const values = { '6mm': prices.p6, '15mm': prices.p15, '18mm': prices.p18, '25mm': prices.p25, '30mm': prices.p30 };
+    setDatabase(prev => prev.map(product => {
+      if (product.catalog_brand !== brand || product.catalog_line_id !== line.id || !product.catalog_thickness) return product;
+      const board = values[product.catalog_thickness];
+      return { ...product, unit_price: board ? chapaSalePrice(board, line.width * line.height) : 0 };
+    }));
   };
 
-  // Add new line to current brand
   const handleAddNewLine = () => {
     if (!newLineName.trim()) {
       toast.error('Informe o nome da linha ou padrão.');
@@ -358,7 +328,8 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
     const p15 = parsePrice(editPrice15mm);
     const p18 = parsePrice(editPrice18mm);
     const p25 = parsePrice(editPrice25mm);
-    if ([p6, p15, p18, p25].some(price => price !== null && price <= 0)) {
+    const p30 = parsePrice(editPrice30mm);
+    if ([p6, p15, p18, p25, p30].some(price => price !== null && price <= 0)) {
       toast.error('Os preços informados precisam ser maiores que zero.');
       return;
     }
@@ -380,6 +351,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
         '15mm': p15,
         '18mm': p18,
         '25mm': p25,
+        '30mm': p30,
       },
     };
 
@@ -395,7 +367,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
       };
     });
 
-    syncLineToDatabase(selectedBrand, newLine.name, { p6, p15, p18, p25 });
+    syncLineToDatabase(selectedBrand, newLine, { p6, p15, p18, p25, p30 });
 
     setAddLineModalOpen(false);
     setNewLineName('');
@@ -404,6 +376,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
     setEditPrice15mm('');
     setEditPrice18mm('');
     setEditPrice25mm('');
+    setEditPrice30mm('');
     toast.success(`Linha "${newLine.name}" cadastrada na marca ${selectedBrand}!`);
   };
 
@@ -631,6 +604,7 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                     setEditPrice15mm('');
                     setEditPrice18mm('');
                     setEditPrice25mm('');
+                    setEditPrice30mm('');
                     setAddLineModalOpen(true);
                   }}
                   className="bg-[#17191d] text-xs text-white hover:bg-stone-800 rounded-lg shadow-2xs h-9 px-3.5 font-medium"
@@ -677,13 +651,14 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                       <th className="px-3 py-3 text-right font-semibold bg-white/5">15mm (Custo / Venda)</th>
                       <th className="px-3 py-3 text-right font-semibold">18mm (Custo / Venda)</th>
                       <th className="px-3 py-3 text-right font-semibold">25mm (Custo)</th>
+                      <th className="px-3 py-3 text-right font-semibold">30mm (Custo)</th>
                       <th className="py-3 pl-2 pr-4 text-center font-semibold">Ação</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredLines.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="py-8 text-center text-slate-400">
+                        <td colSpan={9} className="py-8 text-center text-slate-400">
                           Nenhuma linha encontrada com o termo "{brandSearch}".
                         </td>
                       </tr>
@@ -854,6 +829,14 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                               )}
                             </td>
 
+                            <td className="px-3 py-3 text-right">
+                              {line.prices['30mm'] ? (
+                                <div>
+                                  <span className="font-bold text-slate-900 text-sm">{chapaSalePrice(line.prices['30mm'], width * height).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/m²</span>
+                                  <span className="block text-[10px] text-slate-400 mt-0.5">Chapa: {line.prices['30mm'].toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                                </div>
+                              ) : <span className="text-slate-300">—</span>}
+                            </td>
                             {/* Action */}
                             <td className="py-3 pl-2 pr-4 text-center">
                               <Button
@@ -1253,6 +1236,10 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                   className="mt-1"
                 />
               </div>
+              <div>
+                <Label className="text-xs font-semibold">Chapa 30mm (R$)</Label>
+                <Input placeholder="Ex: 400,00" value={editPrice30mm} onChange={e => setEditPrice30mm(e.target.value)} className="mt-1" />
+              </div>
             </div>
           </div>
           <DialogFooter>
@@ -1333,6 +1320,10 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
                   onChange={e => setEditPrice25mm(e.target.value)}
                   className="mt-1"
                 />
+              </div>
+              <div>
+                <Label className="text-xs">Chapa 30mm (R$)</Label>
+                <Input placeholder="Ex: 400,00" value={editPrice30mm} onChange={e => setEditPrice30mm(e.target.value)} className="mt-1" />
               </div>
             </div>
           </div>

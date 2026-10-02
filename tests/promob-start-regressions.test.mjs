@@ -93,3 +93,33 @@ test('equal color matches with different line prices require an explicit finish'
  const catalogue={Greenplac:{type:'brand',lines:[{name:'Linha A',colors:['Carmel'],prices:{'15mm':300}},{name:'Linha B',colors:['Carmel'],prices:{'15mm':600}}]}};
  assert.equal(m.smartMatchPromobChapa('Greenplac Carmel 15mm','MDF',catalogue).matched,false);
 });
+
+test('authoritative imported catalogue retains missing prices and never restores seed lines',()=>{
+ const saved={Arauco:{type:'brand',brandName:'Arauco',authoritative:true,price_import:{file:'source.xlsx'},lines:[
+  {id:'imported',name:'Linha',colors:['Cor'],width:3.08,height:1.25,area:3.85,prices:{'6mm':null,'15mm':175,'18mm':null,'25mm':null,'30mm':400},source:{row:3}}
+ ]}};
+ const c=m.sanitizeAndMergeCatalog(saved);
+ assert.deepEqual(c.Arauco,saved.Arauco);assert.equal(c.Arauco.lines.length,1);
+ c.Arauco.lines[0].prices['15mm']=200;assert.equal(saved.Arauco.lines[0].prices['15mm'],175);
+});
+test('30mm and per-color prices use actual sheet area and only one loss factor',()=>{
+ const catalogue={Sudati:{type:'brand',authoritative:true,lines:[{name:'Comoditá > Carvalho Novara',colors:['Carvalho Novara'],prices:{'15mm':200,'30mm':400},width:2.75,height:1.85}]},'Fórmica':{type:'brand',lines:[{name:'Alta Decoração > Bronze',colors:['AD 307 - Bronze'],prices:{'15mm':175},width:3.08,height:1.25}]}};
+ const r=m.smartMatchPromobChapa('MDF.COR.30.Sudati','Chapa Sudati Carvalho Novara Espessura 30mm',catalogue);
+ assert.equal(r.thickness,'30mm');assert.equal(r.boardPrice,400);assert.equal(r.m2Cost,102.21);
+ assert.equal(m.smartMatchPromobChapa('MDF','Chapa Fórmica AD 307 - Bronze 15mm',catalogue).m2Cost,59.09);
+ assert.equal(m.smartMatchPromobChapa('MDF','Chapa Sudati Carvalho Castelli 30mm',catalogue).matched,false);
+});
+test('catalogue-linked XML aliases immediately use edited prices and clearing a price blocks fallback',()=>{
+ const catalogue={Arauco:{type:'brand',lines:[{id:'white',name:'Branco TX',colors:['Branco TX'],width:2.75,height:1.85,prices:{'15mm':220}}]}};
+ const db=[{code:'MDF-BRANCO-15',subcodes:['MDF.COR.15.100'],description:'MDF Branco TX 15mm',unit:'M2',unit_price:36.50,catalog_brand:'Arauco',catalog_line_id:'white',catalog_thickness:'15mm'}];
+ const item={code:'MDF.COR.15.100',description:'Chapa Branco TX 15mm',unit:'M2'};
+ assert.equal(m.resolveItemPrice(item,catalogue,db).unit_cost,56.22);
+ catalogue.Arauco.lines[0].prices['15mm']=300;
+ assert.equal(m.resolveItemPrice(item,catalogue,db).unit_cost,76.66);
+ catalogue.Arauco.lines[0].prices['15mm']=null;
+ assert.equal(m.resolveItemPrice(item,catalogue,db).matched,false);
+});
+test('explicit brand with a missing source price cannot inherit another brand white price',()=>{
+ const catalogue={Eucatex:{type:'brand',authoritative:true,lines:[{name:'BP Branco',colors:['Branco'],prices:{'15mm':null}}]}};
+ assert.equal(m.resolveItemPrice({code:'mdf',description:'Chapa Eucatex BP Branco 15mm',unit:'M2'},catalogue,m.DEFAULT_MATERIALS).matched,false);
+});
