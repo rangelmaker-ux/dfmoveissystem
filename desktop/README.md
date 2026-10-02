@@ -8,9 +8,9 @@ Dentro de `desktop`: `npm ci`, `npm test`, `npm run dist:win`. O instalador apar
 
 ## Atualizações
 
-Cada build web gera `desktop-release.json` com o commit publicado. O aplicativo verifica na abertura e a cada cinco minutos; alterações de clientes ou dados no Supabase aparecem pelo fluxo normal do sistema e não exigem instalador. Ao instalar uma atualização web, limpa somente cache e service workers, preserva o login, reinicia e carrega a versão atual da Vercel. Na primeira abertura inicializa a versão, sem aviso falso.
+As atualizações são verificadas somente ao abrir o aplicativo. Havendo uma nova versão, a tela inicial mostra “Atualizando…” e uma barra de progresso. Atualizações do sistema web limpam somente cache e service workers, preservando login e dados locais, antes de abrir a versão atual. Atualizações nativas são baixadas e instaladas silenciosamente, reiniciando o aplicativo automaticamente. Não há avisos, botões ou verificações periódicas durante o trabalho. Se o canal de atualização estiver indisponível, o sistema tenta abrir com a versão instalada e verifica novamente na próxima abertura.
 
-Alterações no próprio aplicativo Windows precisam aumentar `desktop/package.json` (por exemplo, 1.0.0 → 1.0.1) e atualizar o lockfile. O workflow Windows compila o instalador e disponibiliza um artefato temporário de compilação para entrega direta ao proprietário. Não publica instaladores no Git nem em GitHub Releases. O canal de novas versões nativas usa um endpoint genérico `/desktop-native/` no site; ele precisará receber instaladores e latest.yml se o aplicativo Windows em si mudar. As melhorias normais do sistema online já são verificadas automaticamente pelo manifesto da Vercel. Nunca coloque tokens no instalador.
+Alterações no aplicativo Windows aumentam a versão de `desktop/package.json` e do lockfile. O workflow Windows compila, verifica e publica o canal nativo no armazenamento do Supabase, acessível por `/desktop-native/` no site. Nenhum instalador é publicado no Git ou em GitHub Releases. Nunca coloque tokens no instalador.
 
 O binário inicial não possui certificado Authenticode, pois nenhum certificado foi fornecido. O Windows pode pedir confirmação de execução. Assinar a distribuição definitiva com certificado da empresa e validar upgrade em um computador Windows antes da distribuição ampla.
 
@@ -22,4 +22,4 @@ Testes de origem, documentos, comparação e validação de versões; compilaç�
 
 A animação aprovada dura 2 segundos, sem som, e pertence ao sistema web: aparece depois de validar as credenciais e a aprovação do administrador, antes do painel. Não aparece ao abrir o executável nem ao restaurar uma sessão.
 
-O sistema ocupa toda a janela. A faixa superior só aparece quando há uma atualização disponível ou em instalação, com o botão “Instalar atualizações”. Falhas de conexão não criam uma faixa permanente; se a página não carregar, a tela de recuperação oferece tentar novamente.
+O sistema ocupa toda a janela, sem faixa superior. Se a página não carregar, a tela de recuperação oferece tentar novamente.

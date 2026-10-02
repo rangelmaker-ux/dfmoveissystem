@@ -1,4 +1,4 @@
-const { app, BrowserWindow, WebContentsView, Menu, ipcMain, dialog, shell, net } = require('electron');
+const { app, BrowserWindow, WebContentsView, Menu, ipcMain, shell, net } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -7,10 +7,10 @@ const { SITE_ORIGIN, isAppUrl, isDocumentUrl, parseRelease, needsUpdate } = requ
 const SHELL_FILE = path.join(__dirname, 'shell.html');
 const SHELL_URL = pathToFileURL(SHELL_FILE).href;
 const PARTITION = 'persist:df-moveis';
-let win, view, installed, latest, checking = false, interval;
+let win, view, installed, latest, starting = false;
 let layout = () => {};
 let nativeAvailable = false, nativeDownloaded = false;
-const state = { message: 'Conectando à loja…', update: false, busy: false, offline: false, nativeVersion: app.getVersion(), loadFailed: false };
+const state = { message: 'Conectando à loja…', loading: true, progress: null, busy: false, offline: false, nativeVersion: app.getVersion(), loadFailed: false };
 const statePath = () => path.join(app.getPath('userData'), 'system-version.json');
 function emit(patch = {}) {
   Object.assign(state, patch);
@@ -22,21 +22,13 @@ function remember(revision) {
   installed = revision;
 }
 async function checkUpdates() {
-  if (checking) return state;
-  checking = true;
+  latest = null;
   try {
     const response = await net.fetch(`${SITE_ORIGIN}/desktop-release.json?check=${Date.now()}`, {
       headers: { 'Cache-Control': 'no-cache' }, signal: AbortSignal.timeout(15000),
     });
-    if (!response.ok) throw new Error('Não foi possível verificar a versão.');
-    latest = parseRelease(await response.json());
-    if (!installed && view && !view.webContents.isLoadingMainFrame() && isAppUrl(view.webContents.getURL())) remember(latest.revision);
-    const update = nativeAvailable || needsUpdate(installed, latest.revision);
-    emit({ offline: false, update, message: update ? 'Nova atualização disponível' : 'Sistema atualizado' });
-  } catch {
-    emit({ offline: true, message: 'Sem conexão. Verifique a internet e tente novamente.' });
-  } finally { checking = false; }
-  return state;
+    if (response.ok) latest = parseRelease(await response.json());
+  } catch { /* The site may still be reachable when the manifest is unavailable. */ }
 }
 function external(url) {
   try { if (new URL(url).protocol === 'https:') void shell.openExternal(url); } catch { /* Ignore unsupported URLs. */ }
@@ -63,9 +55,9 @@ function restrict(contents, allowDocuments = false) {
   contents.on('did-create-window', child => restrict(child.webContents, true));
 }
 async function loadSite() {
-  emit({ message: 'Conectando à loja…', offline: false, loadFailed: false });
+  emit({ loading: true, message: 'Abrindo o sistema…', progress: 90, offline: false, loadFailed: false });
   try { await view.webContents.loadURL(SITE_ORIGIN); }
-  catch { emit({ offline: true, loadFailed: true, message: 'Não foi possível abrir a loja. Verifique a internet.' }); }
+  catch { emit({ loading: false, busy: false, offline: true, loadFailed: true, message: 'Verifique a internet e tente novamente.' }); }
 }
 function validateSender(event) {
   if (!win || event.sender !== win.webContents || event.senderFrame?.url !== SHELL_URL) throw new Error('Ação não autorizada.');
@@ -76,35 +68,46 @@ function configureNativeUpdates() {
   autoUpdater.allowPrerelease = false;
   autoUpdater.autoRunAppAfterInstall = true;
   autoUpdater.disableDifferentialDownload = true;
-  autoUpdater.on('update-available', info => {
-    nativeAvailable = true;
-    emit({ update: true, message: `Nova versão Windows ${info.version} disponível` });
+  autoUpdater.on('update-available', () => { nativeAvailable = true; });
+  autoUpdater.on('download-progress', info => {
+    if (starting) emit({ message: 'Atualizando…', progress: Math.max(0, Math.min(100, info.percent)) });
   });
-  autoUpdater.on('download-progress', info => emit({ busy: true, message: `Instalando atualização: ${Math.round(info.percent)}%` }));
-  autoUpdater.on('update-downloaded', () => { nativeDownloaded = true; autoUpdater.quitAndInstall(true, true); });
-  autoUpdater.on('error', () => {
-    if (state.busy) emit({ busy: false, message: 'Não foi possível baixar a atualização. Tente novamente.' });
+  autoUpdater.on('update-downloaded', () => {
+    if (!starting) return;
+    nativeDownloaded = true;
+    emit({ message: 'Concluindo atualização…', progress: 100 });
+    autoUpdater.quitAndInstall(true, true);
   });
+  autoUpdater.on('error', () => { /* Startup continues with the installed version if the channel is unavailable. */ });
 }
-async function installUpdate() {
-  if (state.busy || !state.update) return state;
-  const result = await dialog.showMessageBox(win, {
-    type: 'question', title: 'Atualizar DF Móveis', message: 'Instalar atualização e reiniciar?',
-    detail: 'Salve o que estiver editando antes de continuar.', buttons: ['Instalar e reiniciar', 'Agora não'], defaultId: 0, cancelId: 1,
-  });
-  if (result.response !== 0) return state;
-  emit({ busy: true, message: 'Instalando atualização…' });
+async function startSystem() {
+  if (starting) return state;
+  starting = true;
+  nativeAvailable = false;
+  nativeDownloaded = false;
+  emit({ loading: true, busy: true, loadFailed: false, offline: false, progress: null, message: 'Verificando atualizações…' });
   try {
-    if (nativeDownloaded) autoUpdater.quitAndInstall(true, true);
-    else if (nativeAvailable) await autoUpdater.downloadUpdate();
-    else {
-      // Clear cached application files while preserving the user's login and data.
+    await checkUpdates();
+    if (app.isPackaged) {
+      try {
+        await autoUpdater.checkForUpdates();
+        if (nativeAvailable) {
+          emit({ message: 'Atualizando…', progress: 0 });
+          await autoUpdater.downloadUpdate();
+          if (nativeDownloaded) return state;
+        }
+      } catch { /* Preserve access when downloading a native update fails. Retry on the next opening. */ }
+    }
+    if (latest && needsUpdate(installed, latest.revision)) {
+      emit({ message: 'Atualizando…', progress: 50 });
+      // Preserve cookies, local storage, and the user's login.
       await view.webContents.session.clearCache();
       await view.webContents.session.clearStorageData({ origin: SITE_ORIGIN, storages: ['serviceworkers', 'cachestorage'] });
-      if (latest) remember(latest.revision);
-      app.relaunch(); app.exit(0);
     }
-  } catch { emit({ busy: false, message: 'Atualização não concluída. Tente novamente.' }); }
+    await loadSite();
+  } catch {
+    emit({ loading: false, busy: false, loadFailed: true, message: 'Não foi possível abrir o sistema. Tente novamente.' });
+  } finally { starting = false; }
   return state;
 }
 function createWindow() {
@@ -121,30 +124,22 @@ function createWindow() {
   layout = () => {
     if (!win || win.isDestroyed()) return;
     const [width, height] = win.getContentSize();
-    const headerHeight = state.update || state.busy ? 48 : 0;
-    view.setBounds({ x: 0, y: headerHeight, width, height: Math.max(0, height - headerHeight) });
-    view.setVisible(!state.loadFailed);
+    view.setBounds({ x: 0, y: 0, width, height });
+    view.setVisible(!state.loading && !state.busy && !state.loadFailed);
   };
   win.on('resize', layout); layout();
   restrict(view.webContents);
   view.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   view.webContents.on('did-finish-load', () => {
-    if (!installed && latest && isAppUrl(view.webContents.getURL())) remember(latest.revision);
-    emit({ offline: false, loadFailed: false });
-    void checkUpdates();
+    if (latest && isAppUrl(view.webContents.getURL())) remember(latest.revision);
+    emit({ loading: false, busy: false, progress: 100, offline: false, loadFailed: false });
   });
   view.webContents.on('did-fail-load', (_event, code, _description, _url, mainFrame) => {
-    if (mainFrame && code !== -3) emit({ offline: true, loadFailed: true, message: 'Não foi possível abrir a loja. Clique em Tentar novamente.' });
+    if (mainFrame && code !== -3) emit({ loading: false, busy: false, offline: true, loadFailed: true, message: 'Não foi possível abrir a loja. Clique em Tentar novamente.' });
   });
-  win.on('closed', () => { clearInterval(interval); if (!view.webContents.isDestroyed()) view.webContents.close(); win = null; });
+  win.on('closed', () => { if (!view.webContents.isDestroyed()) view.webContents.close(); win = null; });
   void win.loadFile(SHELL_FILE).then(() => emit());
-  void loadSite();
-  void checkUpdates();
-  if (app.isPackaged) void autoUpdater.checkForUpdates().catch(() => {});
-  interval = setInterval(() => {
-    void checkUpdates();
-    if (app.isPackaged && !state.busy) void autoUpdater.checkForUpdates().catch(() => {});
-  }, 300000);
+  void startSystem();
 }
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
@@ -152,7 +147,7 @@ else {
   app.whenReady().then(() => {
     app.setAppUserModelId('br.com.dfmoveis.sistema');
     configureNativeUpdates();
-    for (const [name, action] of Object.entries({ state: () => state, check: checkUpdates, install: installUpdate, retry: async () => { await loadSite(); return checkUpdates(); } })) {
+    for (const [name, action] of Object.entries({ state: () => state, retry: startSystem })) {
       ipcMain.handle(`df:${name}`, (event) => { validateSender(event); return action(); });
     }
     createWindow();
