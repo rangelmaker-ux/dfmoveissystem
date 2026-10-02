@@ -42,7 +42,7 @@ AS $$ SELECT EXISTS(SELECT 1 FROM public.users WHERE auth_user_id = auth.uid() A
 CREATE OR REPLACE FUNCTION public.staff_admin() RETURNS BOOLEAN
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
 AS $$ SELECT EXISTS(SELECT 1 FROM public.users WHERE auth_user_id = auth.uid() AND status = 'ATIVO' AND role = 'ADMIN') $$;
-REVOKE ALL ON FUNCTION public.current_staff_id(), public.staff_active(), public.staff_admin() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.current_staff_id(), public.staff_active(), public.staff_admin() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.current_staff_id(), public.staff_active(), public.staff_admin() TO authenticated;
 
 -- A service-created legacy account preserves its profile ID, ownership and approval state.
@@ -138,7 +138,7 @@ AS $$ BEGIN
   IF NOT FOUND THEN RAISE EXCEPTION 'Projeto não encontrado.'; END IF;
   -- Client ownership is not overwritten: separate environments may have different designers.
 END $$;
-REVOKE ALL ON FUNCTION public.create_client_with_project(JSONB,JSONB),public.assign_project(UUID,UUID,DATE) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.create_client_with_project(JSONB,JSONB),public.assign_project(UUID,UUID,DATE) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.create_client_with_project(JSONB,JSONB),public.assign_project(UUID,UUID,DATE) TO authenticated;
 
 -- Validate official agenda changes (including approvals) under a single transaction lock.
@@ -383,7 +383,7 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.import_client_spreadsheet(JSONB, UUID) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.import_client_spreadsheet(JSONB, UUID) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.import_client_spreadsheet(JSONB, UUID) TO anon, authenticated;
 
 NOTIFY pgrst, 'reload schema';

@@ -84,6 +84,6 @@ AS $$ DECLARE version INTEGER; BEGIN
   END IF;
   RETURN version;
 END $$;
-REVOKE ALL ON FUNCTION public.save_budget_workspace(JSONB,JSONB,TEXT,INTEGER),public.save_company_catalog(JSONB,JSONB,INTEGER),public.save_budget_record(TEXT,JSONB,INTEGER) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.save_budget_workspace(JSONB,JSONB,TEXT,INTEGER),public.save_company_catalog(JSONB,JSONB,INTEGER),public.save_budget_record(TEXT,JSONB,INTEGER) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.save_budget_workspace(JSONB,JSONB,TEXT,INTEGER),public.save_company_catalog(JSONB,JSONB,INTEGER),public.save_budget_record(TEXT,JSONB,INTEGER) TO authenticated;
 NOTIFY pgrst,'reload schema';

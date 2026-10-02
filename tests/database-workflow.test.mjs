@@ -22,6 +22,7 @@ test("migrações, aprovação, orçamento e financeiro no PostgreSQL", async (t
   t.after(() => db.close());
   await db.exec(`
     CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon,authenticated;
     CREATE SCHEMA auth; CREATE SCHEMA storage;
     CREATE TABLE auth.users(id UUID PRIMARY KEY,email TEXT,raw_user_meta_data JSONB DEFAULT '{}',raw_app_meta_data JSONB DEFAULT '{}');
     CREATE FUNCTION auth.uid() RETURNS UUID LANGUAGE SQL STABLE AS $$ SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::UUID $$;
@@ -73,6 +74,14 @@ test("migrações, aprovação, orçamento e financeiro no PostgreSQL", async (t
       );
     },
   );
+  await t.test("grants padrão do Supabase não reabrem funções ao acesso anônimo", async () => {
+    const rows = (
+      await db.query(
+        "SELECT has_function_privilege('anon','public.staff_active()','EXECUTE') AS staff,has_function_privilege('anon','public.save_budget_record(text,jsonb,integer)','EXECUTE') AS budget,has_function_privilege('anon','public.save_commercial_document(uuid,uuid,jsonb,integer)','EXECUTE') AS commercial",
+      )
+    ).rows[0];
+    assert.deepEqual(rows, { staff: false, budget: false, commercial: false });
+  });
   let clientId, projectId;
   await t.test("cadastro pendente não lê dados operacionais nem pode se aprovar", async () => {
     await actor(pendingId);
@@ -299,6 +308,7 @@ test("compatibilidade com o esquema real e preservação de orçamento legado", 
   t.after(() => db.close());
   await db.exec(`
     CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon,authenticated;
     CREATE SCHEMA auth; CREATE SCHEMA storage;
     CREATE TABLE auth.users(id UUID PRIMARY KEY,email TEXT,raw_user_meta_data JSONB DEFAULT '{}',raw_app_meta_data JSONB DEFAULT '{}');
     CREATE FUNCTION auth.uid() RETURNS UUID LANGUAGE SQL STABLE AS $$ SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::UUID $$;

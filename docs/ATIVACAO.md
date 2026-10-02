@@ -21,7 +21,7 @@ Migrations de segurança e migração de credenciais devem ocorrer em manutenç�
 
 - Administrador ativo vinculado ao Auth e com e-mail confirmado: 1. Projetistas, clientes, projetos e orçamentos: 0 após a limpeza autorizada.
 - RPC de orçamento validada em transação com rollback: revisões 1 e 2; gravação com versão desatualizada rejeitada.
-- Acesso anônimo aos perfis/clientes, leitura da coluna password pelo navegador e RPC administrativa legada: revogados.
+- Acesso anônimo aos perfis/clientes, leitura da coluna password pelo navegador e RPC administrativa legada: revogados. A checagem final detectou grants automáticos do Supabase nas novas funções; esses grants também foram revogados explicitamente para anon, mantendo a execução autenticada.
 - A senha do administrador é a da conta Auth existente; não foi redefinida. Login com a credencial real será validado pelo administrador. A recuperação de senha depende do e-mail/SMTP configurado no Supabase.
 
 ## Comportamento da atualização
@@ -38,7 +38,7 @@ Migrations de segurança e migração de credenciais devem ocorrer em manutenç�
 
 ## Verificação
 
-Validação local: 49 testes aprovados; TypeScript sem erros; lint sem erros (6 avisos já existentes em componentes de UI); build de produção concluído.
+Validação local: 50 testes aprovados; TypeScript sem erros; lint sem erros (6 avisos já existentes em componentes de UI); build de produção concluído.
 
 A verificação visual automatizada não foi concluída: o download do Chromium neste ambiente retornou arquivos inválidos. Conferir a interface no navegador em homologação, inclusive em celular, antes de ativar produção.
 

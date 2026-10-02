@@ -31,6 +31,6 @@ AS $$ DECLARE version INTEGER; env JSONB; cost JSONB; subtotal NUMERIC:=0; total
   END IF;
   RETURN version;
 END $$;
-REVOKE ALL ON FUNCTION public.save_commercial_document(UUID,UUID,JSONB,INTEGER) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.save_commercial_document(UUID,UUID,JSONB,INTEGER) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.save_commercial_document(UUID,UUID,JSONB,INTEGER) TO authenticated;
 NOTIFY pgrst,'reload schema';
