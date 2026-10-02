@@ -1,3 +1,4 @@
+import { ProjectFileThumbnail } from "@/components/project-file-thumbnail";
 import { parseMoney } from "@/lib/finance";
 import { DecimalInput } from "@/components/ui/decimal-input";
 import { openProjectFile } from '@/lib/project-files';
@@ -305,7 +306,7 @@ function ClientFilesDialog({
                       className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50/70 p-2.5 hover:bg-white transition-colors"
                     >
                       <div className="flex items-center gap-2.5 min-w-0 pr-2">
-                        <FileText className="h-5 w-5 text-slate-600 shrink-0" />
+                        {projectId && <ProjectFileThumbnail projectId={projectId} name={file.name} />}
                         <div className="min-w-0">
                           <p className="text-xs font-medium text-slate-800 truncate" title={displayName}>
                             {displayName}

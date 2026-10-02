@@ -1,3 +1,4 @@
+import { ProjectFileThumbnail } from "@/components/project-file-thumbnail";
 import { DecimalInput } from "@/components/ui/decimal-input";
 import { openProjectFile } from '@/lib/project-files';
 import { calculateInstallments, parseMoney } from '@/lib/finance';
@@ -588,11 +589,11 @@ function DetalhesProjeto({ projeto, onBack }: { projeto: ProjetoRow, onBack: () 
               <div className="grid gap-3">
                 {arquivos?.map((file) => (
                   <div key={file.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/30 transition-colors">
-                    <div className="flex items-center gap-3 truncate">
-                      <FileText className="h-5 w-5 text-primary shrink-0" />
+                    <div className="flex items-center gap-3 min-w-0">
+                      <ProjectFileThumbnail projectId={projeto.id} name={file.name} />
                       <span className="text-sm truncate">{file.name}</span>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 shrink-0">
                       <Button variant="ghost" size="icon" onClick={() => openProjectFile(projeto.id, file.name)}>
                         <Download className="h-4 w-4" />
                       </Button>
