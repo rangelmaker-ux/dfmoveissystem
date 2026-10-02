@@ -9,14 +9,14 @@ export function useAdminStats() {
       // Fetch projects with client and designer info
       const { data: projetos, error: pError } = await supabase
         .from('projetos')
-        .select('*, cliente:clientes(*), projetista:users(*)');
+        .select('*, cliente:clientes(*), projetista:users(id,nome,email,role,status,avatar_url,created_at)');
 
       if (pError) throw pError;
 
       // Fetch all designers
       const { data: projetistas, error: uError } = await supabase
         .from('users')
-        .select('*')
+        .select('id,nome,email,role,status,avatar_url,created_at')
         .eq('role', 'PROJETISTA');
 
       if (uError) throw uError;
@@ -51,7 +51,7 @@ export function useAdminStats() {
         .reduce((acc, p) => {
           const num = Number(p.numero_parcelas) || 0;
           const valor = Number(p.valor_parcela) || 0;
-          return acc + (num * valor);
+          return acc + (Array.isArray(p.parcelas) && p.parcelas.length ? p.parcelas.reduce((sum: number, amount: unknown) => sum + (Number(amount) || 0), 0) : num * valor);
         }, 0);
 
       const projetosExecucao = (projetos as any[])

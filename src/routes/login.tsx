@@ -1,6 +1,6 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
 import { LoginPage } from './index';
-import { ensureAuthStoreHydrated } from '@/hooks/use-auth';
+import { validateStoredAccess } from '@/hooks/use-auth';
 
 export const Route = createFileRoute('/login')({
   beforeLoad: async () => {
@@ -8,12 +8,11 @@ export const Route = createFileRoute('/login')({
       return;
     }
 
-    const { user, role } = await ensureAuthStoreHydrated();
-    if (user) {
-      throw redirect({
-        to: role === 'ADMIN' ? "/admin/dashboard" : "/projetista/dashboard",
-      });
+    const access = await validateStoredAccess();
+    if (access.authorized && access.account) {
+      throw redirect({ to: access.account.role === 'ADMIN' ? '/admin/dashboard' : '/projetista/dashboard' });
     }
+
   },
   component: LoginPage,
 });

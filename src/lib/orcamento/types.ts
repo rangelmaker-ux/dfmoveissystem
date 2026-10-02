@@ -31,6 +31,7 @@ export interface BudgetItem {
   unit: string;
   unit_cost: number;
   margin: number;
+  margin_override?: boolean;
   unit_price: number;
   total_cost: number;
   total_price: number;
@@ -52,6 +53,8 @@ export interface BudgetItem {
   external_model?: string;
   table_price?: number;
   final_price?: number;
+  price_origin?: 'calculated' | 'imported' | 'manual';
+  environment_id?: string;
   module_name?: string;
   is_module_header?: boolean;
   module_id?: string;
@@ -142,6 +145,8 @@ export interface ProductItem {
 }
 
 export interface SavedBudget {
+  revision?: number;
+  user_id?: string;
   id: string;
   name: string;
   client_name?: string;

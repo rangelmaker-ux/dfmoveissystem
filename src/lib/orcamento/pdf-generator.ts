@@ -60,7 +60,7 @@ export function generateBudgetPdf(opts: GenerateBudgetPdfOptions): void {
   doc.setFontSize(8.5);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(203, 178, 122); // #cbb27a Gold
-  doc.text('PROPOSTA COMERCIAL & ORÇAMENTO EXECUTIVO', textStartX, 20);
+  doc.text('ORÇAMENTO INTERNO — MATERIAIS E CUSTOS', textStartX, 20);
 
   // CNPJ & Contato da Empresa se informados
   const companyDetails = [
@@ -161,7 +161,8 @@ export function generateBudgetPdf(opts: GenerateBudgetPdfOptions): void {
   });
 
   // Summary and Total Block
-  const finalY = (doc as any).lastAutoTable.finalY + 8;
+  let finalY = (doc as any).lastAutoTable.finalY + 8;
+  if (finalY + 45 > 280) { doc.addPage(); finalY = 20; }
 
   // Payment conditions box
   doc.setFillColor(250, 250, 250);
@@ -174,8 +175,8 @@ export function generateBudgetPdf(opts: GenerateBudgetPdfOptions): void {
   doc.setFontSize(7.5);
   doc.setTextColor(80, 80, 80);
   doc.text(
-    opts.paymentConditions ||
-      '• Entrada de 50% no fechamento + saldo na entrega dos móveis.\n• Prazo de fabricação: 25 a 35 dias úteis após medição final.\n• Incluso fabricação, montagem e garantia de 5 anos.',
+    doc.splitTextToSize(opts.paymentConditions ||
+      'Documento interno. Prepare a proposta e as condições comerciais na área do cliente.', pageWidth - 108),
     18,
     finalY + 12
   );

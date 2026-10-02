@@ -14,6 +14,7 @@ import { Route as DashboardRouteImport } from './routes/_dashboard'
 import { Route as AguardandoAprovacaoRouteImport } from './routes/aguardando-aprovacao'
 import { Route as CadastroRouteImport } from './routes/cadastro'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as RedefinirSenhaRouteImport } from './routes/redefinir-senha'
 import { Route as DashboardAgendaRouteImport } from './routes/_dashboard/agenda'
 import { Route as DashboardDemandasRouteImport } from './routes/_dashboard/demandas'
 import { Route as DashboardOrcamentoRouteImport } from './routes/_dashboard/orcamento'
@@ -48,6 +49,11 @@ const CadastroRoute = CadastroRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RedefinirSenhaRoute = RedefinirSenhaRouteImport.update({
+  id: '/redefinir-senha',
+  path: '/redefinir-senha',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DashboardAgendaRoute = DashboardAgendaRouteImport.update({
@@ -115,6 +121,7 @@ export interface FileRoutesByFullPath {
   '/aguardando-aprovacao': typeof AguardandoAprovacaoRoute
   '/cadastro': typeof CadastroRoute
   '/login': typeof LoginRoute
+  '/redefinir-senha': typeof RedefinirSenhaRoute
   '/agenda': typeof DashboardAgendaRoute
   '/demandas': typeof DashboardDemandasRoute
   '/orcamento': typeof DashboardOrcamentoRoute
@@ -132,6 +139,7 @@ export interface FileRoutesByTo {
   '/aguardando-aprovacao': typeof AguardandoAprovacaoRoute
   '/cadastro': typeof CadastroRoute
   '/login': typeof LoginRoute
+  '/redefinir-senha': typeof RedefinirSenhaRoute
   '/agenda': typeof DashboardAgendaRoute
   '/demandas': typeof DashboardDemandasRoute
   '/orcamento': typeof DashboardOrcamentoRoute
@@ -151,6 +159,7 @@ export interface FileRoutesById {
   '/aguardando-aprovacao': typeof AguardandoAprovacaoRoute
   '/cadastro': typeof CadastroRoute
   '/login': typeof LoginRoute
+  '/redefinir-senha': typeof RedefinirSenhaRoute
   '/_dashboard/agenda': typeof DashboardAgendaRoute
   '/_dashboard/demandas': typeof DashboardDemandasRoute
   '/_dashboard/orcamento': typeof DashboardOrcamentoRoute
@@ -170,6 +179,7 @@ export interface FileRouteTypes {
     | '/aguardando-aprovacao'
     | '/cadastro'
     | '/login'
+    | '/redefinir-senha'
     | '/agenda'
     | '/demandas'
     | '/orcamento'
@@ -187,6 +197,7 @@ export interface FileRouteTypes {
     | '/aguardando-aprovacao'
     | '/cadastro'
     | '/login'
+    | '/redefinir-senha'
     | '/agenda'
     | '/demandas'
     | '/orcamento'
@@ -205,6 +216,7 @@ export interface FileRouteTypes {
     | '/aguardando-aprovacao'
     | '/cadastro'
     | '/login'
+    | '/redefinir-senha'
     | '/_dashboard/agenda'
     | '/_dashboard/demandas'
     | '/_dashboard/orcamento'
@@ -224,6 +236,7 @@ export interface RootRouteChildren {
   AguardandoAprovacaoRoute: typeof AguardandoAprovacaoRoute
   CadastroRoute: typeof CadastroRoute
   LoginRoute: typeof LoginRoute
+  RedefinirSenhaRoute: typeof RedefinirSenhaRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -261,6 +274,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/redefinir-senha': {
+      id: '/redefinir-senha'
+      path: '/redefinir-senha'
+      fullPath: '/redefinir-senha'
+      preLoaderRoute: typeof RedefinirSenhaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_dashboard/agenda': {
@@ -381,6 +401,7 @@ const rootRouteChildren: RootRouteChildren = {
   AguardandoAprovacaoRoute: AguardandoAprovacaoRoute,
   CadastroRoute: CadastroRoute,
   LoginRoute: LoginRoute,
+  RedefinirSenhaRoute: RedefinirSenhaRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

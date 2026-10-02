@@ -1,6 +1,7 @@
-import { supabase } from '@/integrations/supabase/client';
-import type { BudgetItem, BudgetSettings, ProductItem, SavedBudget } from './types';
-import type { CatalogByBrand } from './chapas-catalog';
+import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
+import type { BudgetItem, BudgetSettings, ProductItem, SavedBudget } from "./types";
+import type { CatalogByBrand } from "./chapas-catalog";
 
 export interface OrcamentoWorkspaceState {
   currentItems: BudgetItem[];
@@ -9,75 +10,81 @@ export interface OrcamentoWorkspaceState {
   database: ProductItem[];
   catalog: CatalogByBrand;
   currentBudgetId: string | null;
+  revision: number;
+  catalogRevision: number;
 }
+const json = (value: unknown) => value as Json;
 
-export async function loadOrcamentoWorkspace(userId: string): Promise<OrcamentoWorkspaceState | null> {
-  const { data, error } = await (supabase as any)
-    .from('orcamento_workspace')
-    .select('current_items, saved_budgets, settings, materials, catalog, current_budget_id, updated_at')
-    .eq('user_id', userId)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) return null;
-
-  // Busca também se outro projetista atualizou o catálogo de chapas ou materiais mais recentemente
-  let latestMaterials = data.materials || [];
-  let latestCatalog = data.catalog;
-
-  try {
-    const { data: latestCompany } = await (supabase as any)
-      .from('orcamento_workspace')
-      .select('materials, catalog, updated_at')
-      .order('updated_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (latestCompany) {
-      if (Array.isArray(latestCompany.materials) && latestCompany.materials.length > 0) {
-        latestMaterials = latestCompany.materials;
-      }
-      if (latestCompany.catalog && Object.keys(latestCompany.catalog).length > 0) {
-        latestCatalog = latestCompany.catalog;
-      }
-    }
-  } catch (err) {
-    console.warn('Uso de catálogo local por fallback:', err);
-  }
-
+export async function loadOrcamentoWorkspace(userId: string): Promise<OrcamentoWorkspaceState> {
+  const [workspace, catalog, budgets] = await Promise.all([
+    supabase.from("orcamento_workspace").select("*").eq("user_id", userId).maybeSingle(),
+    supabase.from("orcamento_catalog").select("*").eq("id", 1).maybeSingle(),
+    supabase.from("orcamento_budgets").select("*").order("updated_at", { ascending: false }),
+  ]);
+  for (const response of [workspace, catalog, budgets]) if (response.error) throw response.error;
   return {
-    currentItems: data.current_items || [],
-    savedBudgets: data.saved_budgets || [],
-    settings: data.settings,
-    database: latestMaterials,
-    catalog: latestCatalog,
-    currentBudgetId: data.current_budget_id || null,
+    currentItems: (workspace.data?.current_items || []) as unknown as BudgetItem[],
+    savedBudgets: (budgets.data || []).map((row) => ({
+      ...(row.data as unknown as SavedBudget),
+      revision: row.revision,
+      user_id: row.user_id,
+    })),
+    settings: (workspace.data?.settings || {}) as unknown as BudgetSettings,
+    database: (catalog.data?.materials || []) as unknown as ProductItem[],
+    catalog: (catalog.data?.catalog || {}) as unknown as CatalogByBrand,
+    currentBudgetId: workspace.data?.current_budget_id || null,
+    revision: workspace.data?.revision || 0,
+    catalogRevision: catalog.data?.revision || 0,
   };
 }
 
-export async function saveOrcamentoWorkspace(userId: string, state: OrcamentoWorkspaceState): Promise<void> {
-  const now = new Date().toISOString();
-
-  // 1. Salva o workspace particular do usuário (itens do rascunho, orçamentos salvos)
-  const { error } = await (supabase as any).from('orcamento_workspace').upsert({
-    user_id: userId,
-    current_items: state.currentItems,
-    saved_budgets: state.savedBudgets,
-    settings: state.settings,
-    materials: state.database,
-    catalog: state.catalog,
-    current_budget_id: state.currentBudgetId,
-    updated_at: now,
-  }, { onConflict: 'user_id' });
+export async function saveOrcamentoWorkspace(
+  state: Pick<OrcamentoWorkspaceState, "currentItems" | "settings" | "currentBudgetId">,
+  revision: number,
+): Promise<number> {
+  const { data, error } = await supabase.rpc("save_budget_workspace", {
+    p_items: json(state.currentItems),
+    p_settings: json(state.settings),
+    p_budget_id: state.currentBudgetId,
+    p_revision: revision,
+  });
   if (error) throw error;
+  return data;
+}
 
-  // 2. Propaga imediatamente as alterações de catálogo de chapas e acessórios para todos os projetistas
-  try {
-    await (supabase as any).from('orcamento_workspace').update({
-      materials: state.database,
-      catalog: state.catalog,
-      updated_at: now,
-    }).neq('user_id', '00000000-0000-0000-0000-000000000000');
-  } catch (syncErr) {
-    console.warn('Aviso ao sincronizar catálogo compartilhado da empresa:', syncErr);
-  }
+export async function saveCompanyCatalog(
+  database: ProductItem[],
+  catalog: CatalogByBrand,
+  revision: number,
+): Promise<number> {
+  const { data, error } = await supabase.rpc("save_company_catalog", {
+    p_materials: json(database),
+    p_catalog: json(catalog),
+    p_revision: revision,
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function saveBudgetRecord(budget: SavedBudget): Promise<SavedBudget> {
+  const { revision, user_id, ...record } = budget;
+  const { data, error } = await supabase.rpc("save_budget_record", {
+    p_id: budget.id,
+    p_data: json(record),
+    p_revision: revision ?? null,
+  });
+  if (error) throw error;
+  return { ...record, revision: data, user_id };
+}
+
+export async function deleteBudgetRecord(id: string, revision: number): Promise<void> {
+  const { data, error } = await supabase
+    .from("orcamento_budgets")
+    .delete()
+    .eq("id", id)
+    .eq("revision", revision)
+    .select("id");
+  if (error) throw error;
+  if (!data?.length)
+    throw new Error("O orçamento mudou em outra sessão. Recarregue antes de excluir.");
 }

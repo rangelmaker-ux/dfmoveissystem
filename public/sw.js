@@ -1,4 +1,4 @@
-const CACHE_NAME = 'df-moveis-v2';
+const CACHE_NAME = 'df-moveis-v3';
 const ASSETS_TO_CACHE = [
   '/',
   '/manifest.json',
@@ -27,7 +27,7 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
+  if (event.request.method !== 'GET' || new URL(event.request.url).origin !== self.location.origin) return;
 
   if (event.request.mode === 'navigate') {
     event.respondWith(

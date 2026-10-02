@@ -51,11 +51,12 @@ import {
   PROJECT_STATUS_STYLES,
 } from "@/lib/project-utils";
 import type { ProjectStatus } from "@/types/database";
-import { ensureAuthStoreHydrated } from "@/hooks/use-auth";
+import { validateStoredAccess } from "@/hooks/use-auth";
 
 export const Route = createFileRoute("/_dashboard/admin/dashboard")({
   beforeLoad: async () => {
-    const { role } = await ensureAuthStoreHydrated();
+    const access = await validateStoredAccess();
+    const role = access.authorized ? access.account?.role : undefined;
     if (role !== "ADMIN") throw redirect({ to: "/projetista/dashboard" });
   },
   component: AdminDashboard,
@@ -130,7 +131,7 @@ function AdminDashboard() {
           .order("created_at", { ascending: false }),
         supabase
           .from("users")
-          .select("id, nome, avatar_url, telefone, email")
+          .select("id, nome, avatar_url, email")
           .eq("role", "PROJETISTA")
           .eq("status", "ATIVO")
           .order("nome"),

@@ -1,3 +1,5 @@
+import { openProjectFile } from '@/lib/project-files';
+import { ClientCommercialDialog } from '@/components/orcamento/client-commercial-dialog';
 import { createFileRoute } from "@tanstack/react-router";
 import { useAuthStore } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -133,7 +135,7 @@ function ClientFilesDialog({
   // Privacidade: apenas o responsável, sem projetista (aberto) ou administrador acessam
   const isMine = Boolean(client?.projetista_id && client.projetista_id === currentUserId);
   const isUnassigned = !client?.projetista_id;
-  const canAccessFiles = isAdmin || isMine || isUnassigned;
+  const canAccessFiles = isAdmin || isMine || Boolean(client?.projetos?.some(p => p.projetista_id === currentUserId));
 
   const { data: files = [], isLoading, refetch } = useQuery({
     queryKey: ["client-files", projectId],
@@ -144,7 +146,7 @@ function ClientFilesDialog({
         .list(projectId, { sortBy: { column: "created_at", order: "desc" } });
       if (error) {
         console.warn("[client-files] list error", error);
-        return [];
+        throw error;
       }
       return (data ?? []) as ClientFileItem[];
     },
@@ -226,11 +228,7 @@ function ClientFilesDialog({
     }
   };
 
-  const getFileUrl = (fileName: string) => {
-    if (!projectId) return "#";
-    return supabase.storage.from("projetos_arquivos").getPublicUrl(`${projectId}/${fileName}`)
-      .data.publicUrl;
-  };
+
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -299,7 +297,6 @@ function ClientFilesDialog({
               ) : (
                 files.map((file) => {
                   const displayName = file.name.replace(/^\d+_/, "");
-                  const fileUrl = getFileUrl(file.name);
                   return (
                     <div
                       key={file.id || file.name}
@@ -319,10 +316,8 @@ function ClientFilesDialog({
                         </div>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
-                        <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-600" asChild>
-                          <a href={fileUrl} target="_blank" rel="noopener noreferrer" download>
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-600" onClick={() => projectId && openProjectFile(projectId, file.name)}>
                             <Download className="h-3.5 w-3.5" />
-                          </a>
                         </Button>
                         <Button
                           size="icon"
@@ -347,6 +342,7 @@ function ClientFilesDialog({
 }
 
 function ProjetistaClientesPage() {
+  const [commercialClient, setCommercialClient] = useState<{ id: string; nome: string } | null>(null);
   const { user, role } = useAuthStore();
   const isAdmin = role === "ADMIN";
   const queryClient = useQueryClient();
@@ -422,24 +418,7 @@ function ProjetistaClientesPage() {
 
   const createClient = useMutation({
     mutationFn: async (data: typeof clientForm) => {
-      console.log("[clientes] inserting client", data);
       if (!user?.id) throw new Error("Usuário não autenticado.");
-      const { data: inserted, error } = await supabase
-        .from("clientes")
-        .insert([
-          {
-            nome: data.nome.trim(),
-            telefone: data.telefone.trim(),
-            email: null,
-            endereco: null,
-            projetista_id: isAdmin ? null : user.id,
-          },
-        ])
-        .select("id, nome")
-        .single();
-      console.log("[clientes] insert result", { inserted, error });
-      if (error) throw error;
-
       const today = new Date().toISOString().slice(0, 10);
       const calculatedDeadline =
         data.prazo_tipo === "INDETERMINADO"
@@ -447,7 +426,7 @@ function ProjetistaClientesPage() {
           : calculateThirtyDaysDeadline();
 
       const initialProject: TablesInsert<"projetos"> = {
-        cliente_id: inserted.id,
+        cliente_id: '',
         projetista_id: null,
         status: "PRONTO" as const,
         status_venda: "EM_NEGOCIACAO" as const,
@@ -461,8 +440,11 @@ function ProjetistaClientesPage() {
             ? parseFloat(data.rt_arquiteto)
             : null,
       };
-      const { error: projectError } = await supabase.from("projetos").insert([initialProject]);
-      if (projectError) throw projectError;
+      const { data: inserted, error } = await supabase.rpc('create_client_with_project', {
+        p_client: { nome: data.nome.trim(), telefone: data.telefone.trim(), projetista_id: isAdmin ? null : user.id },
+        p_project: initialProject,
+      });
+      if (error) throw error;
       return inserted as { id: string; nome: string };
     },
     onSuccess: async () => {
@@ -585,7 +567,6 @@ function ProjetistaClientesPage() {
   });
 
   const handleSaveClient = () => {
-    console.log("[clientes] handleSaveClient clicked", { clientForm, user });
     if (!clientForm.nome.trim()) {
       toast.error("Informe o nome do cliente.");
       return;
@@ -1124,6 +1105,7 @@ function ProjetistaClientesPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setCommercialClient({ id: c.id, nome: c.nome })}>Orçamentos / Contratos</Button>
                           <Button
                             size="sm"
                             variant="outline"
@@ -1163,6 +1145,7 @@ function ProjetistaClientesPage() {
         </CardContent>
       </Card>
 
+      <ClientCommercialDialog key={commercialClient?.id || "closed"} client={commercialClient} onClose={() => setCommercialClient(null)} />
       <ClientFilesDialog
         client={filesClient}
         open={Boolean(filesClient)}

@@ -1,5 +1,5 @@
 import { BudgetItem, BudgetSettings, ProductItem, ModuleGroup, ItemCategory, PricingAudit } from './types';
-import { INITIAL_CHAPAS_CATALOG, CatalogByBrand, BrandCatalog } from './chapas-catalog';
+import { INITIAL_CHAPAS_CATALOG, CatalogByBrand, BrandCatalog, ChapaLineItem } from './chapas-catalog';
 import { DEFAULT_MATERIALS } from './default-materials';
 
 // Constante padrão de Marcenaria no Brasil: Chapa MDF (2,75m x 1,85m = 5,0875 m² ≈ 5,09 m²)
@@ -336,7 +336,7 @@ export function smartMatchPromobChapa(
     };
 
     const targetB = winningBrand || detectedBrand || 'Arauco';
-    bestLine = findWhiteInBrand(targetB) || findWhiteInBrand('Arauco') || findWhiteInBrand('Duratex');
+    bestLine = findWhiteInBrand(targetB) || findWhiteInBrand('Arauco') || findWhiteInBrand('Duratex') || null;
     if (bestLine) {
       winningBrand = targetB;
     }
@@ -418,7 +418,7 @@ export function smartMatchAccessory(
     }
 
     // 2. Fallback caso ainda exista no catálogo legado
-    return acessoriosList.find(a => predicate(normalizeText(a.name)));
+    return acessoriosList.find((a: { name: string }) => predicate(normalizeText(a.name)));
   };
 
   const findDbProduct = (predicate: (p: ProductItem) => boolean) => {
@@ -936,7 +936,7 @@ export function isSimilarPromobItem(
 
 export interface PriceMatchResult {
   matched: boolean;
-  source: 'database' | 'catalog_chapa' | 'catalog_acessorio' | 'mdf_padrao' | 'catalog_maodeobra';
+  source: 'database' | 'catalog_chapa' | 'catalog_acessorio' | 'mdf_padrao' | 'catalog_maodeobra' | 'promob_table';
   unit_cost: number;
   code: string;
   description: string;
@@ -1128,6 +1128,7 @@ export function calculateItemPrice(
     unit?: string;
     unit_cost?: number;
     margin?: number;
+    margin_override?: boolean;
     price_unlinked?: boolean;
     rep?: number;
     unit_quantity?: number;
@@ -1136,6 +1137,9 @@ export function calculateItemPrice(
     external_model?: string;
     table_price?: number;
     final_price?: number;
+    price_origin?: 'calculated' | 'imported' | 'manual';
+    is_processo?: boolean;
+    is_mao_de_obra?: boolean;
     is_parent_module?: boolean;
     is_chapa?: boolean;
     is_fita?: boolean;
@@ -1240,7 +1244,7 @@ export function calculateItemPrice(
     total_cost = 0;
     total_price = 0;
     marginPercent = 0;
-  } else if (item.final_price !== undefined && item.final_price > 0 && effectiveQuantity > 0) {
+  } else if (item.price_origin !== 'calculated' && item.final_price !== undefined && item.final_price > 0 && effectiveQuantity > 0) {
     total_cost = round2(unit_cost * effectiveQuantity);
     total_price = round2(item.final_price);
     unit_price = round2(total_price / effectiveQuantity);
@@ -1278,6 +1282,7 @@ export function calculateItemPrice(
     unit: displayUnit,
     unit_cost,
     margin: marginPercent,
+    margin_override: item.margin_override,
     unit_price,
     total_cost,
     total_price,
@@ -1296,7 +1301,8 @@ export function calculateItemPrice(
     category: isAppliance ? 'Eletrodomésticos' : item.category,
     external_model: item.external_model,
     table_price: isAppliance ? 0 : (item.table_price !== undefined ? item.table_price : unit_cost),
-    final_price: isAppliance ? 0 : (item.final_price !== undefined ? item.final_price : total_price),
+    final_price: isAppliance ? 0 : (item.price_origin !== 'calculated' ? item.final_price : undefined),
+    price_origin: item.price_origin || (item.final_price !== undefined ? 'imported' : 'calculated'),
     is_parent_module: item.is_parent_module,
   };
 }
@@ -1415,8 +1421,9 @@ export function calculatePricingTree(
 
   // 1. Identifica hierarquia pai-filho e categorias estruturais
   let currentParentModule: BudgetItem | null = null;
-  const categorized = items.map((it, idx) => {
-    let category: ItemCategory = it.itemCategory || classifyPromobItem(it, currentParentModule);
+  const categorized = items.map((original, idx) => {
+    const it = { ...original, margin: original.margin_override ? original.margin : settings.margin, ...(original.price_origin === 'calculated' ? { final_price: undefined } : {}) };
+    const category: ItemCategory = it.itemCategory || classifyPromobItem(it, currentParentModule);
 
     if (category === 'MODULE') {
       currentParentModule = it;
@@ -1429,9 +1436,9 @@ export function calculatePricingTree(
     }
 
     const isChildComponent = category === 'CUT_PART' || category === 'SUBMODULE';
-    const parentId = (currentParentModule && isChildComponent)
+    const parentId = it.parentId || ((currentParentModule && isChildComponent)
       ? (currentParentModule.id || String(currentParentModule.item_number || idx))
-      : (isChildComponent ? it.parentId : undefined);
+      : (isChildComponent ? it.parentId : undefined));
 
     return {
       ...it,
@@ -1454,6 +1461,7 @@ export function calculatePricingTree(
         unit: it.original_unit || it.unit,
         unit_cost: isAppliance ? 0 : it.unit_cost,
         margin: isAppliance ? 0 : it.margin,
+        margin_override: it.margin_override,
         price_unlinked: it.price_unlinked,
         rep: it.rep,
         unit_quantity: it.unit_quantity,
@@ -1462,6 +1470,7 @@ export function calculatePricingTree(
         external_model: it.external_model,
         table_price: isAppliance ? 0 : (it.price_unlinked ? 0 : it.table_price),
         final_price: isAppliance ? 0 : (it.price_unlinked ? undefined : it.final_price),
+        price_origin: it.price_origin,
         is_parent_module: it.is_parent_module,
         is_chapa: it.is_chapa,
         is_fita: it.is_fita,
@@ -1486,7 +1495,7 @@ export function calculatePricingTree(
     } else if (it.price_unlinked) {
       productionCost = round2((it.unit_cost !== undefined ? it.unit_cost : updated.unit_cost) * effectiveQuantity);
       salePrice = round2((it.unit_price !== undefined ? it.unit_price : updated.unit_price) * effectiveQuantity);
-      saleIncluded = it.itemCategory !== 'CUT_PART' && it.itemCategory !== 'SUBMODULE';
+      saleIncluded = !it.parentId || (it.itemCategory !== 'CUT_PART' && it.itemCategory !== 'SUBMODULE');
       pricingRule = 'MANUALLY_OVERRIDDEN';
     } else {
       switch (it.itemCategory) {
@@ -1495,13 +1504,13 @@ export function calculatePricingTree(
           if (it.final_price !== undefined && it.final_price > 0) {
             salePrice = round2(it.final_price);
           } else if (it.table_price !== undefined && it.table_price > 0) {
-            salePrice = round2(it.table_price * (1 + marginPercent / 100) * additionsFactor);
+            salePrice = round2(it.table_price * effectiveQuantity * (1 + marginPercent / 100) * additionsFactor);
           } else {
             salePrice = updated.total_price;
           }
           // Custo industrial de produção
           productionCost = round2((it.table_price !== undefined && it.table_price > 0)
-            ? it.table_price * (it.rep || 1)
+            ? it.table_price * effectiveQuantity
             : updated.total_cost);
           saleIncluded = true;
           pricingRule = 'PROMOB_MODULE_PRICE';
@@ -1511,7 +1520,7 @@ export function calculatePricingTree(
         case 'SUBMODULE': {
           // Submódulo dentro do móvel pai: não entra na proposta comercial novamente
           productionCost = round2((it.table_price !== undefined && it.table_price > 0)
-            ? it.table_price * (it.rep || 1)
+            ? it.table_price * effectiveQuantity
             : updated.total_cost);
           salePrice = 0;
           saleIncluded = false;
@@ -1524,7 +1533,7 @@ export function calculatePricingTree(
           productionCost = round2((it.table_price !== undefined && it.table_price > 0)
             ? it.table_price * effectiveQuantity
             : (it.total_cost !== undefined && it.total_cost > 0)
-              ? it.total_cost
+              ? (it.price_origin === 'calculated' ? updated.total_cost : it.total_cost)
               : updated.total_cost);
 
           if (it.parentId) {
@@ -1553,15 +1562,15 @@ export function calculatePricingTree(
               ? it.unit_cost
               : (updated.unit_cost || 0);
 
-          productionCost = round2((it.total_cost !== undefined && it.total_cost > 0 && it.total_cost !== it.total_price)
+          productionCost = round2((it.price_origin !== 'calculated' && it.total_cost !== undefined && it.total_cost > 0 && it.total_cost !== it.total_price)
             ? it.total_cost
             : unitBase * effectiveQuantity);
 
           if (it.final_price !== undefined && it.final_price > 0) {
             salePrice = round2(it.final_price);
-          } else if (it.total_price !== undefined && it.total_price > 0 && it.total_price !== it.total_cost) {
+          } else if (it.price_origin !== 'calculated' && it.total_price !== undefined && it.total_price > 0 && it.total_price !== it.total_cost) {
             salePrice = round2(it.total_price);
-          } else if (it.unit_price !== undefined && it.unit_price > 0) {
+          } else if (it.price_origin !== 'calculated' && it.unit_price !== undefined && it.unit_price > 0) {
             salePrice = round2(it.unit_price * effectiveQuantity);
           } else {
             salePrice = productionCost;
@@ -1575,15 +1584,15 @@ export function calculatePricingTree(
           // Serviços de fabricação adicionais (Porta Reta, Frente Cava, Porta Cava)
           if (it.final_price !== undefined && it.final_price > 0) {
             salePrice = round2(it.final_price);
-          } else if (it.total_price !== undefined && it.total_price > 0) {
+          } else if (it.price_origin !== 'calculated' && it.total_price !== undefined && it.total_price > 0) {
             salePrice = round2(it.total_price);
           } else {
             const unitServ = it.table_price || updated.unit_cost || 70;
             salePrice = round2(unitServ * effectiveQuantity * 3);
           }
           productionCost = round2((it.table_price !== undefined && it.table_price > 0)
-            ? it.table_price * (it.rep || 1)
-            : (it.total_cost !== undefined && it.total_cost > 0)
+            ? it.table_price * effectiveQuantity
+            : (it.price_origin !== 'calculated' && it.total_cost !== undefined && it.total_cost > 0)
               ? it.total_cost
               : round2(salePrice / 3));
           saleIncluded = true;
@@ -1600,12 +1609,12 @@ export function calculatePricingTree(
               : (it.total_cost !== undefined && it.total_cost > 0)
                 ? it.total_cost
                 : salePrice / 3);
-          } else if (it.total_price !== undefined && it.total_price > 0 && it.total_price !== it.total_cost) {
+          } else if (it.price_origin !== 'calculated' && it.total_price !== undefined && it.total_price > 0 && it.total_price !== it.total_cost) {
             salePrice = round2(it.total_price);
             productionCost = round2(it.total_cost || (salePrice / 3));
           } else {
             const uCost = it.table_price || updated.unit_cost || 0;
-            productionCost = round2((it.total_cost !== undefined && it.total_cost > 0) ? it.total_cost : uCost * effectiveQuantity);
+            productionCost = round2((it.price_origin !== 'calculated' && it.total_cost !== undefined && it.total_cost > 0) ? it.total_cost : uCost * effectiveQuantity);
             salePrice = round2(productionCost * (1 + marginPercent / 100) * additionsFactor);
           }
           saleIncluded = true;
@@ -1633,6 +1642,7 @@ export function calculatePricingTree(
       code: it.code,
       itemCategory: it.itemCategory,
       parentId: it.parentId,
+      environment_id: it.environment_id,
       productionCost,
       salePrice,
       saleIncluded,
@@ -1642,7 +1652,8 @@ export function calculatePricingTree(
       unit_cost: effectiveQuantity > 0 ? round2(productionCost / effectiveQuantity) : 0,
       unit_price: (saleIncluded && effectiveQuantity > 0) ? round2(salePrice / effectiveQuantity) : 0,
       table_price: isAppliance ? 0 : (it.table_price !== undefined ? it.table_price : updated.unit_cost),
-      final_price: isAppliance ? 0 : (it.final_price !== undefined ? it.final_price : salePrice),
+      final_price: isAppliance ? 0 : it.final_price,
+      price_origin: it.price_origin || (it.final_price !== undefined ? 'imported' : 'calculated'),
     };
   });
 
@@ -1659,15 +1670,15 @@ export function calculatePricingTree(
         it.total_cost = childrenCost;
         it.unit_cost = childrenCost;
       }
-      if (it.salePrice === 0 && it.productionCost > 0) {
+      if (it.salePrice === 0 && (it.productionCost || 0) > 0) {
         const childrenSale = round2(children.reduce((acc, c) => acc + (c.salePrice || 0), 0));
-        it.salePrice = childrenSale > 0 ? childrenSale : round2(it.productionCost * (1 + marginPercent / 100) * additionsFactor);
+        it.salePrice = childrenSale > 0 ? childrenSale : round2((it.productionCost || 0) * (1 + marginPercent / 100) * additionsFactor);
         it.total_price = it.salePrice;
         it.unit_price = it.salePrice;
       }
       if (it.pricingAudit) {
-        it.pricingAudit.productionCost = it.productionCost;
-        it.pricingAudit.salePrice = it.salePrice;
+        it.pricingAudit.productionCost = it.productionCost || 0;
+        it.pricingAudit.salePrice = it.salePrice || 0;
       }
     }
   }
@@ -1710,8 +1721,8 @@ export function calculatePricingTree(
     );
     gross_profit = round2(total_price - total_cost);
   } else {
-    gross_profit = round2(total_cost * (marginPercent / 100));
-    total_price = round2((total_cost + gross_profit) * additionsFactor);
+    total_price = round2(recalculatedItems.filter(it => it.saleIncluded).reduce((acc, it) => acc + (it.salePrice || 0), 0));
+    gross_profit = round2(total_price - total_cost);
   }
 
   const profit_margin_percent = total_cost > 0 ? round2((gross_profit / total_cost) * 100) : 0;

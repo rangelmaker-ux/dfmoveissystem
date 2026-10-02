@@ -17,7 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue 
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { BudgetItem, BudgetSettings, ProductItem, ModuleGroup } from '@/lib/orcamento/types';
+import { BudgetItem, SavedBudget, BudgetSettings, ProductItem, ModuleGroup } from '@/lib/orcamento/types';
 import { parsePromobXML, parseTXT, parseCSV, parseJSON, parsePromobPDF, parsePromobTextTable, formatDimensionsCm } from '@/lib/orcamento/parsers';
 import { 
   calculateItemPrice, recalculateBudget, CHAPA_AREA_M2, round2, isChapa,
@@ -79,8 +79,9 @@ interface CurrentTabProps {
     clientName: string,
     projectName: string,
     extra?: { clientId?: string; clientPhone?: string; projetoId?: string }
-  ) => void;
+  ) => void | Promise<void>;
   onStartNewBudget: () => void;
+  loadedBudget?: SavedBudget;
 }
 
 export function OrcamentoCurrentTab({
@@ -94,6 +95,7 @@ export function OrcamentoCurrentTab({
   clientsList = [],
   onSaveBudget,
   onStartNewBudget,
+  loadedBudget,
 }: CurrentTabProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -107,6 +109,18 @@ export function OrcamentoCurrentTab({
   const [clientPhone, setClientPhone] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState<string>('custom');
   const [projectName, setProjectName] = useState('Ambiente Planejado');
+
+  const lastLoadedBudgetId = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!loadedBudget) { lastLoadedBudgetId.current = undefined; return; }
+    if (lastLoadedBudgetId.current === loadedBudget.id) return;
+    lastLoadedBudgetId.current = loadedBudget.id;
+    setSelectedClientId(loadedBudget.client_id || 'custom');
+    setSelectedProjectId(loadedBudget.projeto_id || 'custom');
+    setClientName(loadedBudget.client_name || 'Cliente DF Móveis');
+    setClientPhone(loadedBudget.client_phone || '');
+    setProjectName(loadedBudget.project_environment || loadedBudget.name);
+  }, [loadedBudget]);
 
   // Filter / Search inside current table
   const [filterSearch, setFilterSearch] = useState('');
@@ -158,7 +172,7 @@ export function OrcamentoCurrentTab({
   }, [database, catalog]);
 
   const selectedAcessorio = useMemo(() => {
-    return acessoriosList.find(a => a.id === selectedAcessorioId) || acessoriosList[0];
+    return acessoriosList.find((a: { id: string }) => a.id === selectedAcessorioId) || acessoriosList[0];
   }, [acessoriosList, selectedAcessorioId]);
 
   // Mão de Obra Fixa list from catalog
@@ -389,7 +403,7 @@ export function OrcamentoCurrentTab({
   };
 
   // Direct Save Budget without blocking modal
-  const handleDirectSave = () => {
+  const handleDirectSave = async () => {
     if (items.length === 0) {
       toast.warning('Adicione ou importe itens antes de salvar o orçamento.');
       return;
@@ -399,7 +413,7 @@ export function OrcamentoCurrentTab({
     setSaveSuccess(false);
 
     try {
-      onSaveBudget(
+      await onSaveBudget(
         clientName.trim() || 'Cliente DF Móveis',
         projectName.trim() || 'Orçamento',
         {
@@ -420,7 +434,7 @@ export function OrcamentoCurrentTab({
     } catch (e: any) {
       setIsSaving(false);
       console.error('Erro ao salvar orçamento:', e);
-      toast.error('Erro ao salvar orçamento localmente.');
+      toast.error('Não foi possível salvar no servidor. Seu rascunho foi mantido.');
     }
   };
 
@@ -436,17 +450,26 @@ export function OrcamentoCurrentTab({
             quantity: it.original_quantity !== undefined ? it.original_quantity : it.quantity,
             unit: it.original_unit || it.unit,
             unit_cost: safeCost,
+            table_price: safeCost,
+            rep: it.rep,
+            unit_quantity: it.unit_quantity,
+            dimensions: it.dimensions,
+            category: it.category,
+            is_parent_module: it.is_parent_module,
             margin: it.margin,
+            margin_override: it.margin_override,
+            price_origin: it.price_origin,
             price_unlinked: it.price_unlinked,
           },
           database,
-          settings
+          settings,
+          catalog
         ), id: it.id, price_unlinked: it.price_unlinked };
       }
       return it;
     });
 
-    const res = recalculateBudget(updated, database, settings);
+    const res = recalculateBudget(updated, database, settings, catalog);
     setItems(res.items);
   };
 
@@ -463,16 +486,23 @@ export function OrcamentoCurrentTab({
             unit: it.original_unit || it.unit,
             unit_cost: it.unit_cost,
             margin: safeMargin,
+            rep: it.rep,
+            unit_quantity: it.unit_quantity,
+            dimensions: it.dimensions,
+            category: it.category,
+            is_parent_module: it.is_parent_module,
+            margin_override: true,
             price_unlinked: it.price_unlinked,
           },
           database,
-          settings
+          settings,
+          catalog
         ), id: it.id, price_unlinked: it.price_unlinked };
       }
       return it;
     });
 
-    const res = recalculateBudget(updated, database, settings);
+    const res = recalculateBudget(updated, database, settings, catalog);
     setItems(res.items);
   };
 
@@ -491,6 +521,8 @@ export function OrcamentoCurrentTab({
             unit: it.original_unit || it.unit,
             unit_cost: it.unit_cost,
             margin: it.margin,
+            margin_override: it.margin_override,
+            price_origin: it.price_origin,
             price_unlinked: it.price_unlinked,
             rep: safeRep,
             unit_quantity: unitQty,
@@ -509,6 +541,7 @@ export function OrcamentoCurrentTab({
           catalog
         );
         return {
+          ...it,
           ...calculated,
           id: it.id,
           rep: safeRep,
@@ -538,6 +571,8 @@ export function OrcamentoCurrentTab({
             unit: it.original_unit || it.unit,
             unit_cost: it.unit_cost,
             margin: it.margin,
+            margin_override: it.margin_override,
+            price_origin: it.price_origin,
             price_unlinked: it.price_unlinked,
             rep,
             unit_quantity: safeUnitQty,
@@ -556,6 +591,7 @@ export function OrcamentoCurrentTab({
           catalog
         );
         return {
+          ...it,
           ...calculated,
           id: it.id,
           rep,
@@ -585,6 +621,8 @@ export function OrcamentoCurrentTab({
             unit: it.original_unit || it.unit,
             unit_cost: it.unit_cost,
             margin: it.margin,
+            margin_override: it.margin_override,
+            price_origin: it.price_origin,
             price_unlinked: it.price_unlinked,
             rep,
             unit_quantity: unitQty,
@@ -603,6 +641,7 @@ export function OrcamentoCurrentTab({
           catalog
         );
         return {
+          ...it,
           ...calculated,
           id: it.id,
           rep,
@@ -665,7 +704,7 @@ export function OrcamentoCurrentTab({
         settings,
         totals,
       });
-      toast.success('Proposta comercial em PDF baixada com sucesso!');
+      toast.success('Orçamento interno em PDF baixado com sucesso!');
     } catch (err: any) {
       console.error('Erro ao gerar PDF:', err);
       toast.error('Erro ao exportar PDF.');
@@ -757,6 +796,8 @@ export function OrcamentoCurrentTab({
               unit: res.unit || it.original_unit || it.unit,
               unit_cost: res.unit_cost,
               margin: it.margin,
+            margin_override: it.margin_override,
+            price_origin: it.price_origin,
               rep: it.rep,
               unit_quantity: it.unit_quantity,
               dimensions: it.dimensions,
@@ -775,6 +816,7 @@ export function OrcamentoCurrentTab({
           );
 
           return {
+            ...it,
             ...calculated,
             id: it.id,
             code: it.code,
@@ -837,6 +879,8 @@ export function OrcamentoCurrentTab({
             unit: res.unit || it.original_unit || it.unit,
             unit_cost: res.unit_cost,
             margin: it.margin,
+            margin_override: it.margin_override,
+            price_origin: it.price_origin,
             rep: it.rep,
             unit_quantity: it.unit_quantity,
             dimensions: it.dimensions,
@@ -855,6 +899,7 @@ export function OrcamentoCurrentTab({
         );
 
         return {
+          ...it,
           ...calculated,
           id: it.id,
           code: it.code,
@@ -920,6 +965,8 @@ export function OrcamentoCurrentTab({
               unit: selectedAcessorio.unit || it.original_unit || it.unit || 'UN',
               unit_cost: unitCost,
               margin: it.margin,
+            margin_override: it.margin_override,
+            price_origin: it.price_origin,
               table_price: unitCost,
               rep: it.rep,
               unit_quantity: it.unit_quantity,
@@ -933,6 +980,7 @@ export function OrcamentoCurrentTab({
             catalog
           );
           return {
+            ...it,
             ...calculated,
             id: it.id,
             code: it.code,
@@ -990,6 +1038,8 @@ export function OrcamentoCurrentTab({
               unit: selectedMaoDeObra.unit || it.original_unit || it.unit || 'UN',
               unit_cost: unitCost,
               margin: it.margin,
+            margin_override: it.margin_override,
+            price_origin: it.price_origin,
               table_price: unitCost,
               rep: it.rep,
               unit_quantity: it.unit_quantity,
@@ -1005,6 +1055,7 @@ export function OrcamentoCurrentTab({
             catalog
           );
           return {
+            ...it,
             ...calculated,
             id: it.id,
             code: it.code,
@@ -1074,6 +1125,8 @@ export function OrcamentoCurrentTab({
             unit: it.original_unit || it.unit,
             unit_cost: effectiveUnitCost,
             margin: it.margin,
+            margin_override: it.margin_override,
+            price_origin: it.price_origin,
             table_price: effectiveUnitCost,
             rep: it.rep,
             unit_quantity: it.unit_quantity,
@@ -1088,6 +1141,7 @@ export function OrcamentoCurrentTab({
           catalog
         );
         return {
+          ...it,
           ...calculated,
           id: it.id,
           code: it.code,
@@ -1160,7 +1214,7 @@ export function OrcamentoCurrentTab({
   // Remove Item
   const handleRemoveItem = (id: string) => {
     const updated = items.filter(it => it.id !== id);
-    const res = recalculateBudget(updated, database, settings);
+    const res = recalculateBudget(updated, database, settings, catalog);
     setItems(res.items);
     toast.info('Item removido.');
   };
@@ -1849,7 +1903,7 @@ export function OrcamentoCurrentTab({
               onValueChange={(val: 'm2' | 'chapa') => {
                 const updatedSettings = { ...settings, chapa_mode: val };
                 setSettings(updatedSettings);
-                const res = recalculateBudget(items, database, updatedSettings);
+                const res = recalculateBudget(items, database, updatedSettings, catalog);
                 setItems(res.items);
               }}
             >
@@ -1868,7 +1922,7 @@ export function OrcamentoCurrentTab({
                 onValueChange={(val: 'up' | 'down' | 'exact') => {
                   const updatedSettings = { ...settings, chapa_rounding: val };
                   setSettings(updatedSettings);
-                  const res = recalculateBudget(items, database, updatedSettings);
+                  const res = recalculateBudget(items, database, updatedSettings, catalog);
                   setItems(res.items);
                 }}
               >
@@ -2189,7 +2243,7 @@ export function OrcamentoCurrentTab({
                         <SelectValue placeholder="Selecione o acessório..." />
                       </SelectTrigger>
                       <SelectContent className="max-h-60">
-                        {acessoriosList.map(a => (
+                        {acessoriosList.map((a: { id: string; name: string; price: number }) => (
                           <SelectItem key={a.id} value={a.id}>
                             {a.name} — {a.price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                           </SelectItem>

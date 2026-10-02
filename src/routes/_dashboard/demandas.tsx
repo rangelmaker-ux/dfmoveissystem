@@ -194,6 +194,8 @@ function DistributionPage() {
   }, [ownProjects, search, statusFilter]);
 
   const invalidateOperation = () => {
+    queryClient.invalidateQueries({ queryKey: ["designer-operation"] });
+    queryClient.invalidateQueries({ queryKey: ["meus-projetos"] });
     queryClient.invalidateQueries({ queryKey: ["distribution-projects"] });
     queryClient.invalidateQueries({ queryKey: ["projects"] });
     queryClient.invalidateQueries({ queryKey: ["admin-operation"] });
@@ -218,23 +220,10 @@ function DistributionPage() {
         throw new Error("Escolha a projetista e defina o prazo.");
       }
       const designer = designers.find((item) => item.id === designerId);
-      const { error } = await supabase
-        .from("projetos")
-        .update({
-          projetista_id: designerId,
-          prazo_termino: deadline,
-          status: "EM_EXECUCAO",
-          estagio_andamento: "Briefing e levantamento",
-        })
-        .eq("id", selectedProject.id);
+      const { error } = await supabase.rpc('assign_project', {
+        p_project_id: selectedProject.id, p_designer_id: designerId, p_deadline: deadline,
+      });
       if (error) throw error;
-
-      const { error: clientError } = await supabase
-        .from("clientes")
-        .update({ projetista_id: designerId })
-        .eq("id", selectedProject.cliente_id);
-      if (clientError) throw clientError;
-
       await addHistory(
         selectedProject.id,
         `Projeto liberado pelo superusuário para ${designer?.nome ?? "projetista"}, com prazo em ${formatDate(deadline)}.`,

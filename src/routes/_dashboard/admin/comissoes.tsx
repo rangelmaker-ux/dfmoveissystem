@@ -1,5 +1,6 @@
+import { localDate } from '@/lib/finance';
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { ensureAuthStoreHydrated } from '@/hooks/use-auth';
+import { validateStoredAccess } from '@/hooks/use-auth';
 import { useCommissions } from '@/hooks/use-commissions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { 
@@ -25,14 +26,15 @@ import { exportToCSV, exportToPDF } from '@/lib/export-utils';
 
 export const Route = createFileRoute('/_dashboard/admin/comissoes')({
   beforeLoad: async () => {
-    const { role } = await ensureAuthStoreHydrated();
+    const access = await validateStoredAccess();
+    const role = access.authorized ? access.account?.role : undefined;
     if (role !== 'ADMIN') throw redirect({ to: '/projetista/dashboard' });
   },
   component: CommissionsPage,
 });
 
 function CommissionsPage() {
-  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
+  const [selectedMonth, setSelectedMonth] = useState(localDate().slice(0, 7)); // YYYY-MM
   const { data: commissions, isLoading } = useCommissions(selectedMonth);
 
   const totalComissoes = commissions?.reduce((acc, c) => acc + Number(c.valor_calculado), 0) || 0;

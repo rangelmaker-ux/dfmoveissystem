@@ -8,7 +8,7 @@ export function useProjects(filters?: { projetista_id?: string; status_venda?: S
     queryFn: async () => {
       let query = supabase
         .from('projetos')
-        .select('*, cliente:clientes(*), projetista:users(*)')
+        .select('*, cliente:clientes(*), projetista:users(id,nome,email,role,status,avatar_url,created_at)')
         .order('created_at', { ascending: false });
 
       if (filters?.projetista_id) {

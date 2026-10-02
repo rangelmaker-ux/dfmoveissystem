@@ -1,3 +1,4 @@
+import { supabase } from '@/integrations/supabase/client';
 import {
   ArrowRight,
   Bell,
@@ -156,7 +157,8 @@ export function DashboardLayout() {
     };
   }, []);
 
-  const signOut = () => {
+  const signOut = async () => {
+    await supabase.auth.signOut();
     logout();
     try {
       localStorage.removeItem("df-auth-storage");

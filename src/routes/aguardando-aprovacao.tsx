@@ -25,10 +25,12 @@ function WaitingApprovalPage() {
   } = useQuery({
     queryKey: ["pending-access", normalizedEmail],
     queryFn: async () => {
+      const { data: identity } = await supabase.auth.getUser();
+      if (!identity.user) return null;
       const { data, error } = await supabase
         .from("users")
         .select("id, nome, email, status")
-        .eq("email", normalizedEmail)
+        .eq("auth_user_id", identity.user.id)
         .maybeSingle();
       if (error) throw error;
       return data;

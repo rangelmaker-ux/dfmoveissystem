@@ -1,5 +1,5 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { ensureAuthStoreHydrated } from '@/hooks/use-auth';
+import { validateStoredAccess } from '@/hooks/use-auth';
 import { useProjects } from '@/hooks/use-projects';
 import { useTeam } from '@/hooks/use-team';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -24,7 +24,8 @@ import { SaleStatus } from '@/types/database';
 
 export const Route = createFileRoute('/_dashboard/admin/crm')({
   beforeLoad: async () => {
-    const { role } = await ensureAuthStoreHydrated();
+    const access = await validateStoredAccess();
+    const role = access.authorized ? access.account?.role : undefined;
     if (role !== 'ADMIN') throw redirect({ to: '/projetista/dashboard' });
   },
   component: CRMPage,

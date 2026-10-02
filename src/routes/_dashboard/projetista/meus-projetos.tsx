@@ -1,3 +1,6 @@
+import { openProjectFile } from '@/lib/project-files';
+import { calculateInstallments, parseMoney } from '@/lib/finance';
+import { invalidateOperation } from '@/lib/invalidate-operation';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, useRef } from 'react';
@@ -71,7 +74,8 @@ function MeusProjetosPage() {
   const [valorEntrada, setValorEntrada] = useState('');
   const [formaPagamentoEntrada, setFormaPagamentoEntrada] = useState('Pix');
   const [numParcelas, setNumParcelas] = useState('1');
-  const [valorParcela, setValorParcela] = useState('');
+  let paymentPlan: ReturnType<typeof calculateInstallments> | null = null;
+  try { paymentPlan = calculateInstallments(parseMoney(valorVenda), parseMoney(valorEntrada || '0'), Number(numParcelas)); } catch { /* Show validation through the closing form. */ }
   const [motivoPerda, setMotivoPerda] = useState('');
 
   const { data: projetos, isLoading } = useQuery({
@@ -102,7 +106,7 @@ function MeusProjetosPage() {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['meus-projetos'] });
+      void invalidateOperation(queryClient);
       toast.success('Estágio atualizado!');
     },
     onError: (e: any) => toast.error('Erro: ' + (e?.message ?? 'tente novamente')),
@@ -110,22 +114,28 @@ function MeusProjetosPage() {
 
   const concluir = useMutation({
     mutationFn: async (data: any) => {
+      const sale = parseMoney(data.valorVenda);
+      const entry = parseMoney(data.valorEntrada || '0');
+      const count = Number(data.numParcelas);
+      const percentage = parseMoney(data.percentualComissao || '0');
+      const installments = calculateInstallments(sale, entry, count);
+      if (!Number.isFinite(percentage) || percentage < 0 || percentage > 100) throw new Error('Comissão deve estar entre 0 e 100%.');
       const update = { 
         status: 'FINALIZADO' as const, 
         estagio_andamento: 'Fim', 
         status_venda: 'VENDEU' as const,
-        valor_venda: parseFloat(data.valorVenda),
-        percentual_comissao: parseFloat(data.percentualComissao),
-        valor_entrada: parseFloat(data.valorEntrada),
+        valor_venda: sale,
+        percentual_comissao: percentage,
+        valor_entrada: entry,
         forma_pagamento_entrada: data.formaPagamentoEntrada,
-        numero_parcelas: parseInt(data.numParcelas),
-        valor_parcela: parseFloat(data.valorParcela)
+        numero_parcelas: count,
+        valor_parcela: installments.regular
       };
       const { error } = await supabase.from('projetos').update(update).eq('id', data.id);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['meus-projetos'] });
+      void invalidateOperation(queryClient);
       toast.success('Projeto finalizado com sucesso!');
       setClosingProject(null);
       resetFinanceForm();
@@ -146,7 +156,7 @@ function MeusProjetosPage() {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['meus-projetos'] });
+      void invalidateOperation(queryClient);
       toast.success('Projeto arquivado como venda perdida.');
       setLostProject(null);
       setMotivoPerda('');
@@ -160,7 +170,6 @@ function MeusProjetosPage() {
     setValorEntrada('');
     setFormaPagamentoEntrada('Pix');
     setNumParcelas('1');
-    setValorParcela('');
   };
 
   const ativos = (projetos ?? []).filter(p => p.status !== 'FINALIZADO');
@@ -316,19 +325,20 @@ function MeusProjetosPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="parcelas">Nº Parcelas Restante</Label>
-                <Input id="parcelas" type="number" value={numParcelas} onChange={(e) => setNumParcelas(e.target.value)} min="1" />
+                <Input id="parcelas" type="number" value={numParcelas} onChange={(e) => setNumParcelas(e.target.value)} min="0" max="120" />
               </div>
               <div className="space-y-1">
                 <Label htmlFor="v_parcela">Valor da Parcela (R$)</Label>
-                <Input id="v_parcela" type="number" value={valorParcela} onChange={(e) => setValorParcela(e.target.value)} placeholder="0,00" />
+                <Input id="v_parcela" type="number" value={paymentPlan?.regular ?? ''} readOnly placeholder="0,00" />
               </div>
             </div>
           </div>
+          {paymentPlan && <p className="text-xs text-slate-500">Parcelas: {paymentPlan.amounts.map((amount, i) => `${i + 1}ª: ${amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`).join(' · ') || 'Quitado na entrada'}</p>}
           <DialogFooter>
             <Button variant="outline" onClick={() => setClosingProject(null)}>Cancelar</Button>
             <Button 
               className="bg-emerald-600 hover:bg-emerald-700"
-              disabled={!valorVenda || !percentualComissao || !valorEntrada || !numParcelas || !valorParcela || concluir.isPending}
+              disabled={!paymentPlan || concluir.isPending}
               onClick={() => {
                 concluir.mutate({
                   id: closingProject?.id,
@@ -337,7 +347,6 @@ function MeusProjetosPage() {
                   valorEntrada,
                   formaPagamentoEntrada,
                   numParcelas,
-                  valorParcela
                 });
               }}
             >
@@ -465,9 +474,7 @@ function DetalhesProjeto({ projeto, onBack }: { projeto: ProjetoRow, onBack: () 
     }
   });
 
-  const getPublicUrl = (name: string) => {
-    return supabase.storage.from('projetos_arquivos').getPublicUrl(`${projeto.id}/${name}`).data.publicUrl;
-  };
+
 
   return (
     <div className="space-y-6">
@@ -542,8 +549,8 @@ function DetalhesProjeto({ projeto, onBack }: { projeto: ProjetoRow, onBack: () 
                       <span className="text-sm truncate">{file.name}</span>
                     </div>
                     <div className="flex gap-2">
-                      <Button variant="ghost" size="icon" asChild>
-                        <a href={getPublicUrl(file.name)} target="_blank" rel="noreferrer"><Download className="h-4 w-4" /></a>
+                      <Button variant="ghost" size="icon" onClick={() => openProjectFile(projeto.id, file.name)}>
+                        <Download className="h-4 w-4" />
                       </Button>
                       <Button variant="ghost" size="icon" className="text-destructive" onClick={() => deleteFile.mutate(file.name)}>
                         <Trash2 className="h-4 w-4" />

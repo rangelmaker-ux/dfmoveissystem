@@ -256,7 +256,6 @@ function AgendaPage() {
       const conflictingMeeting = event.tipo === 'REUNIAO' ? events?.find(e => {
         if (editingEventId && e.id === editingEventId) return false;
         if (e.tipo !== 'REUNIAO') return false;
-        if (e.criado_por_id !== scheduleOwnerId) return false;
         
         const eStart = parseISO(e.data_inicio);
         const eEnd = parseISO(e.data_fim);
