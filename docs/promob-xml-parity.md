@@ -1,0 +1,11 @@
+# Promob XML compatibility
+
+The Start listing export previously flattened visual door wrappers and physical panels into separate billable roots. The native Start slider definition also declares its AGC entry as a phantom wrapper of the actual CCTT set. The importer now suppresses these entries only in flat `LISTING_STRUCTURED_W_OP` exports when an exact counterpart has the same dimensions, finish, quantity and environment. Nested assemblies, explicitly priced entries and unmatched parts remain intact.
+
+Native Plus financial XML stores prices in `PRICE TABLE` and `PRICE/MARGINS/BUDGET TOTAL`, and header totals in `TOTALPRICES`. These are now read independently of child items and material reference tags. Technical cost/Builder metadata cannot replace the physical panel's MODEL or prices. `ITEMSWITHOUTPRICE` is a diagnostic copy, not an additional BOM.
+
+An unknown manufacturing operation stays unpriced until its own service price is supplied. The generic description `Processo de Fabricação` must not inherit the straight-door service through a fuzzy description alias. Explicit service codes, operator prices and known catalogue matches continue to work.
+
+The separately installed Start export transform supplies material references, actual thickness, manufacturer-qualified colors and M2 consumption using the native Plus M2 precision/error rule. Physical dimensions and hardware identities remain those of the Start project. It retains original material data for inspection, removes verified wrappers and exports manufacturing operations matching the actual straight doors/fronts. This does not substitute different hardware brands, thicknesses, dimensions or door styles to force a total.
+
+Validation: 94 tests, TypeScript, lint (six pre-existing warnings), production build and direct import/calculation with the supplied Start/Plus XMLs and the operator's saved catalogue, retrieved read-only. Neither supplied listing XML includes prices. Native Plus prices are covered separately. Missing manufacturing/hardware prices and an unsupported 18.5mm panel remain pending; different dimensions, thicknesses and door styles prevent claiming identical complete quotations. No production database, saved quotation or catalogue price is changed by this patch.
