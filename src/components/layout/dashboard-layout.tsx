@@ -215,7 +215,14 @@ export function DashboardLayout() {
                 <img src={logoDF} alt="DF Móveis" className="h-full w-full object-contain" />
               </div>
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold tracking-wide">DF Móveis</p>
+                <div className="flex items-center gap-2">
+                  <p className="truncate text-sm font-semibold tracking-wide">DF Móveis</p>
+                  <svg viewBox="0 0 24 32" role="img" aria-label="Outubro Rosa" className="h-6 w-[18px] shrink-0">
+                    <path d="M7 3C9 0 15 0 17 3L19 8 8 30 3 26 15 7C14 4 10 4 9 7L7 3Z" fill="#ef75a8" />
+                    <path d="M7 3 5 8 16 30 21 26 9 7C10 4 14 4 15 7L17 3C15 0 9 0 7 3Z" fill="#f5a0c4" />
+                    <path d="m8 15 4 7 4-7-4-6Z" fill="#df5d96" />
+                  </svg>
+                </div>
                 <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-[#cbb27a]">
                   Central de projetos
                 </p>
