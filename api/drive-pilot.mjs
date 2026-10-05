@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { PILOT_AUTH_ID, PILOT_EMAIL, DRIVE_SCOPE, pilotAllowed, seal, unseal, validState, verifiedFile } from '../server/drive-security.mjs';
+import { describeDriveError } from '../server/drive-errors.mjs';
 
 const API = 'https://www.googleapis.com/drive/v3';
 const COOKIE = 'df_drive_oauth';
@@ -46,7 +47,10 @@ async function googleToken(params) {
 }
 async function drive(token, path, options = {}) {
   const response = await fetch(`${API}/${path}`, { ...options, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...options.headers } });
-  if (!response.ok) throw new ApiError(response.status === 404 ? 'Arquivo ou pasta não encontrado no Drive. Os originais do Supabase foram preservados.' : 'O Google Drive não concluiu a operação. Verifique a conexão e o espaço disponível.', 502);
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new ApiError(describeDriveError(response.status, body), 502);
+  }
   return response.json();
 }
 async function folder(token, owner, parent, name, marker) {
