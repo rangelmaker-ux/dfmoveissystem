@@ -99,9 +99,9 @@ export function generateBudgetPdf(opts: GenerateBudgetPdfOptions): void {
   }
   doc.text(`Ambiente / Projeto: ${opts.projectName || 'Móveis Planejados'}`, pageWidth / 2 + 10, clientCardY + 14);
 
-  // Items Table (Lista completa e integral de todos os itens do projeto)
+  // Hide unpriced rows only in the PDF; pending prices and calculations use all items.
   const tableStartY = clientCardY + 28;
-  const itemsToPrint = budgetPresentationItems(opts.items);
+  const itemsToPrint = budgetPresentationItems(opts.items).filter(it => it.total_price !== 0);
 
   const tableRows = itemsToPrint.map((it, idx) => {
     let desc = it.description;
@@ -110,7 +110,7 @@ export function generateBudgetPdf(opts: GenerateBudgetPdfOptions): void {
     }
 
     const row: any[] = [
-      (it.item_number || idx + 1).toString(),
+      (idx + 1).toString(),
       it.code,
       desc,
       it.quantity.toLocaleString('pt-BR', { maximumFractionDigits: 4 }),
