@@ -523,7 +523,7 @@ test('calculateItemPrice preserva código Promob original, dimensões, rep e is_
   assert.equal(calculated.total_cost, 244.24);
 });
 
-test('recalculateBudget soma todos os custos e aplica 200% de margem no resultado final', () => {
+test('recalculateBudget aplica 200% só aos materiais e mantém acessórios pelo preço cadastrado', () => {
   const budgetItems = [
     {
       code: 'ITEM-1',
@@ -561,10 +561,10 @@ test('recalculateBudget soma todos os custos e aplica 200% de margem no resultad
   // Soma de custo: 200.00 + 150.00 = 350.00
   assert.equal(res.totals.total_cost, 350.00);
 
-  // Lucro Bruto (+200% sobre o custo somado ao final): 350.00 * 200% = 700.00
-  assert.equal(res.totals.gross_profit, 700.00);
+  // Apenas o MDF recebe margem: 200 * 200% = 400.
+  assert.equal(res.totals.gross_profit, 400.00);
 
-  // Valor Final de Venda: Custo Total (350.00) + Lucro Bruto (700.00) = 1050.00
-  assert.equal(res.totals.total_price, 1050.00);
-  assert.equal(res.totals.profit_margin_percent, 200);
+  // MDF: 600; dez dobradiças de 15: 150.
+  assert.equal(res.totals.total_price, 750.00);
+  assert.equal(res.totals.profit_margin_percent, 114.29);
 });

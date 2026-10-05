@@ -342,7 +342,7 @@ export function OrcamentoSettingsTab({
                 Margem Padrão de Lucro
               </CardTitle>
               <CardDescription className="text-xs">
-                Defina o percentual de markup padrão. Todo arquivo ou item importado utilizará automaticamente este percentual.
+                Defina o percentual de markup dos materiais. Acessórios e ferragens usam o preço cadastrado como valor final de venda, sem esta margem.
               </CardDescription>
             </div>
           </div>

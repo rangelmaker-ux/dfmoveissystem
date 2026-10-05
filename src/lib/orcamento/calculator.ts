@@ -1247,6 +1247,7 @@ export function calculateItemPrice(
     category?: string;
     external_model?: string;
     table_price?: number;
+    itemCategory?: ItemCategory;
     final_price?: number;
     price_origin?: 'calculated' | 'imported' | 'manual';
     is_processo?: boolean;
@@ -1362,12 +1363,19 @@ export function calculateItemPrice(
   let total_cost = 0;
   let total_price = 0;
   let marginPercent = 0;
+  const isAccessory = !isItemChapa && !isItemFita && (item.itemCategory === 'ACCESSORY' || resolved?.source === 'catalog_acessorio' || classifyPromobItem(item) === 'ACCESSORY');
 
   if (isAppliance) {
     unit_cost = 0;
     unit_price = 0;
     total_cost = 0;
     total_price = 0;
+    marginPercent = 0;
+  } else if (isAccessory) {
+    // Accessory catalogue prices are already final sale prices, including in structured XML.
+    unit_price = round2(unit_cost);
+    total_cost = round2(unit_cost * effectiveQuantity);
+    total_price = total_cost;
     marginPercent = 0;
   } else if (item.price_origin !== 'calculated' && item.final_price !== undefined && item.final_price > 0 && effectiveQuantity > 0) {
     total_cost = round2(unit_cost * effectiveQuantity);
@@ -1479,12 +1487,12 @@ export function classifyPromobItem(
   // 3. ACCESSORY: Ferragens e acessórios avulsos (Dobradiça, Pistão, Corrediça, Puxador, etc.)
   const isHardware =
     normCat.includes('acessorio') ||
-    normCat.includes('ferragem') ||
+    /ferrage[mn]/.test(normCat) ||
     normCat.includes('hettich') ||
     normCat.includes('wurth') ||
     normCat.includes('blum') ||
     normCat.includes('fgv') ||
-    ['dobradica', 'corredica', 'pistao', 'lift advanced', 'puxador', 'cantoneira', 'parafuso', 'ponteira', 'articulador'].some(k => normDesc.includes(k));
+    ['dobradica', 'corredica', 'pistao', 'lift advanced', 'puxador', 'cantoneira', 'parafuso', 'ponteira', 'articulador', 'ferragem', 'ferragens'].some(k => normDesc.includes(k));
 
   if (isHardware && !item.is_parent_module) {
     return 'ACCESSORY';
@@ -1695,6 +1703,7 @@ export function calculatePricingTree(
         unit_quantity: it.unit_quantity,
         dimensions: it.dimensions,
         category: isAppliance ? 'Eletrodomésticos' : it.category,
+        itemCategory: it.itemCategory,
         external_model: it.external_model,
         table_price: isAppliance ? 0 : (it.price_unlinked ? 0 : it.table_price),
         final_price: isAppliance ? 0 : (it.price_unlinked ? undefined : it.final_price),
@@ -1795,15 +1804,7 @@ export function calculatePricingTree(
             ? it.total_cost
             : unitBase * effectiveQuantity);
 
-          if (it.final_price !== undefined && it.final_price > 0) {
-            salePrice = round2(it.final_price);
-          } else if (it.price_origin !== 'calculated' && it.total_price !== undefined && it.total_price > 0 && it.total_price !== it.total_cost) {
-            salePrice = round2(it.total_price);
-          } else if (it.price_origin !== 'calculated' && it.unit_price !== undefined && it.unit_price > 0) {
-            salePrice = round2(it.unit_price * effectiveQuantity);
-          } else {
-            salePrice = productionCost;
-          }
+          salePrice = updated.total_price;
           saleIncluded = salePrice > 0 || productionCost > 0;
           pricingRule = 'PROMOB_ACCESSORY_PRICE';
           break;
