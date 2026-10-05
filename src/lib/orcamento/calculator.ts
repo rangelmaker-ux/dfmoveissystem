@@ -1665,7 +1665,8 @@ export function calculatePricingTree(
   let currentParentModule: BudgetItem | null = null;
   const categorized = items.map((original, idx) => {
     const it = { ...original, margin: original.margin_override ? original.margin : settings.margin, ...(original.price_origin === 'calculated' ? { final_price: undefined } : {}) };
-    const category: ItemCategory = it.itemCategory || classifyPromobItem(it, currentParentModule);
+    const classified = classifyPromobItem(it, currentParentModule);
+    const category: ItemCategory = classified === 'ACCESSORY' ? classified : it.itemCategory || classified;
 
     if (category === 'MODULE') {
       currentParentModule = it;

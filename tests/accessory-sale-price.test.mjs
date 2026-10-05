@@ -22,6 +22,8 @@ test('puxador salvo como módulo pai perde o acréscimo antigo de 520,20', () =>
   assert.equal(result.totals.total_price, 170);
   assert.equal(m.groupItemsByModule(result.items)[0].subtotal_price, 170);
   assert.equal(m.recalculateBudget(result.items, [], settings).totals.total_price, 170);
+  const legacy = m.recalculateBudget([{ ...item, promob_xml: false, itemCategory: 'MODULE' }], [], settings);
+  assert.equal(legacy.items[0].total_price, 170);
 });
 
 test('acessório com venda manual antiga usa custo e quantidade atuais', () => {
