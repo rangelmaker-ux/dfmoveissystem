@@ -21,6 +21,7 @@ import { Route as DashboardOrcamentoRouteImport } from './routes/_dashboard/orca
 import { Route as DashboardAdminComissoesRouteImport } from './routes/_dashboard/admin/comissoes'
 import { Route as DashboardAdminCrmRouteImport } from './routes/_dashboard/admin/crm'
 import { Route as DashboardAdminDashboardRouteImport } from './routes/_dashboard/admin/dashboard'
+import { Route as DashboardAdminDriveRouteImport } from './routes/_dashboard/admin/drive'
 import { Route as DashboardAdminEquipeRouteImport } from './routes/_dashboard/admin/equipe'
 import { Route as DashboardProjetistaClientesRouteImport } from './routes/_dashboard/projetista/clientes'
 import { Route as DashboardProjetistaDashboardRouteImport } from './routes/_dashboard/projetista/dashboard'
@@ -86,6 +87,11 @@ const DashboardAdminDashboardRoute = DashboardAdminDashboardRouteImport.update({
   path: '/admin/dashboard',
   getParentRoute: () => DashboardRoute,
 } as any)
+const DashboardAdminDriveRoute = DashboardAdminDriveRouteImport.update({
+  id: '/admin/drive',
+  path: '/admin/drive',
+  getParentRoute: () => DashboardRoute,
+} as any)
 const DashboardAdminEquipeRoute = DashboardAdminEquipeRouteImport.update({
   id: '/admin/equipe',
   path: '/admin/equipe',
@@ -128,6 +134,7 @@ export interface FileRoutesByFullPath {
   '/admin/comissoes': typeof DashboardAdminComissoesRoute
   '/admin/crm': typeof DashboardAdminCrmRoute
   '/admin/dashboard': typeof DashboardAdminDashboardRoute
+  '/admin/drive': typeof DashboardAdminDriveRoute
   '/admin/equipe': typeof DashboardAdminEquipeRoute
   '/projetista/clientes': typeof DashboardProjetistaClientesRoute
   '/projetista/dashboard': typeof DashboardProjetistaDashboardRoute
@@ -146,6 +153,7 @@ export interface FileRoutesByTo {
   '/admin/comissoes': typeof DashboardAdminComissoesRoute
   '/admin/crm': typeof DashboardAdminCrmRoute
   '/admin/dashboard': typeof DashboardAdminDashboardRoute
+  '/admin/drive': typeof DashboardAdminDriveRoute
   '/admin/equipe': typeof DashboardAdminEquipeRoute
   '/projetista/clientes': typeof DashboardProjetistaClientesRoute
   '/projetista/dashboard': typeof DashboardProjetistaDashboardRoute
@@ -166,6 +174,7 @@ export interface FileRoutesById {
   '/_dashboard/admin/comissoes': typeof DashboardAdminComissoesRoute
   '/_dashboard/admin/crm': typeof DashboardAdminCrmRoute
   '/_dashboard/admin/dashboard': typeof DashboardAdminDashboardRoute
+  '/_dashboard/admin/drive': typeof DashboardAdminDriveRoute
   '/_dashboard/admin/equipe': typeof DashboardAdminEquipeRoute
   '/_dashboard/projetista/clientes': typeof DashboardProjetistaClientesRoute
   '/_dashboard/projetista/dashboard': typeof DashboardProjetistaDashboardRoute
@@ -186,6 +195,7 @@ export interface FileRouteTypes {
     | '/admin/comissoes'
     | '/admin/crm'
     | '/admin/dashboard'
+    | '/admin/drive'
     | '/admin/equipe'
     | '/projetista/clientes'
     | '/projetista/dashboard'
@@ -204,6 +214,7 @@ export interface FileRouteTypes {
     | '/admin/comissoes'
     | '/admin/crm'
     | '/admin/dashboard'
+    | '/admin/drive'
     | '/admin/equipe'
     | '/projetista/clientes'
     | '/projetista/dashboard'
@@ -223,6 +234,7 @@ export interface FileRouteTypes {
     | '/_dashboard/admin/comissoes'
     | '/_dashboard/admin/crm'
     | '/_dashboard/admin/dashboard'
+    | '/_dashboard/admin/drive'
     | '/_dashboard/admin/equipe'
     | '/_dashboard/projetista/clientes'
     | '/_dashboard/projetista/dashboard'
@@ -325,6 +337,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardAdminDashboardRouteImport
       parentRoute: typeof DashboardRoute
     }
+    '/_dashboard/admin/drive': {
+      id: '/_dashboard/admin/drive'
+      path: '/admin/drive'
+      fullPath: '/admin/drive'
+      preLoaderRoute: typeof DashboardAdminDriveRouteImport
+      parentRoute: typeof DashboardRoute
+    }
     '/_dashboard/admin/equipe': {
       id: '/_dashboard/admin/equipe'
       path: '/admin/equipe'
@@ -370,6 +389,7 @@ interface DashboardRouteChildren {
   DashboardAdminComissoesRoute: typeof DashboardAdminComissoesRoute
   DashboardAdminCrmRoute: typeof DashboardAdminCrmRoute
   DashboardAdminDashboardRoute: typeof DashboardAdminDashboardRoute
+  DashboardAdminDriveRoute: typeof DashboardAdminDriveRoute
   DashboardAdminEquipeRoute: typeof DashboardAdminEquipeRoute
   DashboardProjetistaClientesRoute: typeof DashboardProjetistaClientesRoute
   DashboardProjetistaDashboardRoute: typeof DashboardProjetistaDashboardRoute
@@ -384,6 +404,7 @@ const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardAdminComissoesRoute: DashboardAdminComissoesRoute,
   DashboardAdminCrmRoute: DashboardAdminCrmRoute,
   DashboardAdminDashboardRoute: DashboardAdminDashboardRoute,
+  DashboardAdminDriveRoute: DashboardAdminDriveRoute,
   DashboardAdminEquipeRoute: DashboardAdminEquipeRoute,
   DashboardProjetistaClientesRoute: DashboardProjetistaClientesRoute,
   DashboardProjetistaDashboardRoute: DashboardProjetistaDashboardRoute,

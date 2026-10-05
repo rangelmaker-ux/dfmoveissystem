@@ -5,6 +5,10 @@
   "framework": null,
   "rewrites": [
     {
+      "source": "/api/drive-pilot",
+      "destination": "/api/drive-pilot"
+    },
+    {
       "source": "/desktop-native/:path*",
       "destination": "https://rcwilkmovlrdxhfviemo.supabase.co/functions/v1/desktop-updates?asset=:path*"
     },
