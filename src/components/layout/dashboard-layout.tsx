@@ -45,10 +45,12 @@ import {
 } from "@/components/ui/sidebar";
 import { useAuthStore, validateStoredAccess } from "@/hooks/use-auth";
 import { useAdminApprovals } from "@/hooks/use-admin-approvals";
+import { DRIVE_PILOT_AUTH_ID, DRIVE_PILOT_EMAIL } from "@/lib/drive-pilot";
 
 const PAGE_TITLES: Record<string, string> = {
   "/admin/dashboard": "Visão da operação",
   "/admin/equipe": "Equipe de projetos",
+  "/admin/drive": "Google Drive — teste privado",
   "/admin/crm": "Pipeline comercial",
   "/admin/comissoes": "Comissões",
   "/projetista/dashboard": "Minha operação",
@@ -84,9 +86,22 @@ export function DashboardLayout() {
   const { user, role, logout } = useAuthStore();
   const { items: approvalItems, pendingCount } = useAdminApprovals();
   const [approvalPopupOpen, setApprovalPopupOpen] = useState(false);
+  const [drivePilotAllowed, setDrivePilotAllowed] = useState(false);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const links = role === "ADMIN" ? adminLinks : designerLinks;
   const pageTitle = PAGE_TITLES[pathname] ?? "DF Móveis";
+  useEffect(() => {
+    let live = true;
+    setDrivePilotAllowed(false);
+    if (role === 'ADMIN' && user?.email.toLowerCase() === DRIVE_PILOT_EMAIL) {
+      void supabase.auth.getUser().then(async ({ data }) => {
+        if (data.user?.id !== DRIVE_PILOT_AUTH_ID) return;
+        const profile = await supabase.from('users').select('is_hidden,status,role').eq('auth_user_id', data.user.id).maybeSingle();
+        if (live) setDrivePilotAllowed(profile.data?.is_hidden === true && profile.data.status === 'ATIVO' && profile.data.role === 'ADMIN');
+      });
+    }
+    return () => { live = false; };
+  }, [role, user?.id, user?.email]);
   const today = new Intl.DateTimeFormat("pt-BR", {
     weekday: "long",
     day: "2-digit",
@@ -219,6 +234,7 @@ export function DashboardLayout() {
                       </SidebarMenuItem>
                     );
                   })}
+                  {drivePilotAllowed && <SidebarMenuItem><SidebarMenuButton asChild isActive={pathname === '/admin/drive'} className="h-10 rounded-lg text-white/65 hover:text-white"><Link to="/admin/drive"><BriefcaseBusiness className="h-[18px] w-[18px]" /><span>Drive — teste privado</span></Link></SidebarMenuButton></SidebarMenuItem>}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
