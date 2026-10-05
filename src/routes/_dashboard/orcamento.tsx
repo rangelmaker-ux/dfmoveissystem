@@ -33,6 +33,7 @@ import { useAuthStore } from "@/hooks/use-auth";
 import { OrcamentoCurrentTab } from "@/components/orcamento/orcamento-current-tab";
 import { OrcamentoDatabaseTab } from "@/components/orcamento/orcamento-database-tab";
 import { OrcamentoSettingsTab } from "@/components/orcamento/orcamento-settings-tab";
+import { clearPendingScope, setSyncScope } from '@/lib/server-status';
 import { OrcamentoSavedTab } from "@/components/orcamento/orcamento-saved-tab";
 
 interface ErrorBoundaryProps {
@@ -133,6 +134,11 @@ function OrcamentoPage() {
   const [loadedBudgetId, setLoadedBudgetId] = useState<string | null>(null);
   const [workspaceLoaded, setWorkspaceLoaded] = useState(false);
   const [syncStatus, setSyncStatus] = useState("Carregando…");
+  useEffect(() => {
+    const state = /Falha|não sincronizada/.test(syncStatus) ? 'error' : /Carregando|pendentes|Sincronizando/.test(syncStatus) ? 'saving' : 'idle';
+    setSyncScope('orcamento', state);
+  }, [syncStatus]);
+  useEffect(() => () => clearPendingScope('orcamento'), []);
   const userId = useAuthStore((state) => state.user?.id);
   const revision = useRef(0);
   const catalogRevision = useRef(0);
@@ -233,6 +239,7 @@ function OrcamentoPage() {
     if (!workspaceLoaded) return;
     const snapshot = JSON.stringify([database, catalog]);
     if (snapshot === catalogSnapshot.current) return;
+    setSyncStatus('Alterações pendentes');
     const timer = window.setTimeout(() => {
       writeQueue.current = writeQueue.current
         .then(async () => {
@@ -243,7 +250,7 @@ function OrcamentoPage() {
             catalogRevision.current,
           );
           catalogSnapshot.current = snapshot;
-          toast.success("Tabela de preços salva no servidor.");
+          setSyncStatus('Salvo no servidor');
         })
         .catch((error) => {
           syncFailed.current = true;
@@ -404,6 +411,9 @@ function OrcamentoPage() {
 
   return (
     <div className="space-y-6">
+      {activeTab === 'settings' && <details className="rounded-lg border border-stone-200 p-3">
+      <summary className="cursor-pointer text-sm text-stone-600">Sincronização e recuperação</summary>
+      <div className="mt-3 space-y-3">
       <p className="text-xs text-stone-500" role="status">
         {syncStatus}
       </p>
@@ -441,6 +451,8 @@ function OrcamentoPage() {
       {workspaceLoaded && <p className="text-xs text-stone-500">
         Base compartilhada carregada do servidor · {database.length} materiais · {Object.values(catalog).filter(value => value.type === 'brand').length} marcas
       </p>}
+      </div>
+      </details>}
       {!workspaceLoaded ? (
         <Button onClick={() => window.location.reload()}>Recarregar orçamentos</Button>
       ) : (
