@@ -1494,7 +1494,7 @@ export function classifyPromobItem(
     normCat.includes('fgv') ||
     ['dobradica', 'corredica', 'pistao', 'lift advanced', 'puxador', 'cantoneira', 'parafuso', 'ponteira', 'articulador', 'ferragem', 'ferragens'].some(k => normDesc.includes(k));
 
-  if (isHardware && !item.is_parent_module) {
+  if (isHardware) {
     return 'ACCESSORY';
   }
 
@@ -1587,6 +1587,12 @@ function calculateStructuredXml(items: BudgetItem[], database: ProductItem[], se
       node.unit_price = node.quantity > 0 ? round2(node.total_price / node.quantity) : 0;
       node.has_children = true;
     }
+    if (node.itemCategory === 'ACCESSORY') {
+      node.salePrice = node.productionCost;
+      node.total_price = node.total_cost;
+      node.unit_price = node.unit_cost;
+      node.margin = 0;
+    }
     visiting.delete(node.id); completed.add(node.id);
   };
   nodes.forEach(visit);
@@ -1659,7 +1665,8 @@ export function calculatePricingTree(
   let currentParentModule: BudgetItem | null = null;
   const categorized = items.map((original, idx) => {
     const it = { ...original, margin: original.margin_override ? original.margin : settings.margin, ...(original.price_origin === 'calculated' ? { final_price: undefined } : {}) };
-    const category: ItemCategory = it.itemCategory || classifyPromobItem(it, currentParentModule);
+    const classified = classifyPromobItem(it, currentParentModule);
+    const category: ItemCategory = classified === 'ACCESSORY' ? classified : it.itemCategory || classified;
 
     if (category === 'MODULE') {
       currentParentModule = it;
@@ -1730,6 +1737,12 @@ export function calculatePricingTree(
       salePrice = 0;
       saleIncluded = false;
       pricingRule = 'INFORMATIONAL_NO_CHARGE';
+    } else if (it.itemCategory === 'ACCESSORY') {
+      // Stored/manual sale prices must never add a second markup to hardware.
+      productionCost = updated.total_cost;
+      salePrice = productionCost;
+      saleIncluded = productionCost > 0;
+      pricingRule = 'PROMOB_ACCESSORY_PRICE';
     } else if (it.price_unlinked) {
       productionCost = round2((it.unit_cost !== undefined ? it.unit_cost : updated.unit_cost) * effectiveQuantity);
       salePrice = round2((it.unit_price !== undefined ? it.unit_price : updated.unit_price) * effectiveQuantity);
@@ -1789,24 +1802,6 @@ export function calculatePricingTree(
             saleIncluded = true;
             pricingRule = 'STANDALONE_CUT_PART';
           }
-          break;
-        }
-
-        case 'ACCESSORY': {
-          // Acessórios e ferragens: preço comercial próprio (do operador ou tabela), sem margem global de +200%
-          const unitBase = (it.table_price !== undefined && it.table_price > 0)
-            ? it.table_price
-            : (it.unit_cost !== undefined && it.unit_cost > 0)
-              ? it.unit_cost
-              : (updated.unit_cost || 0);
-
-          productionCost = round2((it.price_origin !== 'calculated' && it.total_cost !== undefined && it.total_cost > 0 && it.total_cost !== it.total_price)
-            ? it.total_cost
-            : unitBase * effectiveQuantity);
-
-          salePrice = updated.total_price;
-          saleIncluded = salePrice > 0 || productionCost > 0;
-          pricingRule = 'PROMOB_ACCESSORY_PRICE';
           break;
         }
 
