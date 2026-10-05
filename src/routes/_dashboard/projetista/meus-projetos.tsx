@@ -1,6 +1,7 @@
 import { ProjectFileThumbnail } from "@/components/project-file-thumbnail";
 import { DecimalInput } from "@/components/ui/decimal-input";
 import { openProjectFile } from '@/lib/project-files';
+import { copyUploadedFileAutomatically } from '@/lib/automatic-drive-backup';
 import { calculateInstallments, parseMoney } from '@/lib/finance';
 import { invalidateOperation } from '@/lib/invalidate-operation';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
@@ -497,6 +498,7 @@ function DetalhesProjeto({ projeto, onBack }: { projeto: ProjetoRow, onBack: () 
         .from('projetos_arquivos')
         .upload(`${projeto.id}/${fileName}`, file, { upsert: true });
       if (error) throw error;
+      void copyUploadedFileAutomatically(projeto.id, `${projeto.id}/${fileName}`, file);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['arquivos', projeto.id] });

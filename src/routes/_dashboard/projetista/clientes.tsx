@@ -4,6 +4,7 @@ import { ProjectFileThumbnail } from "@/components/project-file-thumbnail";
 import { parseMoney } from "@/lib/finance";
 import { DecimalInput } from "@/components/ui/decimal-input";
 import { openProjectFile } from '@/lib/project-files';
+import { copyUploadedFileAutomatically } from '@/lib/automatic-drive-backup';
 import { ClientCommercialDialog } from '@/components/orcamento/client-commercial-dialog';
 import { createFileRoute } from "@tanstack/react-router";
 import { useAuthStore } from "@/hooks/use-auth";
@@ -229,6 +230,7 @@ function ClientFilesDialog({
         .upload(storagePath, file, { upsert: true });
 
       if (uploadErr) throw uploadErr;
+      void copyUploadedFileAutomatically(targetProjectId, storagePath, file);
 
       toast.success(`Arquivo "${file.name}" anexado com sucesso!`);
       if (fileInputRef.current) fileInputRef.current.value = "";
