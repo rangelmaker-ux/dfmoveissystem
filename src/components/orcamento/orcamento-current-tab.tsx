@@ -1,3 +1,4 @@
+import { consolidateDisplayItems, displaySourceIds, redistributeDisplayQuantity } from '@/lib/orcamento/display-items';
 import { BudgetProjectCards, budgetSections } from '@/components/orcamento/budget-project-cards';
 import { DecimalInput } from "@/components/ui/decimal-input";
 import { useState, useRef, useMemo, useEffect } from 'react';
@@ -459,7 +460,7 @@ export function OrcamentoCurrentTab({
   const handleUpdateItemCost = (itemId: string, newCost: number) => {
     const safeCost = isNaN(newCost) || newCost < 0 ? 0 : newCost;
     const updated = items.map(it => {
-      if (it.id === itemId) {
+      if (displaySourceIds(items, itemId).has(it.id)) {
         return { ...it, ...calculateItemPrice(
           {
             ...it,
@@ -496,7 +497,7 @@ export function OrcamentoCurrentTab({
   const handleUpdateItemMargin = (itemId: string, newMargin: number) => {
     const safeMargin = isNaN(newMargin) || newMargin < 0 ? 0 : newMargin;
     const updated = items.map(it => {
-      if (it.id === itemId) {
+      if (displaySourceIds(items, itemId).has(it.id)) {
         return { ...it, ...calculateItemPrice(
           {
             ...it,
@@ -529,8 +530,14 @@ export function OrcamentoCurrentTab({
   // Atualizar repetição (número de peças) inline
   const handleUpdateItemRep = (itemId: string, newRep: number) => {
     const safeRep = isNaN(newRep) || newRep < 1 ? 1 : Math.round(newRep);
+    const ids = displaySourceIds(items, itemId);
+    if (ids.size > 1) {
+      const row = consolidateDisplayItems(items).find(item => item.id === itemId)!;
+      setItems(recalculateBudget(redistributeDisplayQuantity(items, ids, safeRep * (row.unit_quantity || 1)), database, settings, catalog).items);
+      return;
+    }
     const updated = items.map(it => {
-      if (it.id === itemId) {
+      if (displaySourceIds(items, itemId).has(it.id)) {
         const unitQty = it.unit_quantity !== undefined ? it.unit_quantity : (it.quantity / (it.rep || 1));
         const newTotalQty = Math.round((safeRep * unitQty + Number.EPSILON) * 10000) / 10000;
         const calculated = calculateItemPrice(
@@ -580,8 +587,14 @@ export function OrcamentoCurrentTab({
   // Atualizar quantidade unitária (m² por peça ou fração) inline
   const handleUpdateItemUnitQty = (itemId: string, newUnitQty: number) => {
     const safeUnitQty = isNaN(newUnitQty) || newUnitQty <= 0 ? 0.01 : newUnitQty;
+    const ids = displaySourceIds(items, itemId);
+    if (ids.size > 1) {
+      const row = consolidateDisplayItems(items).find(item => item.id === itemId)!;
+      setItems(recalculateBudget(redistributeDisplayQuantity(items, ids, (row.rep || 1) * safeUnitQty), database, settings, catalog).items);
+      return;
+    }
     const updated = items.map(it => {
-      if (it.id === itemId) {
+      if (displaySourceIds(items, itemId).has(it.id)) {
         const rep = it.rep || 1;
         const newTotalQty = Math.round((rep * safeUnitQty + Number.EPSILON) * 10000) / 10000;
         const calculated = calculateItemPrice(
@@ -631,8 +644,13 @@ export function OrcamentoCurrentTab({
   // Atualizar consumo total de matéria-prima inline
   const handleUpdateItemQty = (itemId: string, newQty: number) => {
     const safeQty = isNaN(newQty) || newQty <= 0 ? 1 : newQty;
+    const ids = displaySourceIds(items, itemId);
+    if (ids.size > 1) {
+      setItems(recalculateBudget(redistributeDisplayQuantity(items, ids, safeQty), database, settings, catalog).items);
+      return;
+    }
     const updated = items.map(it => {
-      if (it.id === itemId) {
+      if (displaySourceIds(items, itemId).has(it.id)) {
         const rep = it.rep || 1;
         const unitQty = Math.round((safeQty / rep + Number.EPSILON) * 10000) / 10000;
         const calculated = calculateItemPrice(
@@ -812,7 +830,7 @@ export function OrcamentoCurrentTab({
     const res = resolveItemPrice(item, catalog, database);
     if (res.matched && res.unit_cost > 0) {
       const updated = items.map(it => {
-        if (it.id === item.id) {
+        if (displaySourceIds(items, item.id).has(it.id)) {
           const calculated = calculateItemPrice(
             {
               ...it,
@@ -977,7 +995,7 @@ export function OrcamentoCurrentTab({
       const updated = items.map(it => {
         const isTarget = applyToAllSimilar
           ? isSimilarPromobItem(linkingItem, it, true)
-          : it.id === linkingItem.id;
+          : displaySourceIds(items, linkingItem.id).has(it.id);
 
         if (isTarget) {
           matchedCount++;
@@ -1051,7 +1069,7 @@ export function OrcamentoCurrentTab({
       const updated = items.map(it => {
         const isTarget = applyToAllSimilar
           ? isSimilarPromobItem(linkingItem, it, false)
-          : it.id === linkingItem.id;
+          : displaySourceIds(items, linkingItem.id).has(it.id);
 
         if (isTarget) {
           matchedCount++;
@@ -1136,7 +1154,7 @@ export function OrcamentoCurrentTab({
     const updated = items.map(it => {
       const isTarget = applyToAllSimilar
         ? isSimilarPromobItem({ ...linkingItem, targetThickness: selectedThickness }, it, false)
-        : it.id === linkingItem.id;
+        : displaySourceIds(items, linkingItem.id).has(it.id);
 
       if (isTarget) {
         matchedCount++;
@@ -1244,7 +1262,8 @@ export function OrcamentoCurrentTab({
 
   // Remove Item
   const handleRemoveItem = (id: string) => {
-    const updated = items.filter(it => it.id !== id);
+    const ids = displaySourceIds(items, id);
+    const updated = items.filter(it => !ids.has(it.id));
     const res = recalculateBudget(updated, database, settings, catalog);
     setItems(res.items);
     toast.info('Item removido.');
@@ -1261,7 +1280,7 @@ export function OrcamentoCurrentTab({
 
   // Filtered items list
   const filteredItems = useMemo(() => {
-    let result = items;
+    let result = consolidateDisplayItems(items);
 
     if (itemsViewFilter === 'leaves') {
       result = result.filter(it => !it.is_parent_module);
@@ -1523,7 +1542,7 @@ export function OrcamentoCurrentTab({
                 size="icon"
                 onClick={() => {
                   if (item.found && !item.price_unlinked) {
-                    setItems(prev => recalculateBudget(prev.map(it => it.id === item.id
+                    setItems(prev => recalculateBudget(prev.map(it => displaySourceIds(items, item.id).has(it.id)
                       ? { ...it, price_unlinked: true, found: false, unit_cost: 0 }
                       : it), database, settings, catalog).items);
                     toast.success('Preço desvinculado.');

@@ -1,11 +1,13 @@
 import type { ReactNode } from 'react';
 import { Box, FolderKanban, Sparkles, Wrench } from 'lucide-react';
 import type { BudgetItem, ModuleGroup } from '@/lib/orcamento/types';
+import { consolidateDisplayItems, isEmptyGroupingItem } from '@/lib/orcamento/display-items';
 
 const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 export function budgetSections(groups: ModuleGroup[]) {
   const sections = new Map<string, { id: string; name: string; kind: 'materials' | 'process' | 'hardware'; groups: ModuleGroup[] }>();
   for (const group of groups) {
+    if ((group.parent_item || group.parentModuleItem) && isEmptyGroupingItem((group.parent_item || group.parentModuleItem)!) && group.subtotal_cost === 0 && group.subtotal_price === 0) continue;
     const category = normalize(group.category || '');
     const root = group.parent_item || group.parentModuleItem;
     const hardware = group.is_hardware_only || root?.itemCategory === 'ACCESSORY';
@@ -64,7 +66,7 @@ export function BudgetProjectCards({ groups, projectName, clientName, hidden, ex
         </div>)}</div>
         <div className="flex flex-wrap justify-between gap-3 border-t border-stone-100 bg-stone-50/60 px-4 py-3 text-xs"><span className="font-medium text-stone-600">Subtotal · {section.name}</span><div className="flex gap-5 tabular-nums"><span>Custo {money(section.groups.reduce((sum, group) => sum + group.subtotal_cost, 0))}</span><span className="font-semibold">Venda {money(section.groups.reduce((sum, group) => sum + group.subtotal_price, 0))}</span></div></div>
         <button type="button" aria-expanded={expanded[section.id] === true} onClick={() => onExpand(section.id)} className="px-4 py-3 text-xs font-semibold text-[#8b1733] underline underline-offset-4">{expanded[section.id] ? 'Ocultar peças e referências' : 'Ver peças e referências'}</button>
-        {expanded[section.id] && <div className="overflow-x-auto border-t border-stone-100"><table className="w-full min-w-[1000px] text-left text-xs text-slate-700"><thead className="bg-stone-50 text-[10px] text-stone-600"><tr>{['#', 'Código / Peça', 'Descrição / Dimensões', 'Rep', 'Qtd unit.', 'Total matéria', 'Un', 'Custo unit.', 'Total custo', 'Ação'].map(label => <th key={label} className="px-3 py-3">{label}</th>)}</tr></thead><tbody>{section.groups.flatMap(group => group.items).map(renderItemRow)}</tbody></table></div>}
+        {expanded[section.id] && <div className="overflow-x-auto border-t border-stone-100"><table className="w-full min-w-[1000px] text-left text-xs text-slate-700"><thead className="bg-stone-50 text-[10px] text-stone-600"><tr>{['#', 'Código / Peça', 'Descrição / Dimensões', 'Rep', 'Qtd unit.', 'Total matéria', 'Un', 'Custo unit.', 'Total custo', 'Ação'].map(label => <th key={label} className="px-3 py-3">{label}</th>)}</tr></thead><tbody>{consolidateDisplayItems(section.groups.flatMap(group => group.items)).map(renderItemRow)}</tbody></table></div>}
       </section>;
     })}</div>
     {groups.length > 0 && <div className="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-xl bg-[#8b1733]/5 px-4 py-4 text-sm">
