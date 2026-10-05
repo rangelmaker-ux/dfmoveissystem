@@ -1,10 +1,11 @@
+import { BudgetProjectCards, budgetSections } from '@/components/orcamento/budget-project-cards';
 import { DecimalInput } from "@/components/ui/decimal-input";
 import { useState, useRef, useMemo, useEffect } from 'react';
 import { 
   Upload, Plus, Trash2, Edit2, AlertTriangle, 
   CheckCircle2, FileSpreadsheet, Download, Save, Layers, Search, Check, Loader2, Link2, Unlink, Sparkles,
   User, FolderKanban, Info, ClipboardPaste, FileText, Eye, EyeOff,
-  ChevronDown, ChevronRight, Wrench, FolderTree, Box
+  ChevronDown, FolderTree, Box
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -1312,13 +1313,13 @@ export function OrcamentoCurrentTab({
   const handleToggleModuleExpand = (groupId: string) => {
     setExpandedModules(prev => ({
       ...prev,
-      [groupId]: !(prev[groupId] ?? !items.some(item => item.promob_xml)),
+      [groupId]: !prev[groupId],
     }));
   };
 
   const handleExpandAllModules = (expand: boolean) => {
     const next: Record<string, boolean> = {};
-    moduleGroups.forEach(g => {
+    budgetSections(moduleGroups).forEach(g => {
       next[g.id] = expand;
     });
     setExpandedModules(next);
@@ -1888,7 +1889,7 @@ export function OrcamentoCurrentTab({
                   }`}
                 >
                   <Box className="h-3.5 w-3.5 text-[#886e35]" />
-                  <span>Listagem agrupada ({moduleGroups.length})</span>
+                  <span>Por categoria ({budgetSections(moduleGroups).length})</span>
                 </button>
                 {!items.some(item => item.promob_xml) && <>
                 <button
@@ -2034,159 +2035,7 @@ export function OrcamentoCurrentTab({
           </div>
         </Card>
       ) : itemsViewFilter === 'grouped' ? (
-        <div className="space-y-4">
-          {filteredModuleGroups.length === 0 ? (
-            <div className="rounded-xl border border-stone-200 bg-white p-8 text-center text-xs text-stone-500">
-              Nenhum móvel ou módulo encontrado com o filtro pesquisado.
-            </div>
-          ) : (
-            filteredModuleGroups.map(group => {
-              const isExpanded = items.some(item => item.promob_xml) ? expandedModules[group.id] === true : expandedModules[group.id] !== false;
-              return (
-                <div
-                  key={group.id}
-                  className="overflow-hidden rounded-xl border border-stone-200/90 bg-white shadow-2xs transition-all hover:border-stone-300"
-                >
-                  {/* Cabeçalho do Móvel / Módulo */}
-                  <div
-                    onClick={() => handleToggleModuleExpand(group.id)}
-                    className="flex flex-wrap items-center justify-between gap-3 bg-stone-50/80 hover:bg-stone-100/70 px-4 py-3 cursor-pointer transition-colors border-b border-stone-200/60 select-none"
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <button
-                        type="button"
-                        className="p-1 rounded-md hover:bg-stone-200/70 text-stone-500 transition-colors shrink-0"
-                        title={isExpanded ? 'Recolher peças' : 'Expandir peças'}
-                      >
-                        {isExpanded ? (
-                          <ChevronDown className="h-4 w-4 text-stone-600" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4 text-stone-600" />
-                        )}
-                      </button>
-
-                      {group.is_hardware_only ? (
-                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-stone-100 text-stone-700 border border-stone-200 shrink-0 shadow-2xs">
-                          <Wrench className="h-4 w-4" />
-                        </div>
-                      ) : group.is_process_only ? (
-                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-purple-50 text-purple-700 border border-purple-200 shrink-0 shadow-2xs">
-                          <Sparkles className="h-4 w-4" />
-                        </div>
-                      ) : (
-                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#f8f4e9] text-[#886e35] border border-[#cbb27a]/30 shrink-0 shadow-2xs">
-                          <Box className="h-4 w-4" />
-                        </div>
-                      )}
-
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="font-bold text-sm text-slate-900 truncate tracking-tight">
-                            {group.name}
-                          </span>
-                          {group.category && (
-                            <span className="rounded border border-stone-200 bg-white px-2 py-0.5 text-[10px] font-medium text-stone-600">
-                              {group.category}
-                            </span>
-                          )}
-                          {group.dimensions && (
-                            <span 
-                              className="font-mono text-[10px] font-semibold text-stone-700 bg-stone-100 border border-stone-200/70 px-2 py-0.5 rounded"
-                              title={`Dimensões em milímetros: ${group.dimensions} mm (${formatDimensionsCm(group.dimensions)})`}
-                            >
-                              {group.dimensions} mm <span className="text-[9px] font-normal text-stone-600">({formatDimensionsCm(group.dimensions)})</span>
-                            </span>
-                          )}
-                          <span className="text-xs text-stone-500 font-normal">
-                            ({group.piecesCount} {items.some(item => item.promob_xml) ? 'unidades' : 'peças'})
-                          </span>
-                        </div>
-                        {group.parent_item?.external_model && <span className="text-[11px] text-emerald-800 block mt-0.5">
-                          Acabamento: {group.parent_item.external_model}
-                        </span>}
-                        {[...new Set(group.items.map(item => item.catalog_match?.brand ? `${item.catalog_match.brand} · ${item.catalog_match.line || ''}` : '').filter(Boolean))].map(label =>
-                          <span key={label} className="text-[11px] text-stone-600 block">Base de preços: {label}</span>)}
-                        {group.parent_item && (
-                          <span className="text-[11px] text-stone-500 block truncate mt-0.5">
-                            Módulo Promob: <span className="font-mono text-stone-700 font-medium">{group.parent_item.code}</span> {group.parent_item.dimensions ? `(${group.parent_item.dimensions})` : ''}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Subtotais do Móvel */}
-                    <div className="flex items-center gap-4 text-right">
-                      <div>
-                        <span className="text-[10px] uppercase font-medium text-stone-400 block tracking-wider">Custo Materiais</span>
-                        <span className="font-mono font-semibold text-xs text-stone-700 tabular-nums">
-                          {hideFinancialValues
-                            ? '••••••'
-                            : group.subtotal_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                        </span>
-                      </div>
-                      <div className="border-l border-stone-200 pl-3.5">
-                        <span className="text-[10px] uppercase font-semibold text-[#c92031]/80 block tracking-wider">Preço de Venda</span>
-                        <span className="font-mono font-bold text-sm text-[#c92031] tabular-nums">
-                          {hideFinancialValues
-                            ? '••••••'
-                            : group.subtotal_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Tabela de Peças do Móvel */}
-                  {isExpanded && (
-                    <div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left text-xs text-slate-700">
-                          <thead className="bg-[#17191d] text-[10px] uppercase tracking-wider text-white font-semibold">
-                            <tr>
-                              <th className="py-2.5 pl-3 pr-1 font-semibold w-10 text-center text-stone-400">#</th>
-                              <th className="px-2.5 py-2.5 font-semibold">Código / Peça</th>
-                              <th className="px-3 py-2.5 font-semibold">Descrição do Material / Dimensões</th>
-                              <th className="px-2 py-2.5 text-center font-semibold w-16" title="Repetições da peça">Rep (Peças)</th>
-                              <th className="px-2 py-2.5 text-center font-semibold w-20" title="Matéria-prima unitária por peça (m²)">Qtd Unit. (M²)</th>
-                              <th className="px-2 py-2.5 text-center font-semibold w-20" title="Consumo total de matéria-prima">Total Matéria</th>
-                              <th className="px-2 py-2.5 text-center font-semibold w-12">Un</th>
-                              <th className="px-3 py-2.5 text-right font-semibold text-amber-300" title="Custo unitário base do item (definido pelo operador ou tabela)">Custo Unit. (R$) ✏️</th>
-                              <th className="px-3 py-2.5 text-right font-semibold" title="Custo total acumulado do item (Qtd × Custo Unitário)">Total Custo (R$)</th>
-                              <th className="py-2.5 pl-2 pr-4 text-center font-semibold w-16">Ação</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-stone-100 bg-white">
-                            {group.items.map((item, idx) => renderItemRow(item, idx))}
-                          </tbody>
-                        </table>
-                      </div>
-                      <div className="flex items-center justify-between border-t border-stone-100 bg-stone-50/70 px-4 py-2 text-[11px] text-stone-600">
-                        <span>Subtotal deste móvel: {group.items.length} componentes internos</span>
-                        <div className="flex items-center gap-3 font-mono">
-                          <span>
-                            Custo Total: {hideFinancialValues ? '••••••' : group.subtotal_cost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                          </span>
-                          <span className="text-stone-300">•</span>
-                          <span className="font-bold text-slate-900">
-                            Venda (+{settings.margin}%): {hideFinancialValues ? '••••••' : group.subtotal_price.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })
-          )}
-
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-stone-200/90 bg-white/95 px-4 py-3 text-xs text-stone-600 shadow-2xs">
-            <span>
-              {moduleGroups.length} móveis e itens agrupados. Abra um grupo para consultar os componentes e seus vínculos de preço.
-            </span>
-            <span className="text-stone-500">
-              Margem de cálculo aplicada: <strong className="font-semibold text-slate-800">{settings.margin}%</strong> (definida em Parâmetros)
-            </span>
-          </div>
-        </div>
+        <BudgetProjectCards groups={filteredModuleGroups} projectName={projectName} clientName={clientName} hidden={hideFinancialValues} expanded={expandedModules} onExpand={handleToggleModuleExpand} renderItemRow={renderItemRow} />
       ) : (
         <div className="overflow-hidden rounded-xl border border-stone-200/90 bg-white shadow-2xs">
           <div className="overflow-x-auto">
