@@ -83,7 +83,7 @@ function DrivePilotPage() {
   const mb = (size: number) => `${(size / 1024 / 1024).toFixed(2)} MB`;
 
   return <div className="mx-auto w-full max-w-4xl space-y-5 p-4 md:p-8">
-    <div><h1 className="text-2xl font-semibold">Google Drive — teste privado</h1><p className="mt-2 text-sm text-slate-600">Exclusivo para Rangel Maker. Seus dados e arquivos existentes continuam preservados no Supabase.</p></div>
+    <div><h1 className="text-2xl font-semibold">Google Drive — teste privado</h1><p className="mt-2 text-sm text-slate-600">Exclusivo para Rangel Maker. Novos arquivos enviados em Clientes ou Meus projetos recebem uma cópia automática no Drive. O original continua no Supabase.</p><p className="mt-2 text-xs text-slate-500">Esta página serve para conferir as cópias e copiar arquivos antigos. Você não precisa abri-la para cada novo envio.</p></div>
     {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">{error}</p>}
     <Card><CardHeader><CardTitle>Conexão com seu Drive</CardTitle></CardHeader><CardContent className="space-y-3">
       {!status && !error && <p>Verificando configuração…</p>}

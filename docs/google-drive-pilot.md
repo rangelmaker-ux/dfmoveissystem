@@ -19,6 +19,14 @@ Somente a conta oculta ativa `rangelmaker@gmail.com`, autenticada no Supabase co
 
 Os refresh tokens são criptografados com AES-256-GCM antes de serem salvos. As duas novas tabelas têm RLS e nenhum acesso de anon/authenticated. Somente o servidor acessa os registros. O fluxo OAuth usa nonce em cookie HttpOnly, validade de 10 minutos e PKCE. O ID do arquivo é registrado antes da transferência. Um retry de cópia usa o mesmo ID; nenhum original é apagado.
 
+## Cópia automática no envio normal
+
+Enquanto o piloto estiver restrito a Rangel Maker, cada arquivo enviado por essa conta em Clientes ou Meus projetos é salvo primeiro no Supabase e depois copiado automaticamente para o Drive, sem escolher novamente o cliente. O projeto do próprio envio determina a pasta de destino. Outros usuários continuam com o fluxo atual até a liberação explícita.
+
+O sistema mostra a confirmação da cópia ou informa que ficou pendente. A fila guarda apenas referências dos originais neste navegador, sem tokens ou conteúdo de arquivos. Cópias interrompidas são repetidas quando o administrador volta ao sistema nesse navegador, recupera a internet ou a cada minuto com o sistema aberto. Fechar o navegador pausa as tentativas; isso ainda não é um worker independente nem um backup completo do banco. Não apague originais enquanto uma cópia estiver pendente.
+
+A autorização OAuth é uma conexão central com o Drive do proprietário no servidor. A expansão para funcionários deve reutilizar essa conexão e verificar o acesso ao projeto; não exige autorização Google individual nem compartilhamento público da pasta.
+
 ## Teste sem perda de dados
 
 - Escolha um projeto com um arquivo pequeno no Supabase e clique em **Copiar para o Drive**.
@@ -32,7 +40,7 @@ Os refresh tokens são criptografados com AES-256-GCM antes de serem salvos. As 
 
 O piloto limita arquivos a 100 MB e lista cópias por projeto. O upload vai diretamente do navegador ao Drive por uma sessão resumível específica; o refresh token não sai do servidor. O download passa pela função da Vercel e consome sua transferência. Credenciais revogadas, falta de espaço, arquivos alterados ou removidos no Drive produzem erro sem apagar originais.
 
-Uma cópia já verificada não é atualizada silenciosamente se o original for substituído. O piloto é uma prova de armazenamento e cópia manual, não um backup automático completo do banco ou um sincronizador de versões. A extensão para rotinas automáticas e os projetistas depende do resultado deste teste.
+Uma cópia já verificada não é atualizada silenciosamente se o original for substituído. O piloto faz cópias automáticas dos novos arquivos de projetos enviados pela conta oculta e permite cópias manuais dos arquivos antigos. Não é um backup completo do banco nem um sincronizador de versões. Fotos de perfil não fazem parte do piloto de arquivos de projetos. A extensão para rotinas independentes e os projetistas depende do resultado deste teste.
 
 No modo Testing do OAuth, refresh tokens de escopos Drive podem expirar após sete dias: reconecte para continuar o piloto. Para uso contínuo, configure a publicação do consentimento conforme os requisitos do Google. Ao trocar `DRIVE_ENCRYPTION_KEY`, as conexões existentes precisarão ser reautorizadas; preserve a chave e mantenha uma cópia segura.
 

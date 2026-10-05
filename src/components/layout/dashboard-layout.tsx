@@ -46,6 +46,7 @@ import {
 import { useAuthStore, validateStoredAccess } from "@/hooks/use-auth";
 import { useAdminApprovals } from "@/hooks/use-admin-approvals";
 import { DRIVE_PILOT_AUTH_ID, DRIVE_PILOT_EMAIL } from "@/lib/drive-pilot";
+import { retryAutomaticDriveCopies } from "@/lib/automatic-drive-backup";
 
 const PAGE_TITLES: Record<string, string> = {
   "/admin/dashboard": "Visão da operação",
@@ -90,6 +91,14 @@ export function DashboardLayout() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const links = role === "ADMIN" ? adminLinks : designerLinks;
   const pageTitle = PAGE_TITLES[pathname] ?? "DF Móveis";
+  useEffect(() => {
+    if (role !== 'ADMIN' || user?.id !== DRIVE_PILOT_AUTH_ID) return;
+    void retryAutomaticDriveCopies();
+    const retry = () => { void retryAutomaticDriveCopies(); };
+    const interval = window.setInterval(retry, 60_000);
+    window.addEventListener('online', retry);
+    return () => { window.clearInterval(interval); window.removeEventListener('online', retry); };
+  }, [role, user?.id]);
   useEffect(() => {
     let live = true;
     setDrivePilotAllowed(false);
