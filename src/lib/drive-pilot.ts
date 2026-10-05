@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
+import { trackServerTask } from '@/lib/server-status';
 
 export const DRIVE_PILOT_EMAIL = 'rangelmaker@gmail.com';
 export const DRIVE_PILOT_AUTH_ID = '44d949bf-2c99-47c8-bdb6-9038bfd3c713';
@@ -21,6 +22,7 @@ export async function pilotRequest<T>(action: string, input?: unknown): Promise<
 }
 
 export async function uploadPilot(projectId: string, file: Blob, name: string, onProgress: (value: number) => void, sourcePath?: string) {
+  return trackServerTask('drive-upload', async () => {
   const prepared = await pilotRequest<{ completed?: boolean; recordId: string; uploadUrl: string }>('prepare', { projectId, name, size: file.size, sourcePath });
   if (prepared.completed) { onProgress(100); return; }
   await new Promise<void>((resolve, reject) => {
@@ -35,6 +37,7 @@ export async function uploadPilot(projectId: string, file: Blob, name: string, o
     xhr.send(file);
   });
   await pilotRequest('finish', { recordId: prepared.recordId });
+  });
 }
 
 export async function downloadPilot(recordId: string, name: string) {

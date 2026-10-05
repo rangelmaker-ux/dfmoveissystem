@@ -47,6 +47,8 @@ import { useAuthStore, validateStoredAccess } from "@/hooks/use-auth";
 import { useAdminApprovals } from "@/hooks/use-admin-approvals";
 import { DRIVE_PILOT_AUTH_ID, DRIVE_PILOT_EMAIL } from "@/lib/drive-pilot";
 import { retryAutomaticDriveCopies } from "@/lib/automatic-drive-backup";
+import { ServerStatusDot } from '@/components/server-status-dot';
+import { setServerConnected } from '@/lib/server-status';
 
 const PAGE_TITLES: Record<string, string> = {
   "/admin/dashboard": "Visão da operação",
@@ -164,7 +166,10 @@ export function DashboardLayout() {
   useEffect(() => {
     let mounted = true;
     const verifyAccess = async () => {
+      if (!navigator.onLine) { setServerConnected(false); return; }
       const access = await validateStoredAccess();
+      if (mounted) setServerConnected(access.authorized);
+      if (access.reason === 'CONNECTION_ERROR') return;
       if (!mounted || access.authorized) return;
 
       if (access.account && ["PENDING", "BLOCKED"].includes(access.reason)) {
@@ -174,10 +179,17 @@ export function DashboardLayout() {
       window.location.href = "/";
     };
 
+    void verifyAccess();
+    const offline = () => setServerConnected(false);
+    const online = () => { void verifyAccess(); };
+    window.addEventListener('offline', offline);
+    window.addEventListener('online', online);
     const interval = window.setInterval(() => void verifyAccess(), 20_000);
     return () => {
       mounted = false;
       window.clearInterval(interval);
+      window.removeEventListener('offline', offline);
+      window.removeEventListener('online', online);
     };
   }, []);
 
@@ -331,6 +343,7 @@ export function DashboardLayout() {
                 <span className="sm:hidden">Novo</span>
               </Link>
             </Button>
+            <ServerStatusDot />
           </header>
           <div className="mx-auto w-full max-w-[1600px] p-4 md:p-7 lg:p-8">
             <Outlet />
