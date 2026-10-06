@@ -705,6 +705,11 @@ export function smartMatchMaoDeObra(
     return moItems.find(item => predicate(normalizeText(item.name), normalizeText(item.description || '')));
   };
 
+  if (normText.includes('cava') && normText.includes('45')) {
+    const match = findMo(n => n.includes('cava') && n.includes('45'));
+    return match ? { matched: match.price > 0, name: match.name, price: match.price, unit: match.unit || 'UN', code: match.id, source: 'catalog_maodeobra' } : { matched: false, name: '', price: 0, unit: 'UN', code: '', source: 'catalog_maodeobra' };
+  }
+
   // Porta Reta
   if (normText.includes('porta reta') || (normText.includes('porta') && normText.includes('reta') && !normText.includes('cava'))) {
     const match = findMo(n => n.includes('porta reta')) || moItems.find(i => i.id === 'mo-1');
@@ -978,6 +983,46 @@ export interface PriceMatchResult {
   thickness?: string;
   board_price?: number;
   matched_name?: string;
+  authoritative?: boolean;
+}
+
+function matchSavedComponent(item: { code: string; description: string; category?: string; unit?: string }, database: ProductItem[], catalog: CatalogByBrand): PriceMatchResult | null {
+  const component = (p: ProductItem) => /ferrag|acessor|mao.de.obra|processo/.test(normalizeText(p.category));
+  const products = database.filter(component);
+  const code = normalizeCode(item.code);
+  const processContext = classifyPromobItem(item) === 'MANUFACTURING_PROCESS';
+  const processCodeName = normalizeText(item.code);
+  const name = normalizeText(item.description).replace(/\s*\([^)]*\)\s*$/g, '').replace(/^processo de fabrica[cç][aã]o\s*[-:]\s*|\s*[-:]\s*processo de fabrica[cç][aã]o$/g, '').trim();
+  const exact = code ? products.filter(p => normalizeCode(p.code) === code) : [];
+  const aliases = code ? products.filter(p => p.subcodes?.some(alias => normalizeCode(alias) === code)) : [];
+  const names = products.filter(p => {
+    if (/mao.de.obra|processo/.test(normalizeText(p.category)) && !processContext) return false;
+    const productName = normalizeText(p.description).replace(/^processo de fabricacao\s*[-:]\s*/, '');
+    return normalizeText(p.description) === normalizeText(item.description) || productName === name || (processContext && productName === processCodeName);
+  });
+  const placeholder = exact.length === 1 && exact[0].id?.startsWith('promob-start:') && exact[0].unit_price === 0;
+  const variant = /\breta\b/.test(name) ? 'reta' : /\bcurva\b/.test(name) ? 'curva' : '';
+  const configuredAliases = aliases.filter(p => p.unit_price > 0 && (!variant || normalizeText(p.description).includes(variant)));
+  const candidates = placeholder && configuredAliases.length === 1 ? configuredAliases : exact.length ? exact : aliases.length ? aliases : names;
+  if (candidates.length > 1) {
+    const byName = candidates.filter(p => names.includes(p));
+    if (byName.length !== 1) return { matched: false, authoritative: true, source: 'database', unit_cost: 0, code: item.code, description: item.description, unit: 'UN', matched_name: 'Código associado a mais de um produto; confirme o vínculo.' };
+    candidates.splice(0, candidates.length, byName[0]);
+  }
+  if (candidates.length === 1) {
+    const p = candidates[0];
+    return { matched: p.unit_price > 0, authoritative: true, source: 'database', unit_cost: p.unit_price, code: p.code, description: item.description, unit: p.unit, matched_name: p.description };
+  }
+  for (const section of Object.values(catalog)) {
+    if (section.type !== 'acessorios' && section.type !== 'maodeobra') continue;
+    const matches = section.items.filter(p => (code && normalizeCode(p.id) === code) || ((section.type !== 'maodeobra' || processContext) && (normalizeText(p.name) === name || normalizeText(p.name) === processCodeName)));
+    if (matches.length > 1) return { matched: false, authoritative: true, source: 'database', unit_cost: 0, code: item.code, description: item.description, unit: item.unit || 'UN' };
+    if (matches.length === 1) {
+      const p = matches[0];
+      return { matched: p.price > 0, authoritative: true, source: section.type === 'maodeobra' ? 'catalog_maodeobra' : 'catalog_acessorio', unit_cost: p.price, code: p.id, description: item.description, unit: 'unit' in p ? String(p.unit) : 'UN', matched_name: p.name };
+    }
+  }
+  return null;
 }
 
 // Resolvedor Universal de Preços: vincula chapas, acessórios, mão de obra e materiais da tabela DF Móveis
@@ -1018,7 +1063,15 @@ export function resolveItemPrice(
     };
   }
 
-  // 1. Se o item já veio com preço de tabela do Promob (ou custo válido), vincula e preserva com prioridade
+  const savedComponent = matchSavedComponent(item, database, catalog);
+  if (savedComponent) return savedComponent;
+  const componentCategory = classifyPromobItem(item);
+  if (componentCategory === 'MANUFACTURING_PROCESS') {
+    const process = smartMatchMaoDeObra(item.code, item.description, catalog, database);
+    if (process.matched) return { matched: true, authoritative: true, source: process.source, unit_cost: process.price, code: process.code, description: item.description, unit: process.unit, matched_name: process.name };
+  }
+
+  // Imported table prices are a fallback when no saved component is recognized.
   if (item.price_origin !== 'calculated' && item.table_price !== undefined && item.table_price > 0) {
     return {
       matched: true,
@@ -1033,7 +1086,7 @@ export function resolveItemPrice(
 
   // Pula apenas módulos pais agrupadores que não tenham preço definido
   const hardwareAssembly = /dobradica|corredica|pistao|parafuso/.test(normalizeText(item.description));
-  if (item.is_parent_module || (item.has_children && !hardwareAssembly) || (item.promob_xml && classifyPromobItem(item) === 'MODULE')) {
+  if (componentCategory !== 'ACCESSORY' && componentCategory !== 'MANUFACTURING_PROCESS' && (item.is_parent_module || (item.has_children && !hardwareAssembly) || (item.promob_xml && componentCategory === 'MODULE'))) {
     return {
       matched: false,
       source: 'database',
@@ -1308,10 +1361,10 @@ export function calculateItemPrice(
       )
     : null;
 
-  const found = isAppliance || (!item.price_unlinked && (
+  const found = isAppliance || (!item.price_unlinked && (resolved?.authoritative ? resolved.matched : (
     (resolved ? resolved.matched : false) ||
     (item.table_price !== undefined && item.table_price > 0)
-  ));
+  )));
 
   const isItemChapa = !isAppliance && (resolved?.source === 'catalog_chapa' || (item.is_chapa !== undefined
     ? item.is_chapa
@@ -1357,6 +1410,8 @@ export function calculateItemPrice(
     unit_cost = 0;
   } else if (item.price_unlinked) {
     unit_cost = item.unit_cost !== undefined ? item.unit_cost : 0;
+  } else if (resolved?.authoritative) {
+    unit_cost = resolved.unit_cost;
   } else if (resolved && resolved.matched && resolved.unit_cost > 0) {
     // Linked rows follow the shared catalog; previous calculated costs are not overrides.
     unit_cost = resolved.unit_cost;
@@ -1394,7 +1449,7 @@ export function calculateItemPrice(
     total_cost = round2(unit_cost * effectiveQuantity);
     total_price = total_cost;
     marginPercent = 0;
-  } else if (item.price_origin !== 'calculated' && item.final_price !== undefined && item.final_price > 0 && effectiveQuantity > 0) {
+  } else if (!resolved?.authoritative && item.price_origin !== 'calculated' && item.final_price !== undefined && item.final_price > 0 && effectiveQuantity > 0) {
     total_cost = round2(unit_cost * effectiveQuantity);
     total_price = round2(item.final_price);
     unit_price = round2(total_price / effectiveQuantity);
@@ -1438,6 +1493,7 @@ export function calculateItemPrice(
     total_price,
     found,
     price_unlinked: item.price_unlinked,
+    price_issue: resolved?.authoritative && !resolved.matched ? (resolved.matched_name?.includes('mais de um produto') ? resolved.matched_name : `Preço não cadastrado na tabela: ${resolved.code}`) : undefined,
     is_chapa: isItemChapa,
     is_fita: isItemFita,
     fita_metros: isItemFita ? fitaMetros : undefined,
@@ -1450,9 +1506,9 @@ export function calculateItemPrice(
     dimensions: item.dimensions,
     category: isAppliance ? 'Eletrodomésticos' : item.category,
     external_model: item.external_model,
-    table_price: isAppliance ? 0 : (item.table_price !== undefined ? item.table_price : unit_cost),
-    final_price: isAppliance ? 0 : (item.price_origin !== 'calculated' ? item.final_price : undefined),
-    price_origin: item.price_origin || (item.final_price !== undefined ? 'imported' : 'calculated'),
+    table_price: isAppliance ? 0 : resolved?.authoritative ? unit_cost : (item.table_price !== undefined ? item.table_price : unit_cost),
+    final_price: isAppliance ? 0 : (resolved?.authoritative || item.price_origin === 'calculated' ? undefined : item.final_price),
+    price_origin: resolved?.authoritative ? 'calculated' : item.price_origin || (item.final_price !== undefined ? 'imported' : 'calculated'),
     is_parent_module: item.is_parent_module,
     has_children: item.has_children,
     promob_xml: item.promob_xml,
@@ -1494,7 +1550,7 @@ export function classifyPromobItem(
     item.is_processo ||
     item.is_mao_de_obra ||
     normCat.includes('processo') ||
-    normCat.includes('mao de obra') ||
+    /mao[ _]de[ _]obra/.test(normCat) ||
     normDesc.includes('processo de fabricacao') ||
     normRef.startsWith('proc_')
   ) {
@@ -1743,6 +1799,9 @@ export function calculatePricingTree(
       catalog
     );
 
+    if (!it.price_unlinked && ['ACCESSORY', 'MANUFACTURING_PROCESS'].includes(it.itemCategory || '') && updated.price_origin === 'calculated' && it.price_origin !== 'calculated') {
+      it = { ...it, table_price: updated.unit_cost, final_price: undefined, total_cost: updated.total_cost, total_price: updated.total_price, price_origin: 'calculated' };
+    }
     const effectiveQuantity = updated.quantity || 1;
     let productionCost = 0;
     let salePrice = 0;

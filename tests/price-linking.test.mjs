@@ -246,7 +246,7 @@ test('resolveItemPrice e Trazer Preços da Tabela vinculam todos os itens do or�
   assert.equal(updatedItems[4].total_cost, 98.00); // 4 * 24.50
 
   // Recalcular o orçamento completo
-  const budget = recalculateBudget(updatedItems, DEFAULT_MATERIALS, settings, INITIAL_CHAPAS_CATALOG);
+  const budget = recalculateBudget(updatedItems, OPERATOR_MATERIALS, settings, INITIAL_CHAPAS_CATALOG);
   assert.equal(budget.totals.items_count, 5);
   // Total cost: 221 + 43.85 + 22.04 + 98 = 384.89
   assert.equal(budget.totals.total_cost, 384.89);

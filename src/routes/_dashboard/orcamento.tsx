@@ -310,7 +310,6 @@ function OrcamentoPage() {
   useEffect(() => {
     if (!workspaceLoaded) return;
     setItems(current => {
-      if (!current.some(item => item.promob_xml)) return current;
       const recalculated = recalculateBudget(current, database, settings, catalog).items;
       return JSON.stringify(current) === JSON.stringify(recalculated) ? current : recalculated;
     });

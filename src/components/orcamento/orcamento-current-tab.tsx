@@ -1393,6 +1393,7 @@ export function OrcamentoCurrentTab({
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="font-medium text-xs text-slate-800 leading-snug">{item.description}</span>
+              {item.price_issue && <span className="text-[11px] font-medium text-amber-700">{item.price_issue}</span>}
               {item.is_parent_module && !isCaixa && !isAppliance && (
                 <span className="inline-flex items-center rounded border border-amber-300/80 bg-amber-50 px-1.5 py-0.2 text-[9px] font-semibold text-amber-800">
                   Módulo Promob
