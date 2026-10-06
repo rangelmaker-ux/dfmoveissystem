@@ -695,6 +695,12 @@ export function smartMatchMaoDeObra(
   const moCatalog = catalog['Mão de Obra Fixa'];
   const moItems = moCatalog && moCatalog.type === 'maodeobra' ? moCatalog.items : [];
 
+  const exact = moItems.filter(item => normalizeCode(item.id) === normalizeCode(code));
+  if (exact.length === 1) {
+    const item = exact[0];
+    return { matched: item.price > 0, name: item.name, price: item.price, unit: item.unit || 'UN', code: item.id, source: 'catalog_maodeobra' };
+  }
+
   const findMo = (predicate: (name: string, desc: string) => boolean) => {
     return moItems.find(item => predicate(normalizeText(item.name), normalizeText(item.description || '')));
   };
@@ -994,6 +1000,7 @@ export function resolveItemPrice(
     is_fita?: boolean;
     fita_metros?: number;
     table_price?: number;
+    price_origin?: 'calculated' | 'imported' | 'manual';
   },
   catalog: CatalogByBrand = INITIAL_CHAPAS_CATALOG,
   database: ProductItem[] = DEFAULT_MATERIALS
@@ -1012,7 +1019,7 @@ export function resolveItemPrice(
   }
 
   // 1. Se o item já veio com preço de tabela do Promob (ou custo válido), vincula e preserva com prioridade
-  if (item.table_price !== undefined && item.table_price > 0) {
+  if (item.price_origin !== 'calculated' && item.table_price !== undefined && item.table_price > 0) {
     return {
       matched: true,
       source: 'promob_table',
@@ -1046,6 +1053,31 @@ export function resolveItemPrice(
     return { matched: false, source: 'database', unit_cost: 0, code: item.code, description: item.description, unit: 'M2' };
   }
 
+  const direct = database.filter(p => normalizeCode(p.code) === normalizeCode(item.code) ||
+    p.subcodes?.some(alias => normalizeCode(alias) === normalizeCode(item.code)));
+  if (direct.length === 1 && direct[0].catalog_line_id) {
+    const p = direct[0];
+    const brand = p.catalog_brand ? catalog[p.catalog_brand] : undefined;
+    const line = brand?.type === 'brand' ? brand.lines.find(l => l.id === p.catalog_line_id) : undefined;
+    const boardPrice = p.catalog_thickness ? line?.prices[p.catalog_thickness] : null;
+    if (line && boardPrice && boardPrice > 0) return { matched: true, source: 'catalog_chapa',
+      unit_cost: chapaSalePrice(boardPrice, line.width * line.height), code: p.code,
+      description: item.description, unit: 'M2', matched_name: p.description,
+      brand: p.catalog_brand, line: line.name, thickness: p.catalog_thickness };
+    return { matched: false, source: 'database', unit_cost: 0, code: p.code, description: item.description, unit: item.unit || p.unit };
+  }
+  if (direct.length === 1 && !(direct[0].unit_price > 0)) return { matched: false, source: 'database', unit_cost: 0, code: direct[0].code, description: item.description, unit: item.unit || direct[0].unit };
+  if (direct.length === 1 && direct[0].unit_price > 0) {
+    const p = direct[0];
+    const meterTape = isFitaBorda(item.code, item.description) && item.unit === 'M';
+    const meters = p.fita_metros || extractFitaMetros(p.description);
+    const cost = meterTape && p.unit !== 'M' && meters ? round2(p.unit_price / meters) : p.unit_price;
+    return { matched: true, source: 'database', unit_cost: cost, code: p.code, description: item.description,
+      unit: meterTape ? 'M' : p.unit, matched_name: p.description };
+  }
+  if (direct.length > 1) return { matched: false, source: 'database', unit_cost: 0, code: item.code, description: item.description, unit: item.unit || 'UN' };
+
+
   const panel = xmlPanelDimensions(item);
   if (panel && item.external_model) {
     const thickness = panel[0];
@@ -1076,29 +1108,12 @@ export function resolveItemPrice(
     };
   }
 
-  const direct = database.filter(p => normalizeCode(p.code) === normalizeCode(item.code) ||
-    p.subcodes?.some(alias => normalizeCode(alias) === normalizeCode(item.code)));
-  if (direct.length === 1 && direct[0].catalog_line_id) {
-    const p = direct[0];
-    const brand = p.catalog_brand ? catalog[p.catalog_brand] : undefined;
-    const line = brand?.type === 'brand' ? brand.lines.find(l => l.id === p.catalog_line_id) : undefined;
-    const boardPrice = p.catalog_thickness ? line?.prices[p.catalog_thickness] : null;
-    if (line && boardPrice && boardPrice > 0) return { matched: true, source: 'catalog_chapa',
-      unit_cost: chapaSalePrice(boardPrice, line.width * line.height), code: p.code,
-      description: item.description, unit: 'M2', matched_name: p.description,
-      brand: p.catalog_brand, line: line.name, thickness: p.catalog_thickness };
-    return { matched: false, source: 'database', unit_cost: 0, code: p.code, description: item.description, unit: item.unit || p.unit };
+  // A generic "Processo de Fabricação" description cannot identify which service
+  // was performed. Unknown services must not inherit the Porta Reta alias.
+  if (classifyPromobItem(item) === 'MANUFACTURING_PROCESS') {
+    return { matched: false, source: 'catalog_maodeobra', unit_cost: 0,
+      code: item.code, description: item.description, unit: item.unit || 'UN' };
   }
-  if (direct.length === 1 && !(direct[0].unit_price > 0)) return { matched: false, source: 'database', unit_cost: 0, code: direct[0].code, description: item.description, unit: item.unit || direct[0].unit };
-  if (direct.length === 1 && direct[0].unit_price > 0) {
-    const p = direct[0];
-    const meterTape = isFitaBorda(item.code, item.description) && item.unit === 'M';
-    const meters = p.fita_metros || extractFitaMetros(p.description);
-    const cost = meterTape && p.unit !== 'M' && meters ? round2(p.unit_price / meters) : p.unit_price;
-    return { matched: true, source: 'database', unit_cost: cost, code: p.code, description: item.description,
-      unit: meterTape ? 'M' : p.unit, matched_name: p.description };
-  }
-  if (direct.length > 1) return { matched: false, source: 'database', unit_cost: 0, code: item.code, description: item.description, unit: item.unit || 'UN' };
 
   const isChapaItem = isChapa(item.code, item.description) || (item.unit || '').toUpperCase() === 'M2';
 
@@ -1286,6 +1301,7 @@ export function calculateItemPrice(
           is_fita: item.is_fita,
           fita_metros: item.fita_metros,
           table_price: item.table_price,
+          price_origin: item.price_origin,
         },
         catalog,
         database
@@ -1341,10 +1357,11 @@ export function calculateItemPrice(
     unit_cost = 0;
   } else if (item.price_unlinked) {
     unit_cost = item.unit_cost !== undefined ? item.unit_cost : 0;
+  } else if (resolved && resolved.matched && resolved.unit_cost > 0) {
+    // Linked rows follow the shared catalog; previous calculated costs are not overrides.
+    unit_cost = resolved.unit_cost;
   } else if (item.unit_cost !== undefined && item.unit_cost > 0) {
     unit_cost = item.unit_cost;
-  } else if (resolved && resolved.matched && resolved.unit_cost > 0) {
-    unit_cost = resolved.unit_cost;
   } else if (item.table_price !== undefined && item.table_price >= 0) {
     unit_cost = item.table_price;
   }
