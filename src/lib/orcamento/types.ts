@@ -37,6 +37,7 @@ export interface BudgetItem {
   total_price: number;
   found: boolean;
   price_unlinked?: boolean;
+  price_issue?: string;
   has_children?: boolean;
   promob_xml?: boolean;
   promob_structure?: boolean;

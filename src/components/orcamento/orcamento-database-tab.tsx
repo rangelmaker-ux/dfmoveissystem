@@ -175,6 +175,15 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
       .map(s => s.trim().toUpperCase())
       .filter(Boolean);
 
+    const previous = database.find(p => p.id === editingProdId);
+    const oldCodes = [previous?.code, ...(previous?.subcodes || [])].filter(Boolean).map(code => code!.trim().toLowerCase());
+    const newCodes = [prodCode.trim(), ...subArr].map(code => code.toLowerCase());
+    const conflict = database.find(p => p.id !== editingProdId && [p.code, ...(p.subcodes || [])].some(code => newCodes.includes(code.trim().toLowerCase()) && !oldCodes.includes(code.trim().toLowerCase())));
+    if (conflict) {
+      toast.error(`Código ou apelido já utilizado por ${conflict.description} (${conflict.code}). Use um vínculo exclusivo para evitar preço incorreto.`);
+      return;
+    }
+
     if (editingProdId) {
       setDatabase(prev => prev.map(p => {
         if (p.id === editingProdId) {
