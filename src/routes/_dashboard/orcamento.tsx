@@ -8,7 +8,6 @@ import {
   Database,
   Settings,
   AlertTriangle,
-  RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -39,7 +38,6 @@ import { OrcamentoSavedTab } from "@/components/orcamento/orcamento-saved-tab";
 interface ErrorBoundaryProps {
   children: ReactNode;
   tabName: string;
-  onResetCatalog?: () => void;
 }
 
 interface ErrorBoundaryState {
@@ -72,8 +70,7 @@ class TabErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
             Instabilidade detectada na aba {this.props.tabName}
           </h3>
           <p className="text-xs text-stone-600 max-w-md mx-auto">
-            Houve um conflito nos dados locais ou formato das tabelas. Você pode restaurar a tabela
-            oficial do Promob Plus com segurança sem perder seus orçamentos.
+            Não foi possível exibir esta aba. Tente novamente ou recarregue a página.
           </p>
           <div className="flex justify-center gap-3 pt-2">
             <Button
@@ -84,19 +81,6 @@ class TabErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
             >
               Tentar Novamente
             </Button>
-            {this.props.onResetCatalog && (
-              <Button
-                size="sm"
-                onClick={() => {
-                  this.props.onResetCatalog?.();
-                  this.setState({ hasError: false });
-                }}
-                className="bg-[#c92031] text-white hover:bg-[#aa1726] text-xs font-semibold"
-              >
-                <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                Restaurar Tabela de Chapas Padrão
-              </Button>
-            )}
           </div>
         </div>
       );
@@ -564,10 +548,6 @@ function OrcamentoPage() {
             <TabsContent value="database">
               <TabErrorBoundary
                 tabName="Tabela de Preços & Chapas"
-                onResetCatalog={() => {
-                  setCatalog(INITIAL_CHAPAS_CATALOG);
-                  toast.success("Tabela de chapas e acabamentos restaurada para a versão oficial!");
-                }}
               >
                 <OrcamentoDatabaseTab
                   database={database}

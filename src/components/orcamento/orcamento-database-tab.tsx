@@ -1,7 +1,7 @@
 import { DecimalInput } from "@/components/ui/decimal-input";
 import { useState, useRef } from 'react';
 import { 
-  Search, Plus, Trash2, Edit2, RotateCcw, Package, Layers, Download, Upload, 
+  Search, Plus, Trash2, Edit2, Package, Layers, Download, Upload, 
   Check, DollarSign, ArrowRight, ShieldAlert, Sparkles, Filter, Wrench, Palette, Eye
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -18,7 +18,6 @@ import {
 } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { ProductItem, BudgetSettings } from '@/lib/orcamento/types';
-import { DEFAULT_MATERIALS } from '@/lib/orcamento/default-materials';
 import { 
   INITIAL_CHAPAS_CATALOG, CatalogByBrand, ChapaLineItem, AcessorioItem, BrandCatalog, AcessoriosCatalog, MaoDeObraItem, MaoDeObraCatalog 
 } from '@/lib/orcamento/chapas-catalog';
@@ -226,13 +225,6 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
     if (confirm(`Deseja realmente excluir o material "${code}" do catálogo geral?`)) {
       setDatabase(prev => prev.filter(p => p.id !== id));
       toast.success(`Material "${code}" removido.`);
-    }
-  };
-
-  const handleResetDatabase = () => {
-    if (confirm('Deseja restaurar todos os materiais do Catálogo Geral para os valores padrão da DF Móveis?')) {
-      setDatabase(DEFAULT_MATERIALS);
-      toast.success('Catálogo Geral restaurado com sucesso!');
     }
   };
 
@@ -485,16 +477,6 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
     }
   };
 
-  // Reset to original catalog
-  const handleResetCatalog = () => {
-    if (confirm('Deseja restaurar todos os preços de chapas para a tabela padrão?')) {
-      const cleanCatalog = { ...INITIAL_CHAPAS_CATALOG };
-      delete cleanCatalog['Acessórios'];
-      setCatalog(cleanCatalog);
-      toast.success('Catálogo de chapas restaurado com sucesso!');
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Sub-Navigation Tabs */}
@@ -527,19 +509,6 @@ export function OrcamentoDatabaseTab({ database, setDatabase, settings, catalog,
           </Button>
         </div>
 
-        <div className="flex items-center gap-2">
-          {subTab === 'chapas' ? (
-            <Button variant="outline" size="sm" onClick={handleResetCatalog} className="text-xs">
-              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-              Restaurar Tabela de Chapas
-            </Button>
-          ) : (
-            <Button variant="outline" size="sm" onClick={handleResetDatabase} className="text-xs">
-              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-              Restaurar Catálogo Geral
-            </Button>
-          )}
-        </div>
       </div>
 
       {/* VIEW 1: CHAPAS POR MARCA */}
