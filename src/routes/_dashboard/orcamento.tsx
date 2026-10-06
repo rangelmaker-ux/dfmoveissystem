@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { BudgetItem, BudgetSettings, ProductItem, SavedBudget } from "@/lib/orcamento/types";
 import { DEFAULT_MATERIALS } from "@/lib/orcamento/default-materials";
-import { recalculateBudget, round2 } from "@/lib/orcamento/calculator";
+import { recalculateBudget, round2, isScrew, excludeScrewsFromCatalog } from "@/lib/orcamento/calculator";
 import {
   INITIAL_CHAPAS_CATALOG,
   CatalogByBrand,
@@ -132,6 +132,17 @@ function OrcamentoPage() {
   const syncFailed = useRef(false);
   const currentCatalog = useRef({ database, catalog });
   currentCatalog.current = { database, catalog };
+
+  // Clean old catalogues as well as newly imported or manually added entries.
+  // The existing revision-checked save persists the cleaned shared catalogue.
+  useEffect(() => {
+    if (!workspaceLoaded) return;
+    setDatabase(current => current.some(isScrew) ? current.filter(item => !isScrew(item)) : current);
+    setCatalog(current => {
+      const cleaned = excludeScrewsFromCatalog(current);
+      return JSON.stringify(cleaned) === JSON.stringify(current) ? current : cleaned;
+    });
+  }, [workspaceLoaded, database, catalog]);
 
   // Fetch registered clients and their projects from Supabase
   const { data: clientsList = [] } = useQuery({
