@@ -34,6 +34,18 @@ export function normalizeText(value: unknown): string {
 }
 
 // Lista de marcas conhecidas na marcenaria
+// Screws are already included in assembly labour, never billed separately.
+export function isScrew(item: { code?: string; original_code?: string; description?: string; promob_description?: string; name?: string }): boolean {
+  return [item.description, item.promob_description, item.name].some(value => /\bparafusos?\b/i.test(normalizeText(value))) ||
+    [item.code, item.original_code].some(value => /^(?:par[._-]|parafuso)/i.test(String(value || '').trim()));
+}
+
+export function excludeScrewsFromCatalog(catalog: CatalogByBrand): CatalogByBrand {
+  return Object.fromEntries(Object.entries(catalog).map(([key, group]) => [key,
+    group.type === 'acessorios' ? { ...group, items: group.items.filter(item => !isScrew(item)) } : group,
+  ]));
+}
+
 const KNOWN_BRANDS = [
   'Arauco',
   'Duratex',
@@ -1729,6 +1741,7 @@ export function calculatePricingTree(
     items_count: number;
   };
 } {
+  items = items.filter(item => !isScrew(item));
   if (items.some(item => item.promob_xml)) return calculateStructuredXml(items, database, settings, catalog);
 
   const additionsFactor = calculateAdditionsFactor(settings);
