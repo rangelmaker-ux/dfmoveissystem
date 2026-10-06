@@ -174,3 +174,18 @@
     @apply text-2xl font-semibold tracking-[-0.025em] text-slate-950 md:text-3xl;
   }
 }
+
+/* Gentle ribbon sway beside the brand, without shifting surrounding content. */
+@keyframes pink-ribbon-float {
+  0%, 100% { transform: translateX(-2px) rotate(-7deg); }
+  50% { transform: translateX(2px) rotate(7deg); }
+}
+
+.pink-ribbon-float {
+  transform-origin: 50% 20%;
+  animation: pink-ribbon-float 6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pink-ribbon-float { animation: none; }
+}
