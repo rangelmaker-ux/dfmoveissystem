@@ -33,7 +33,7 @@ export function saleUpdate(data: SaleForm, today = localDate()) {
       throw new Error('Escolha uma data de retorno válida, a partir de hoje.');
   }
   return {
-    status: data.waiting ? 'EM_ACOMPANHAMENTO' as const : 'FINALIZADO' as const,
+    status: data.waiting ? 'PAUSADO' as const : 'FINALIZADO' as const,
     estagio_andamento: 'Fim',
     status_venda: data.waiting ? 'EM_NEGOCIACAO' as const : 'VENDEU' as const,
     aguardando_cliente: data.waiting,
