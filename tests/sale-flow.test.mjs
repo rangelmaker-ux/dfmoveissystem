@@ -7,7 +7,7 @@ const m=await import(`data:text/javascript;base64,${Buffer.from(source).toString
 const form={valorVenda:'10.000,00',percentualComissao:'5',rtArquiteto:'2,5',nomeArquiteto:'Parceiro',valorEntrada:'1.000,00',formaPagamentoEntrada:'Pix',numParcelas:'3',waiting:true,deadline:null};
 test('waiting keeps financial terms without confirming sale, with no deadline or a chosen date',()=>{
   const saved=m.saleUpdate(form,'2026-10-08');
-  assert.equal(saved.status,'EM_ACOMPANHAMENTO');assert.equal(saved.status_venda,'EM_NEGOCIACAO');assert.equal(saved.aguardando_cliente,true);
+  assert.equal(saved.status,'PAUSADO');assert.equal(saved.status_venda,'EM_NEGOCIACAO');assert.equal(saved.aguardando_cliente,true);
   assert.equal(saved.valor_venda,10000);assert.equal(saved.percentual_comissao,5);assert.equal(saved.rt_arquiteto,2.5);assert.equal(saved.valor_parcela,3000);assert.equal(saved.prazo_cliente,null);
   assert.equal(m.saleUpdate({...form,deadline:'2027-01-06'},'2026-10-08').prazo_cliente,'2027-01-06');
 });
