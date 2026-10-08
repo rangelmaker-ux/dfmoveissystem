@@ -3,6 +3,7 @@ import { DecimalInput } from "@/components/ui/decimal-input";
 import { openProjectFile } from '@/lib/project-files';
 import { copyUploadedFileAutomatically } from '@/lib/automatic-drive-backup';
 import { calculateInstallments, parseMoney } from '@/lib/finance';
+import { clientDeadline, saleUpdate, type SaleForm } from '@/lib/sale-flow';
 import { invalidateOperation } from '@/lib/invalidate-operation';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -56,6 +57,9 @@ interface ProjetoRow {
   nome: string | null;
   status: string;
   status_venda: string;
+  aguardando_cliente: boolean;
+  prazo_cliente: string | null;
+  finalizado_em: string | null;
   estagio_andamento: string | null;
   valor_venda: number | null;
   percentual_comissao: number | null;
@@ -86,6 +90,9 @@ function MeusProjetosPage() {
   const [valorEntrada, setValorEntrada] = useState('');
   const [formaPagamentoEntrada, setFormaPagamentoEntrada] = useState('Pix');
   const [numParcelas, setNumParcelas] = useState('1');
+  const [financeMode, setFinanceMode] = useState<'sale' | 'waiting'>('sale');
+  const [deadlineChoice, setDeadlineChoice] = useState('indeterminado');
+  const [clientReturnDate, setClientReturnDate] = useState('');
   let paymentPlan: ReturnType<typeof calculateInstallments> | null = null;
   try { paymentPlan = calculateInstallments(parseMoney(valorVenda), parseMoney(valorEntrada || '0'), Number(numParcelas)); } catch { /* Show validation through the closing form. */ }
   const [motivoPerda, setMotivoPerda] = useState('');
@@ -97,7 +104,7 @@ function MeusProjetosPage() {
       let query = supabase
         .from('projetos')
         .select(`
-          id, nome, status, status_venda, estagio_andamento, valor_venda, 
+          id, nome, status, status_venda, aguardando_cliente, prazo_cliente, finalizado_em, estagio_andamento, valor_venda, 
           data_inicio, prazo_termino, motivo_perda, percentual_comissao, rt_arquiteto, nome_arquiteto, valor_entrada, forma_pagamento_entrada, numero_parcelas,
           cliente:clientes(id, nome, telefone)
         `)
@@ -126,34 +133,16 @@ function MeusProjetosPage() {
   });
 
   const concluir = useMutation({
-    mutationFn: async (data: any) => {
-      const sale = parseMoney(data.valorVenda);
-      const entry = parseMoney(data.valorEntrada || '0');
-      const count = Number(data.numParcelas);
-      const percentage = parseMoney(data.percentualComissao || '0');
-      const rt = parseMoney(data.rtArquiteto || '0');
-      if (!Number.isFinite(rt) || rt < 0 || rt > 100) throw new Error('RT deve estar entre 0 e 100%.');
-      const installments = calculateInstallments(sale, entry, count);
-      if (!Number.isFinite(percentage) || percentage < 0 || percentage > 100) throw new Error('Comissão deve estar entre 0 e 100%.');
-      const update = { 
-        status: 'FINALIZADO' as const, 
-        estagio_andamento: 'Fim', 
-        status_venda: 'VENDEU' as const,
-        valor_venda: sale,
-        percentual_comissao: percentage,
-        rt_arquiteto: rt,
-        nome_arquiteto: data.nomeArquiteto.trim() || null,
-        valor_entrada: entry,
-        forma_pagamento_entrada: data.formaPagamentoEntrada,
-        numero_parcelas: count,
-        valor_parcela: installments.regular
-      };
-      const { error } = await supabase.from('projetos').update(update).eq('id', data.id);
+    mutationFn: async (data: SaleForm & { id: string; expectedWaiting: boolean; expectedSaleStatus: string }) => {
+      const update = saleUpdate(data);
+      const { data: saved, error } = await supabase.from('projetos').update(update).eq('id', data.id)
+        .eq('aguardando_cliente', data.expectedWaiting).eq('status_venda', data.expectedSaleStatus as 'EM_NEGOCIACAO' | 'VENDEU' | 'NAO_VENDEU').select('id').single();
       if (error) throw error;
+      if (!saved) throw new Error('O projeto mudou. Recarregue antes de salvar.');
     },
-    onSuccess: () => {
+    onSuccess: (_, data) => {
       void invalidateOperation(queryClient);
-      toast.success('Projeto finalizado com sucesso!');
+      toast.success(data.waiting ? 'Dados salvos. Projeto aguardando cliente.' : 'Venda confirmada e salva no histórico!');
       setClosingProject(null);
       resetFinanceForm();
     },
@@ -167,6 +156,8 @@ function MeusProjetosPage() {
         .update({ 
           status: 'FINALIZADO', 
           status_venda: 'NAO_VENDEU',
+          aguardando_cliente: false,
+          prazo_cliente: null,
           motivo_perda: motivo 
         })
         .eq('id', id);
@@ -191,7 +182,10 @@ function MeusProjetosPage() {
     setNumParcelas('1');
   };
 
-  const openFinance = (project: ProjetoRow) => {
+  const openFinance = (project: ProjetoRow, mode: 'sale' | 'waiting' = 'sale') => {
+    setFinanceMode(mode);
+    setDeadlineChoice(project.prazo_cliente ? 'personalizado' : 'indeterminado');
+    setClientReturnDate(project.prazo_cliente || '');
     setValorVenda(String(project.valor_venda ?? ''));
     setPercentualComissao(String(project.percentual_comissao ?? ''));
     setRtArquiteto(String(project.rt_arquiteto ?? ''));
@@ -202,7 +196,8 @@ function MeusProjetosPage() {
     setClosingProject(project);
   };
 
-  const ativos = (projetos ?? []).filter(p => p.status !== 'FINALIZADO');
+  const ativos = (projetos ?? []).filter(p => p.status !== 'FINALIZADO' && !p.aguardando_cliente);
+  const aguardando = (projetos ?? []).filter(p => p.aguardando_cliente);
   const concluidos = (projetos ?? []).filter(p => p.status === 'FINALIZADO');
 
   if (viewingProject) {
@@ -231,6 +226,7 @@ function MeusProjetosPage() {
           <TabsTrigger value="concluidos">
             Histórico {concluidos.length > 0 && `(${concluidos.length})`}
           </TabsTrigger>
+          <TabsTrigger value="aguardando">Aguardando cliente {aguardando.length > 0 && `(${aguardando.length})`}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="ativos" className="mt-4">
@@ -256,6 +252,7 @@ function MeusProjetosPage() {
                   projeto={p}
                   onStageChange={(s) => updateStage.mutate({ id: p.id, estagio: s })}
                   onClose={() => openFinance(p)}
+                  onWait={() => openFinance(p, 'waiting')}
                   onMarkLost={() => setLostProject(p)}
                   onView={() => setViewingProject(p)}
                   isUpdating={updateStage.isPending}
@@ -263,6 +260,14 @@ function MeusProjetosPage() {
               ))}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="aguardando" className="mt-4">
+          {aguardando.length === 0 ? <Card><CardContent className="py-12 text-center text-muted-foreground">Nenhum projeto aguardando cliente.</CardContent></Card> :
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">{aguardando.map(p => <ProjetoCard key={p.id} projeto={p}
+              onStageChange={s => updateStage.mutate({ id: p.id, estagio: s })}
+              onClose={() => openFinance(p)} onWait={() => openFinance(p, 'waiting')}
+              onMarkLost={() => setLostProject(p)} onView={() => setViewingProject(p)} isUpdating={updateStage.isPending} />)}</div>}
         </TabsContent>
 
         <TabsContent value="concluidos" className="mt-4">
@@ -306,7 +311,7 @@ function MeusProjetosPage() {
                     )}
                     <div className="flex items-center gap-1 text-xs text-muted-foreground">
                       <Calendar className="h-3 w-3" />
-                      Finalizado em: {new Date().toLocaleDateString('pt-BR')}
+                      {p.finalizado_em ? `Finalizado em: ${new Date(p.finalizado_em).toLocaleDateString('pt-BR')}` : 'Data de finalização não registrada'}
                     </div>
                   </CardContent>
                 </Card>
@@ -318,14 +323,25 @@ function MeusProjetosPage() {
 
       {/* Modal de Conclusão Financeira */}
       <Dialog open={!!closingProject} onOpenChange={(o) => { if (!o) { setClosingProject(null); resetFinanceForm(); } }}>
-        <DialogContent className="max-w-md max-h-[85dvh] overflow-y-auto">
+        <DialogContent className="max-w-lg max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{closingProject?.status_venda === 'VENDEU' ? 'Dados da Venda' : 'Concluir Venda'}</DialogTitle>
+            <DialogTitle>{financeMode === 'waiting' ? 'Aguardar cliente' : closingProject?.status_venda === 'VENDEU' ? 'Dados da Venda' : 'Confirmar venda'}</DialogTitle>
             <DialogDescription>
-              Preencha os dados financeiros obrigatórios para fechar o projeto <strong>{closingProject?.nome}</strong>.
+              {financeMode === 'waiting' ? 'Guarde os valores e a comissão para retomar depois. A comissão só será contabilizada quando a venda for confirmada.' : <>Confira os dados financeiros do projeto <strong>{closingProject?.nome}</strong>.</>}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 py-1">
+            {financeMode === 'waiting' && <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <Label>Quando retomar com o cliente?</Label>
+              <Select value={deadlineChoice} onValueChange={value => { setDeadlineChoice(value); if (/^\d+$/.test(value)) setClientReturnDate(clientDeadline(Number(value))); }}>
+                <SelectTrigger><SelectValue /></SelectTrigger><SelectContent>
+                  <SelectItem value="indeterminado">Prazo indeterminado</SelectItem>
+                  <SelectItem value="30">Em 30 dias</SelectItem><SelectItem value="60">Em 60 dias</SelectItem><SelectItem value="90">Em 90 dias</SelectItem>
+                  <SelectItem value="personalizado">Escolher outra data</SelectItem>
+                </SelectContent>
+              </Select>
+              {deadlineChoice !== 'indeterminado' && <><Label htmlFor="client-return-date">Data de retorno</Label><Input id="client-return-date" type="date" value={clientReturnDate} onChange={e => { setClientReturnDate(e.target.value); setDeadlineChoice('personalizado'); }} /></>}
+            </div>}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="valor_total">Valor Total (R$)</Label>
@@ -378,14 +394,19 @@ function MeusProjetosPage() {
             </div>
           </div>
           {paymentPlan && <p className="text-xs text-slate-500">Parcelas: {paymentPlan.amounts.map((amount, i) => `${i + 1}ª: ${amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`).join(' · ') || 'Quitado na entrada'}</p>}
-          <DialogFooter>
+          <DialogFooter className="flex-wrap gap-2">
             <Button variant="outline" onClick={() => setClosingProject(null)}>Cancelar</Button>
+            {financeMode === 'sale' && closingProject?.status_venda !== 'VENDEU' && <Button variant="outline" onClick={() => setFinanceMode('waiting')} disabled={concluir.isPending}>Aguardar cliente</Button>}
             <Button 
               className="bg-emerald-600 hover:bg-emerald-700"
-              disabled={!paymentPlan || concluir.isPending}
+              disabled={!paymentPlan || concluir.isPending || (financeMode === 'waiting' && deadlineChoice !== 'indeterminado' && !clientReturnDate)}
               onClick={() => {
                 concluir.mutate({
-                  id: closingProject?.id,
+                  id: closingProject!.id,
+                  expectedWaiting: closingProject!.aguardando_cliente,
+                  expectedSaleStatus: closingProject!.status_venda,
+                  waiting: financeMode === 'waiting',
+                  deadline: deadlineChoice === 'indeterminado' ? null : clientReturnDate,
                   valorVenda,
                   percentualComissao,
                   rtArquiteto,
@@ -396,7 +417,7 @@ function MeusProjetosPage() {
                 });
               }}
             >
-              {closingProject?.status_venda === 'VENDEU' ? 'Salvar Dados da Venda' : 'Confirmar e Vender'}
+              {financeMode === 'waiting' ? 'Salvar e aguardar cliente' : closingProject?.status_venda === 'VENDEU' ? 'Salvar Dados da Venda' : 'Confirmar venda'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -618,6 +639,12 @@ function DetalhesProjeto({ projeto, onBack }: { projeto: ProjetoRow, onBack: () 
         <Card className="h-fit">
           <CardHeader><CardTitle className="text-lg">Resumo</CardTitle></CardHeader>
           <CardContent className="space-y-4 text-sm">
+            {projeto.aguardando_cliente && <div className="rounded-lg bg-amber-50 p-3 text-amber-900">
+              <p className="font-semibold">Aguardando cliente</p>
+              <p>Retorno: {projeto.prazo_cliente ? formatDate(projeto.prazo_cliente) : 'Prazo indeterminado'}</p>
+              <p>Valor previsto: {Number(projeto.valor_venda || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+              <p>Comissão prevista: {Number(projeto.percentual_comissao || 0)}% (ainda não contabilizada)</p>
+            </div>}
             <div className="flex justify-between">
               <span className="text-muted-foreground">Status:</span>
               <Badge variant="outline">{projeto.status}</Badge>
@@ -649,18 +676,19 @@ function DetalhesProjeto({ projeto, onBack }: { projeto: ProjetoRow, onBack: () 
 }
 
 function ProjetoCard({
-  projeto, onStageChange, onClose, onMarkLost, onView, isUpdating,
+  projeto, onStageChange, onClose, onWait, onMarkLost, onView, isUpdating,
 }: {
   projeto: ProjetoRow;
   onStageChange: (s: Stage) => void;
   onClose: () => void;
+  onWait: () => void;
   onMarkLost: () => void;
   onView: () => void;
   isUpdating: boolean;
 }) {
   const stage = (projeto.estagio_andamento as Stage) || 'Início';
   const isDelayed = Boolean(
-    projeto.prazo_termino &&
+    !projeto.aguardando_cliente && projeto.prazo_termino &&
       !isIndeterminateDeadline(projeto.prazo_termino) &&
       new Date(projeto.prazo_termino) < new Date() &&
       projeto.status !== 'FINALIZADO',
@@ -686,6 +714,12 @@ function ProjetoCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
+        {projeto.aguardando_cliente && <div className="space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+          <p className="font-semibold">Aguardando cliente</p>
+          <p>Retorno: {projeto.prazo_cliente ? formatDate(projeto.prazo_cliente) : 'Prazo indeterminado'}</p>
+          <p>Valor: {Number(projeto.valor_venda || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+          <p>Comissão prevista: {Number(projeto.percentual_comissao || 0)}% · {(Number(projeto.valor_venda || 0) * Number(projeto.percentual_comissao || 0) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+        </div>}
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
           <Calendar className="h-3 w-3" />
           Prazo: <span className={cn(isDelayed && "text-destructive font-bold")}>
@@ -721,8 +755,9 @@ function ProjetoCard({
           onClick={onClose}
         >
           <CheckCircle2 className="mr-2 h-4 w-4" />
-          Concluir Venda
+          {projeto.aguardando_cliente ? 'Venda confirmada' : 'Concluir Venda'}
         </Button>
+        <Button variant="outline" className="w-full" onClick={onWait}>{projeto.aguardando_cliente ? 'Editar valores / prazo' : 'Aguardar cliente'}</Button>
       </CardContent>
     </Card>
   );

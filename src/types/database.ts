@@ -27,6 +27,10 @@ export interface Cliente {
 }
 
 export interface Projeto {
+  aguardando_cliente?: boolean;
+  prazo_cliente?: string | null;
+  aguardando_cliente_desde?: string | null;
+  finalizado_em?: string | null;
   id: string;
   cliente_id: string;
   projetista_id: string | null;

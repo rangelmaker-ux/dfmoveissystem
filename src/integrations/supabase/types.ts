@@ -231,6 +231,10 @@ export type Database = {
       };
       projetos: {
         Row: {
+          aguardando_cliente: boolean;
+          prazo_cliente: string | null;
+          aguardando_cliente_desde: string | null;
+          finalizado_em: string | null;
           arquivo_url: string | null;
           cliente_id: string;
           created_at: string | null;
@@ -256,6 +260,10 @@ export type Database = {
           valor_venda: number | null;
         };
         Insert: {
+          aguardando_cliente?: boolean;
+          prazo_cliente?: string | null;
+          aguardando_cliente_desde?: string | null;
+          finalizado_em?: string | null;
           arquivo_url?: string | null;
           cliente_id: string;
           created_at?: string | null;
@@ -281,6 +289,10 @@ export type Database = {
           valor_venda?: number | null;
         };
         Update: {
+          aguardando_cliente?: boolean;
+          prazo_cliente?: string | null;
+          aguardando_cliente_desde?: string | null;
+          finalizado_em?: string | null;
           arquivo_url?: string | null;
           cliente_id?: string;
           created_at?: string | null;
