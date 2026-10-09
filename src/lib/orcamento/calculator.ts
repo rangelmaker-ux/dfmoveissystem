@@ -282,6 +282,17 @@ export function smartMatchPromobChapa(
       if (Array.isArray(line.colors) && line.colors.length > 0) {
         for (const color of line.colors) {
           const normColor = normalizeText(color);
+          // XML uses dots and omits finish parentheses: "Cinza Cobalto TX"
+          // must match the registered "Cinza Cobalto (TX)" as a full pattern.
+          // Keep short finish tokens (TX/VEL) and word boundaries, never just "cinza".
+          const colorPhrase = normColor.replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+          const materialPhrase = normText.replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+          if (colorPhrase && ` ${materialPhrase} `.includes(` ${colorPhrase} `)) {
+            // A complete registered colour outweighs a generic line name such
+            // as "Design"; an explicit matching line path still adds priority.
+            score += 120;
+            break;
+          }
           if (normText.includes(normColor)) {
             if (score < 40) score = 40;
             break;
