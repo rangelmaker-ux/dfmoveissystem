@@ -223,14 +223,32 @@ test("migrações, aprovação, orçamento e financeiro no PostgreSQL", async (t
     await actor(designerId);
   });
   await t.test("catálogo e rascunho separados, ambos com controle de versão", async () => {
-    await db.query("SELECT public.save_company_catalog('[{" + '"code":"teste"' + "}]','{}',0)");
+    const initialRevision=(await db.query('SELECT revision FROM public.orcamento_catalog')).rows[0].revision;
+    await db.query("SELECT public.save_company_catalog('[{" + '"code":"teste"' + "}]','{}',$1)",[initialRevision]);
     await db.query("SELECT public.save_budget_workspace('[]','{}',NULL,0)");
     assert.equal(
       (await db.query("SELECT revision FROM public.orcamento_catalog")).rows[0].revision,
-      1,
+      initialRevision+1,
     );
     await assert.rejects(db.query("SELECT public.save_company_catalog('[]','{}',0)"));
     await assert.rejects(db.query("SELECT public.save_budget_workspace('[]','{}',NULL,0)"));
+  });
+  await t.test('precificação compartilhada normaliza contas e impede configurações privadas',async()=>{
+    await root();await db.exec('BEGIN');
+    let canonical;
+    for(const id of [designerId,otherId,adminId]){
+      await actor(id);
+      const revision=(await db.query('SELECT revision FROM public.orcamento_workspace WHERE user_id=public.current_staff_id()')).rows[0]?.revision||0;
+      await db.query(`SELECT public.save_budget_workspace('[]',$1::jsonb,NULL,$2)`,[JSON.stringify({frete:5,montagem:10,comissao_vendas:4,comissao_executivo:2,margin:400,company:{nome_fantasia:'Minha empresa'},pdf_show_unit_price:false}),revision]);
+      const row=(await db.query('SELECT settings FROM public.orcamento_workspace WHERE user_id=public.current_staff_id()')).rows[0];
+      assert.equal(row.settings.frete,0);assert.equal(row.settings.montagem,0);assert.equal(row.settings.margin,200);
+      assert.equal(row.settings.company.nome_fantasia,'Minha empresa');assert.equal(row.settings.pdf_show_unit_price,false);
+      const policy=(await db.query('SELECT pricing_settings FROM public.orcamento_catalog WHERE id=1')).rows[0].pricing_settings;
+      canonical??=policy;assert.deepEqual(policy,canonical);
+    }
+    await root();await db.exec('ROLLBACK');await actor(designerId);
+    await assert.rejects(db.query(`UPDATE public.orcamento_catalog SET pricing_settings=pricing_settings||'{"frete":99}'::jsonb WHERE id=1`),/centralizada/);
+    await assert.rejects(db.query('SELECT * FROM public.orcamento_pricing_backup_20261016'));
   });
   await t.test("somente admin concede administração na aprovação ou depois e pode revogar", async () => {
     await actor(designerId);

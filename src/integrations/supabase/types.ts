@@ -21,7 +21,7 @@ export type Database = {
         Relationships: [];
       };
       orcamento_catalog: {
-        Row: { id: number; materials: Json; catalog: Json; revision: number; updated_at: string };
+        Row: { id: number; materials: Json; catalog: Json; pricing_settings: Json; revision: number; updated_at: string };
         Insert: { id?: number; materials: Json; catalog: Json; revision?: number };
         Update: { materials?: Json; catalog?: Json; revision?: number };
         Relationships: [];
