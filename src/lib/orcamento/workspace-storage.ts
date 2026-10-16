@@ -2,6 +2,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
 import type { BudgetItem, BudgetSettings, ProductItem, SavedBudget } from "./types";
 import type { CatalogByBrand } from "./chapas-catalog";
+import { readSharedPricing, type SharedPricing } from './shared-pricing';
 
 export interface OrcamentoWorkspaceState {
   currentItems: BudgetItem[];
@@ -12,6 +13,7 @@ export interface OrcamentoWorkspaceState {
   currentBudgetId: string | null;
   revision: number;
   catalogRevision: number;
+  pricing: SharedPricing;
 }
 const json = (value: unknown) => value as Json;
 
@@ -36,6 +38,7 @@ export async function loadOrcamentoWorkspace(userId: string): Promise<OrcamentoW
     currentBudgetId: workspace.data?.current_budget_id || null,
     revision: workspace.data?.revision || 0,
     catalogRevision: catalog.data?.revision || 0,
+    pricing: readSharedPricing(catalog.data.pricing_settings),
   };
 }
 

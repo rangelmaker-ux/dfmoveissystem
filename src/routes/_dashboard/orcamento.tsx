@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { BudgetItem, BudgetSettings, ProductItem, SavedBudget } from "@/lib/orcamento/types";
 import { DEFAULT_MATERIALS } from "@/lib/orcamento/default-materials";
+import { applySharedPricing, readSharedPricing, type SharedPricing } from "@/lib/orcamento/shared-pricing";
 import { recalculateBudget, round2, isScrew, excludeScrewsFromCatalog } from "@/lib/orcamento/calculator";
 import {
   INITIAL_CHAPAS_CATALOG,
@@ -112,7 +113,11 @@ function OrcamentoPage() {
   const [activeTab, setActiveTab] = useState("current");
   const [items, setItems] = useState<BudgetItem[]>([]);
   const [database, setDatabase] = useState<ProductItem[]>(DEFAULT_MATERIALS);
-  const [settings, setSettings] = useState<BudgetSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettingsState] = useState<BudgetSettings>(DEFAULT_SETTINGS);
+  const [pricingPolicy, setPricingPolicy] = useState<SharedPricing | null>(null);
+  const setSettings: React.Dispatch<React.SetStateAction<BudgetSettings>> = update => {
+    setSettingsState(previous => applySharedPricing(typeof update === 'function' ? update(previous) : update, pricingPolicy));
+  };
   const [savedBudgets, setSavedBudgets] = useState<SavedBudget[]>([]);
   const [catalog, setCatalog] = useState<CatalogByBrand>(INITIAL_CHAPAS_CATALOG);
   const [loadedBudgetId, setLoadedBudgetId] = useState<string | null>(null);
@@ -124,6 +129,7 @@ function OrcamentoPage() {
   }, [syncStatus]);
   useEffect(() => () => clearPendingScope('orcamento'), []);
   const userId = useAuthStore((state) => state.user?.id);
+  const role = useAuthStore((state) => state.role);
   const revision = useRef(0);
   const catalogRevision = useRef(0);
   const catalogSnapshot = useRef("");
@@ -170,7 +176,8 @@ function OrcamentoPage() {
         if (cancelled) return;
         revision.current = remote.revision;
         catalogRevision.current = remote.catalogRevision;
-        const nextSettings = { ...DEFAULT_SETTINGS, ...remote.settings };
+        const nextSettings = applySharedPricing({ ...DEFAULT_SETTINGS, ...remote.settings }, remote.pricing);
+        setPricingPolicy(remote.pricing);
         const nextDatabase = remote.database;
         const nextCatalog = Object.keys(remote.catalog).length ? sanitizeAndMergeCatalog(remote.catalog) : {};
         setItems(recalculateBudget(remote.currentItems, nextDatabase, nextSettings, nextCatalog).items);
@@ -279,6 +286,9 @@ function OrcamentoPage() {
         return;
       const nextDatabase = data.materials as unknown as ProductItem[];
       const nextCatalog = sanitizeAndMergeCatalog(data.catalog);
+      const nextPricing = readSharedPricing(data.pricing_settings);
+      setPricingPolicy(nextPricing);
+      setSettingsState(current => applySharedPricing(current, nextPricing));
       catalogRevision.current = data.revision;
       catalogSnapshot.current = JSON.stringify([nextDatabase, nextCatalog]);
       setDatabase(nextDatabase);
@@ -315,6 +325,7 @@ function OrcamentoPage() {
 
   // Save Settings: Persist and immediately propagate new margin to all budget items
   const handleSaveSettings = (newSettings: BudgetSettings) => {
+    newSettings = applySharedPricing(newSettings, pricingPolicy);
     setSettings(newSettings);
     try {
       localStorage.setItem(`df_orcamento_settings:${userId}`, JSON.stringify(newSettings));
@@ -375,7 +386,7 @@ function OrcamentoPage() {
 
   // Load a saved budget into current workspace
   const handleLoadBudget = (budget: SavedBudget) => {
-    const restoredSettings = { ...DEFAULT_SETTINGS, ...budget.settings };
+    const restoredSettings = applySharedPricing({ ...DEFAULT_SETTINGS, ...budget.settings }, pricingPolicy);
     setItems(recalculateBudget(budget.items, database, restoredSettings, catalog).items);
     setSettings(restoredSettings);
     setLoadedBudgetId(budget.id);
@@ -392,7 +403,7 @@ function OrcamentoPage() {
       toast.error((error as Error).message);
       return;
     }
-    const mergeSettings = selectedBudgets[0]?.settings || settings;
+    const mergeSettings = applySharedPricing(selectedBudgets[0]?.settings || settings, pricingPolicy);
     const recalculated = recalculateBudget(consolidatedItems, database, mergeSettings, catalog);
     setItems(recalculated.items);
     setSettings(mergeSettings);
@@ -576,6 +587,8 @@ function OrcamentoPage() {
                   settings={settings}
                   setSettings={setSettings}
                   onSaveSettings={handleSaveSettings}
+                  sharedPricing
+                  isAdmin={role === 'ADMIN'}
                 />
               </TabErrorBoundary>
             </TabsContent>

@@ -1964,6 +1964,7 @@ export function OrcamentoCurrentTab({
             <span className="font-medium text-stone-600">MDF:</span>
             <Select
               value={settings.chapa_mode}
+              disabled
               onValueChange={(val: 'm2' | 'chapa') => {
                 const updatedSettings = { ...settings, chapa_mode: val };
                 setSettings(updatedSettings);
@@ -1983,6 +1984,7 @@ export function OrcamentoCurrentTab({
             {settings.chapa_mode === 'chapa' && (
               <Select
                 value={settings.chapa_rounding}
+                disabled
                 onValueChange={(val: 'up' | 'down' | 'exact') => {
                   const updatedSettings = { ...settings, chapa_rounding: val };
                   setSettings(updatedSettings);

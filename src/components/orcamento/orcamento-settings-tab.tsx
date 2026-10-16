@@ -1,5 +1,5 @@
 import { DecimalInput } from "@/components/ui/decimal-input";
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { 
   Settings, Plus, Trash2, CheckCircle2, Percent, Loader2, Check, 
   Building2, Upload, Image, Shield, AlertCircle 
@@ -13,19 +13,22 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { BudgetSettings, AdditionItem, CompanyInfo } from '@/lib/orcamento/types';
 import { calculateAdditionsFactor } from '@/lib/orcamento/calculator';
+import { applySharedPricing, readSharedPricing } from '@/lib/orcamento/shared-pricing';
 
 interface SettingsTabProps {
   settings: BudgetSettings;
   setSettings: React.Dispatch<React.SetStateAction<BudgetSettings>>;
   onSaveSettings: (newSettings: BudgetSettings) => void;
   isAdmin?: boolean;
+  sharedPricing?: boolean;
 }
 
 export function OrcamentoSettingsTab({ 
   settings, 
   setSettings, 
   onSaveSettings, 
-  isAdmin = true 
+  isAdmin = true,
+  sharedPricing = false
 }: SettingsTabProps) {
   const [form, setForm] = useState<BudgetSettings>({ 
     ...settings,
@@ -44,6 +47,9 @@ export function OrcamentoSettingsTab({
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (sharedPricing) setForm(current => applySharedPricing(current, readSharedPricing(settings)));
+  }, [settings, sharedPricing]);
 
   const additionsFactor = calculateAdditionsFactor(form);
   const additionsTotalPercent = (additionsFactor - 1) * 100;
@@ -332,6 +338,8 @@ export function OrcamentoSettingsTab({
         </CardContent>
       </Card>
 
+      <fieldset disabled={sharedPricing} className="space-y-6">
+      {sharedPricing && <p className="rounded-lg border border-stone-200 bg-stone-50 p-3 text-sm text-stone-700">Precificação padronizada da loja. Todos os usuários utilizam a mesma margem, acréscimos e critérios de cálculo.</p>}
       {/* Margem Padrão de Lucro */}
       <Card className="border-slate-200 bg-white shadow-sm">
         <CardHeader className="border-b border-slate-100 pb-4">
@@ -493,6 +501,7 @@ export function OrcamentoSettingsTab({
         </CardContent>
       </Card>
 
+      </fieldset>
       {/* PDF Settings */}
       <Card className="border-slate-200 bg-white shadow-sm">
         <CardHeader className="border-b border-slate-100 pb-4">
