@@ -23,3 +23,23 @@ test('complete colour beats an unpriced generic line named after its finish',()=
   const db={Berneck:{type:'brand',brandName:'Berneck',authoritative:true,lines:[{...line,id:'design',name:'Design',colors:[],aliases:[],prices:{}},{...line,colors:['Branco (Design)']}]}};
   assert.equal(m.smartMatchPromobChapa('','MDF Berneck Branco Design espessura 15mm',db).boardPrice,461.49);
 });
+
+test('line path disambiguates the same colour across every brand catalogue',()=>{
+  const db={Duratex:{type:'brand',authoritative:true,lines:[
+    {id:'shine',name:'Alto Brilho',aliases:[],colors:['Titanio'],width:2.75,height:1.85,prices:{'6mm':630.67,'15mm':843.26,'18mm':949.14,'25mm':null,'30mm':null}},
+    {id:'cristallo',name:'Cristalo-Liso',aliases:['Alto Brilho > Cristallo'],colors:['Titânio'],width:2.75,height:1.85,prices:{'6mm':568.23,'15mm':762.56,'18mm':865.4,'25mm':null,'30mm':null}},
+    {id:'trama',name:'Unicores -Trama',aliases:['Unicolores > Trama'],colors:['Titânio'],width:2.75,height:1.85,prices:{'6mm':429,'15mm':567.24,'18mm':640.22,'25mm':null,'30mm':null}},
+  ]}};
+  const cristallo=m.smartMatchPromobChapa('1.0155.15.Duratex.Cristallo.Titanio.MDF BP 2L Revest','Tamponamento Inferior',db,'770 x 15 x 600');
+  assert.equal(cristallo.matched,true);
+  assert.equal(cristallo.line,'Cristalo-Liso');
+  assert.equal(cristallo.boardPrice,762.56);
+  const manualLine=m.smartMatchPromobChapa('1.0155.15.Duratex.Alto Brilho.Cristallo.Titanio.MDF BP 2L Revest','Painel Titânio alto brilho',db,'770 x 15 x 600');
+  assert.equal(manualLine.matched,true);
+  assert.equal(manualLine.line,'Alto Brilho');
+  assert.equal(manualLine.boardPrice,843.26);
+  const unaccented=m.smartMatchPromobChapa('Duratex.Alto Brilho.Titanio.18','MDF Titanio Alto Brilho Espessura 18mm',db);
+  assert.equal(unaccented.line,'Alto Brilho');
+  assert.equal(unaccented.boardPrice,949.14);
+  assert.equal(m.smartMatchPromobChapa('Duratex.Titanio.15','MDF Titânio 15mm',db).matched,false);
+});
