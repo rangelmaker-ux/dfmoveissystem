@@ -272,8 +272,13 @@ export function smartMatchPromobChapa(
       let score = 0;
       const finishPaths = [line.name, ...(line.aliases || [])].map(value =>
         normalizeText(value).replace(/[\\>_-]+/g, ' ').replace(/\s+/g, ' ').trim());
+      const lineVocabulary = finishPaths.join(' ');
       const searchableText = normText.replace(/[\\>_-]+/g, ' ').replace(/\s+/g, ' ');
-      if (finishPaths.some(value => value.length >= 4 && searchableText.includes(value))) score = 80;
+      // O nome atual cadastrado manualmente é a referência principal. Um
+      // alias histórico continua válido, mas não pode tomar o lugar da linha
+      // explícita enviada pelo Promob (ex.: Alto Brilho + Titânio).
+      if (finishPaths.slice(1).some(value => value.length >= 4 && searchableText.includes(value))) score = 80;
+      if (finishPaths[0]?.length >= 4 && searchableText.includes(finishPaths[0])) score = 100;
       if (requiresWhiteTx) {
         const exactFinish = [line.name, ...(line.colors || [])].some(value =>
           /branc[oa][\s._-]*(?:\(?tx\)?|texturizad[oa])/i.test(value));
@@ -319,7 +324,11 @@ export function smartMatchPromobChapa(
 
       // 2. Tokens de nome de linha
       for (const t of tokens) {
-        if (normLine.includes(t)) {
+        // O Promob pode enviar apenas um trecho do caminho da linha, por
+        // exemplo "Cristallo", enquanto o catálogo guarda o alias completo
+        // "Alto Brilho > Cristallo". Considere nome e aliases para que a cor
+        // repetida em várias linhas seja resolvida pelo acabamento informado.
+        if (lineVocabulary.includes(t)) {
           score += 2;
         } else if (t.includes('mat') && normLine.includes('matt')) {
           score += 3;
