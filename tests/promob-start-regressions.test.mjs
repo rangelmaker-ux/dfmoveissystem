@@ -85,9 +85,11 @@ test('saved missing thickness and custom brands survive catalogue loading',()=>{
  assert.equal(c.MinhaMarca.lines[0].prices['15mm'],123);
  assert.ok(saved.MinhaMarca);
 });
-test('an exact unpriced material never falls back to another tape thickness',()=>{
+test('every edge band uses the shared 20m standard roll, including an exact unpriced XML code',()=>{
  const r=m.resolveItemPrice({code:'FTPVC.1.22.100',description:'Fita Branco TX 1x22mm',unit:'M'},m.INITIAL_CHAPAS_CATALOG,m.DEFAULT_MATERIALS);
- assert.equal(r.matched,false);assert.equal(r.unit_cost,0);
+ assert.equal(r.matched,true);assert.equal(r.authoritative,true);assert.equal(r.unit,'M');assert.equal(r.unit_cost,10);
+ const gris=m.resolveItemPrice({code:'FTPVC.1.22.Gris',description:'Fita de Borda PVC Espessura 1x22mm Arauco.Gris Chess',unit:'M'},m.INITIAL_CHAPAS_CATALOG,m.DEFAULT_MATERIALS);
+ assert.equal(gris.matched,true);assert.equal(gris.unit_cost,10);
 });
 test('equal color matches with different line prices require an explicit finish',()=>{
  const catalogue={Greenplac:{type:'brand',lines:[{name:'Linha A',colors:['Carmel'],prices:{'15mm':300}},{name:'Linha B',colors:['Carmel'],prices:{'15mm':600}}]}};

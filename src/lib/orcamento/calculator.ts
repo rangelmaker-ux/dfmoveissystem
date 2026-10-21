@@ -126,6 +126,9 @@ export function isFitaBorda(code: string, description: string): boolean {
   return text.includes('fita') && (text.includes('borda') || text.includes('pvc'));
 }
 
+export const STANDARD_EDGE_BAND_ROLL_CODE = 'FITA-PADRAO-20M';
+export const STANDARD_EDGE_BAND_ROLL_METERS = 20;
+
 // Extrai metragem do rolo de fita a partir da descrição (ex: "Rolo 20m", "50M")
 export function extractFitaMetros(description: string): number | null {
   const match = description.match(/(\d+)\s*(?:m|metros|metro|mt)\b/i);
@@ -1084,6 +1087,28 @@ export function resolveItemPrice(
       unit: item.unit || 'UN',
       matched_name: 'Eletrodoméstico (Informativo - Sem Cobrança)',
     };
+  }
+
+  // Toda fita de borda usa o mesmo rolo definido no catálogo compartilhado.
+  // O Promob exporta o consumo em metros, então o custo unitário precisa ser
+  // sempre o valor do rolo dividido pela metragem do rolo.
+  if (isFitaBorda(item.code, item.description)) {
+    const standardTape = database.find(product =>
+      normalizeCode(product.code) === normalizeCode(STANDARD_EDGE_BAND_ROLL_CODE)
+    );
+    if (standardTape && standardTape.unit_price > 0) {
+      const rollMeters = standardTape.fita_metros || STANDARD_EDGE_BAND_ROLL_METERS;
+      return {
+        matched: true,
+        authoritative: true,
+        source: 'database',
+        unit_cost: round2(standardTape.unit_price / rollMeters),
+        code: item.code,
+        description: item.description,
+        unit: 'M',
+        matched_name: `${standardTape.description} (R$ ${standardTape.unit_price.toFixed(2).replace('.', ',')} / ${rollMeters}m)`,
+      };
+    }
   }
 
   const savedComponent = matchSavedComponent(item, database, catalog);
