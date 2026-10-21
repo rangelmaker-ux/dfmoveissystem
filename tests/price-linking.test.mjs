@@ -154,6 +154,19 @@ test('smartMatchPromobChapa vincula marca e cor Promob à linha correspondente u
   }
 });
 
+test('smartMatchPromobChapa reconhece Gris na linha Chess da Arauco', () => {
+  const gris15 = smartMatchPromobChapa(
+    '..15.Gris',
+    'Chapa Arauco.Gris Chess Espessura 15mm',
+    INITIAL_CHAPAS_CATALOG,
+  );
+
+  assert.equal(gris15.matched, true);
+  assert.equal(gris15.brand, 'Arauco');
+  assert.equal(gris15.line, 'Cores > Chess > Lisos');
+  assert.equal(gris15.boardPrice, 220);
+});
+
 test('resolveItemPrice e Trazer Preços da Tabela vinculam todos os itens do orçamento', () => {
   const rawItems = [
     {

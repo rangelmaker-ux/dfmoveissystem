@@ -71,7 +71,7 @@ export const INITIAL_CHAPAS_CATALOG: CatalogByBrand = {
           "Cinza Cristal",
           "Ébano",
           "Grafito",
-          "Íris",
+          "Gris",
           "Kashmir"
         ],
         "width": 2.75,
